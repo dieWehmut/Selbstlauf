@@ -1,30 +1,41 @@
 # ai-cli-bypass
 
-Bypass root/sudo restrictions for AI CLI tools (Claude Code, etc.) in sandbox/root environments.
+Bypass root/sudo restrictions and permission prompts for AI CLI tools in sandbox/root environments.
 
-## Tools
+## Supported Tools
 
-| Script | Purpose |
+| Tool | Script | Mechanism |
+|---|---|---|
+| **Claude Code** | `install-claude-root.sh` | `LD_PRELOAD` fakes `getuid()` + injects `--dangerously-skip-permissions` |
+| **Codex CLI** | `install-codex-root.sh` | Injects `--dangerously-bypass-approvals-and-sandbox` |
+| **OpenCode** | `install-opencode-root.sh` | Injects `--auto` (auto-approve permissions) |
+
+## Reset Scripts
+
+| Tool | Script |
 |---|---|
-| `install-claude-root.sh` | Auto-install deps & inject root bypass for Claude Code |
-| `reset-claude.sh` | Restore claude to original state (undo bypass) |
+| Claude Code | `reset-claude.sh` |
+| Codex CLI | `reset-codex.sh` |
+| OpenCode | `reset-opencode.sh` |
 
-## How it works
-
-Uses `LD_PRELOAD` to intercept `getuid()`/`geteuid()`/`getgid()`/`getegid()` syscalls,
-making the process believe it runs as a non-root user (UID 1000). The actual tool
-binary is replaced with a thin wrapper that injects the preload library and the
-`--dangerously-skip-permissions` flag automatically.
-
-## Quick start
+## Quick Start
 
 ```bash
-bash <(curl -sSfL https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-claude-root.sh)
+# Claude Code (needs LD_PRELOAD root bypass)
+bash <(curl -sSfL https://cdn.jsdelivr.net/gh/dieWehmut/ai-cli-bypass@main/install-claude-root.sh)
 claude
+
+# Codex CLI (bypass approval prompts)
+bash <(curl -sSfL https://cdn.jsdelivr.net/gh/dieWehmut/ai-cli-bypass@main/install-codex-root.sh)
+codex
+
+# OpenCode (auto-approve permissions)
+bash <(curl -sSfL https://cdn.jsdelivr.net/gh/dieWehmut/ai-cli-bypass@main/install-opencode-root.sh)
+opencode
 ```
 
 ## Requirements
 
 - Linux (Debian/Ubuntu/Fedora/RHEL/Alpine)
-- `gcc` (auto-installed if missing)
-- Node.js / npm (for Claude Code installation)
+- `gcc` (for Claude Code bypass; auto-installed if missing)
+- Node.js / npm
