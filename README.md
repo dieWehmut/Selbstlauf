@@ -22,15 +22,21 @@ Bypass root/sudo restrictions and permission prompts for AI CLI tools in sandbox
 
 ```bash
 # Claude Code (needs LD_PRELOAD root bypass)
-bash <(curl -sSfL https://cdn.jsdelivr.net/gh/dieWehmut/ai-cli-bypass@main/install-claude-root.sh)
+curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-claude-root.sh -o install-claude-root.sh
+chmod +x install-claude-root.sh
+./install-claude-root.sh
 claude
 
 # Codex CLI (bypass approval prompts)
-bash <(curl -sSfL https://cdn.jsdelivr.net/gh/dieWehmut/ai-cli-bypass@main/install-codex-root.sh)
+curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-codex-root.sh -o install-codex-root.sh
+chmod +x install-codex-root.sh
+./install-codex-root.sh
 codex
 
 # OpenCode (auto-approve permissions)
-bash <(curl -sSfL https://cdn.jsdelivr.net/gh/dieWehmut/ai-cli-bypass@main/install-opencode-root.sh)
+curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-opencode-root.sh -o install-opencode-root.sh
+chmod +x install-opencode-root.sh
+./install-opencode-root.sh
 opencode
 ```
 
