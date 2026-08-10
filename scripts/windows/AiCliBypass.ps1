@@ -42,7 +42,9 @@ function Assert-AiCliWindows {
 function Get-AiCliFullPath {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    if (-not [System.IO.Path]::IsPathRooted($Path)) {
+    if (-not [System.IO.Path]::IsPathRooted($Path) -or
+        $Path -match '^[A-Za-z]:($|[^\\/])' -or
+        $Path -match '^[\\/](?![\\/])') {
         throw "Expected an absolute path, but received '$Path'."
     }
     return [System.IO.Path]::GetFullPath($Path)
@@ -92,11 +94,50 @@ function Get-AiCliCanonicalPath {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     $fullPath = Get-AiCliFullPath $Path
-    if (Test-Path -LiteralPath $fullPath) {
-        $item = Get-Item -LiteralPath $fullPath -Force
-        return [System.IO.Path]::GetFullPath($item.FullName)
+    for ($pass = 0; $pass -lt 32; $pass++) {
+        $root = [System.IO.Path]::GetPathRoot($fullPath)
+        $tail = $fullPath.Substring($root.Length)
+        $segments = @($tail.Split(@([char]'\', [char]'/'), [System.StringSplitOptions]::RemoveEmptyEntries))
+        $current = $root
+        $resolved = $false
+
+        for ($index = 0; $index -lt $segments.Count; $index++) {
+            $candidate = Join-Path $current $segments[$index]
+            if (-not (Test-Path -LiteralPath $candidate)) {
+                break
+            }
+
+            $item = Get-Item -LiteralPath $candidate -Force
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                $targetProperty = $item.PSObject.Properties['Target']
+                $targets = @()
+                if ($null -ne $targetProperty) {
+                    $targets = @($targetProperty.Value)
+                }
+                if ($targets.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$targets[0])) {
+                    throw "Cannot safely resolve reparse-point path '$candidate'."
+                }
+
+                $target = [string]$targets[0]
+                if (-not [System.IO.Path]::IsPathRooted($target)) {
+                    $target = Join-Path (Split-Path -Parent $candidate) $target
+                }
+                $remaining = @($segments | Select-Object -Skip ($index + 1))
+                $fullPath = Get-AiCliFullPath $target
+                foreach ($remainingSegment in $remaining) {
+                    $fullPath = Join-Path $fullPath $remainingSegment
+                }
+                $resolved = $true
+                break
+            }
+            $current = $candidate
+        }
+
+        if (-not $resolved) {
+            return [System.IO.Path]::GetFullPath($fullPath)
+        }
     }
-    return $fullPath
+    throw "The path contains too many reparse-point hops: '$Path'."
 }
 
 function Test-AiCliPathIsWithin {
@@ -150,10 +191,28 @@ function Invoke-AiCliNpm {
     )
 
     $npmCommand = Get-AiCliNpmCommand
-    $output = @(& $npmCommand @Arguments 2>&1)
-    $exitCode = $LASTEXITCODE
+    $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) ('ai-cli-bypass-' + [Guid]::NewGuid().ToString('N') + '.stderr')
+    $previousErrorActionPreference = $ErrorActionPreference
+    $output = @()
+    $stderr = @()
+    try {
+        # Native npm warnings are non-fatal. Capture stderr separately because the
+        # core runs with Stop semantics for PowerShell errors.
+        $ErrorActionPreference = 'Continue'
+        $output = @(& $npmCommand @Arguments 2> $stderrPath)
+        $exitCode = $LASTEXITCODE
+        if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
+            $stderr = @([System.IO.File]::ReadAllLines($stderrPath))
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+        if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
+            try { Remove-Item -LiteralPath $stderrPath -Force } catch { }
+        }
+    }
     if ($AllowedExitCodes -notcontains $exitCode) {
-        $renderedOutput = (@($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
+        $renderedOutput = (@($output + $stderr | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
         $message = "npm $($Arguments -join ' ') failed with exit code $exitCode."
         if (-not [string]::IsNullOrWhiteSpace($renderedOutput)) {
             $message += " $renderedOutput"
@@ -387,6 +446,16 @@ function Normalize-AiCliPathEntry {
     return $normalized
 }
 
+function Get-AiCliPathOwnershipKey {
+    param([Parameter(Mandatory = $true)][string]$Entry)
+
+    return (Normalize-AiCliPathEntry $Entry).ToUpperInvariant()
+}
+
+if ($null -eq (Get-Variable -Name AiCliProcessPathOwnership -Scope Script -ErrorAction SilentlyContinue)) {
+    $script:AiCliProcessPathOwnership = @{}
+}
+
 function Test-AiCliPathEntry {
     param(
         [AllowEmptyString()][AllowNull()][string]$PathValue,
@@ -438,6 +507,7 @@ function Add-AiCliPathEntry {
         }
         if ($processAdded) {
             $env:Path = if ([string]::IsNullOrEmpty($originalProcessPath)) { $canonicalEntry } else { $canonicalEntry + ';' + $originalProcessPath }
+            $script:AiCliProcessPathOwnership[(Get-AiCliPathOwnershipKey $canonicalEntry)] = $true
         }
     }
     catch {
@@ -446,6 +516,7 @@ function Add-AiCliPathEntry {
         }
         if ($processAdded) {
             $env:Path = $originalProcessPath
+            $script:AiCliProcessPathOwnership.Remove((Get-AiCliPathOwnershipKey $canonicalEntry))
         }
         throw
     }
@@ -467,17 +538,33 @@ function Undo-AiCliPathAddition {
     if ([bool]$Change.ProcessAdded) {
         $currentProcessPath = if ($null -eq $env:Path) { '' } else { $env:Path }
         $env:Path = Remove-AiCliPathEntryFromValue -PathValue $currentProcessPath -Entry $Change.Entry
+        $script:AiCliProcessPathOwnership.Remove((Get-AiCliPathOwnershipKey $Change.Entry))
     }
 }
 
 function Remove-AiCliPathEntry {
-    param([Parameter(Mandatory = $true)][string]$Entry)
+    param(
+        [Parameter(Mandatory = $true)][string]$Entry,
+        [switch]$RemoveUser,
+        [switch]$RemoveProcess
+    )
 
     $canonicalEntry = Get-AiCliFullPath $Entry
-    $userPath = Get-AiCliUserPath
-    Set-AiCliUserPath -Value (Remove-AiCliPathEntryFromValue -PathValue $userPath -Entry $canonicalEntry)
-    $processPath = if ($null -eq $env:Path) { '' } else { $env:Path }
-    $env:Path = Remove-AiCliPathEntryFromValue -PathValue $processPath -Entry $canonicalEntry
+    $removeUserPath = [bool]$RemoveUser
+    $removeProcessPath = [bool]$RemoveProcess
+    if (-not $PSBoundParameters.ContainsKey('RemoveUser') -and -not $PSBoundParameters.ContainsKey('RemoveProcess')) {
+        $removeUserPath = $true
+        $removeProcessPath = $true
+    }
+    if ($removeUserPath) {
+        $userPath = Get-AiCliUserPath
+        Set-AiCliUserPath -Value (Remove-AiCliPathEntryFromValue -PathValue $userPath -Entry $canonicalEntry)
+    }
+    if ($removeProcessPath) {
+        $processPath = if ($null -eq $env:Path) { '' } else { $env:Path }
+        $env:Path = Remove-AiCliPathEntryFromValue -PathValue $processPath -Entry $canonicalEntry
+        $script:AiCliProcessPathOwnership.Remove((Get-AiCliPathOwnershipKey $canonicalEntry))
+    }
 }
 
 function New-AiCliWrapperContent {
@@ -515,15 +602,14 @@ function New-AiCliWrapperContent {
         }
     }
 
-    # A CALL command parses the line twice, so each literal percent must be doubled twice.
-    $escapedTarget = $canonicalTarget.Replace('%', '%%%%')
+    # The target batch file is the final command, so only this batch parse must
+    # be escaped. Avoid CALL: it reparses %* and corrupts user percent signs.
+    $escapedTarget = $canonicalTarget.Replace('%', '%%')
     $injectedArguments = $Arguments -join ' '
     $lines = @(
         '@echo off',
         'setlocal DisableDelayedExpansion',
-        ('call "{0}" {1} %*' -f $escapedTarget, $injectedArguments),
-        'set "AI_CLI_BYPASS_EXIT=%ERRORLEVEL%"',
-        'endlocal & exit /b %AI_CLI_BYPASS_EXIT%'
+        ('"{0}" {1} %*' -f $escapedTarget, $injectedArguments)
     )
     return ($lines -join "`r`n") + "`r`n"
 }
@@ -650,10 +736,8 @@ function Install-AiCliBypass {
             $installedByBypass = -not $packageExisted
         }
 
+        $packageCreated = ($null -eq $existingToolState -and $installedByBypass)
         Install-AiCliPackage -Package $definition.Package
-        if ($null -eq $existingToolState -and $installedByBypass) {
-            $packageCreated = $true
-        }
 
         $npmPrefix = Get-AiCliNpmPrefix
         $targetShim = Join-Path $npmPrefix ($definition.Command + '.cmd')
@@ -768,8 +852,11 @@ function Uninstall-AiCliBypass {
     }
 
     if (-not (Test-AiCliAnyKnownWrapper -BinDirectory $paths.Bin)) {
-        if ($null -ne $globalState -and [bool]$globalState.UserPathAddedByBypass) {
-            Remove-AiCliPathEntry -Entry $paths.Bin
+        $removeUserPath = ($null -ne $globalState -and [bool]$globalState.UserPathAddedByBypass)
+        $processPathKey = Get-AiCliPathOwnershipKey $paths.Bin
+        $removeProcessPath = $script:AiCliProcessPathOwnership.ContainsKey($processPathKey)
+        if ($removeUserPath -or $removeProcessPath) {
+            Remove-AiCliPathEntry -Entry $paths.Bin -RemoveUser:$removeUserPath -RemoveProcess:$removeProcessPath
         }
         if (Test-Path -LiteralPath $paths.GlobalState -PathType Leaf) {
             Remove-Item -LiteralPath $paths.GlobalState -Force

@@ -17,6 +17,7 @@ $script:EnvironmentNames = @(
     'FAKE_NPM_PACKAGE_PRESENT',
     'FAKE_NPM_FAIL_INSTALL',
     'FAKE_NPM_FAIL_UNINSTALL',
+    'FAKE_NPM_STDERR',
     'FAKE_CLI_EXIT',
     'FAKE_CLI_LOG_DIR',
     'FAKE_REMOTE_CORE',
@@ -173,6 +174,7 @@ if /I "%~1"=="list" exit /b %FAKE_NPM_PACKAGE_PRESENT%
 if /I "%~1"=="install" if "%FAKE_NPM_FAIL_INSTALL%"=="1" exit /b 41
 if /I "%~1"=="uninstall" if "%FAKE_NPM_FAIL_UNINSTALL%"=="1" exit /b 42
 if /I "%~1"=="prefix" echo %FAKE_NPM_PREFIX%
+if "%FAKE_NPM_STDERR%"=="1" >&2 echo npm warning: using cached metadata
 exit /b 0
 '@
     Write-TestText -Path $fakeNpm -Text ($fakeNpmContent -replace "(?<!`r)`n", "`r`n")
@@ -197,6 +199,7 @@ exit /b %FAKE_CLI_EXIT%
     Set-ProcessEnvironmentValue 'FAKE_NPM_PACKAGE_PRESENT' '1'
     Set-ProcessEnvironmentValue 'FAKE_NPM_FAIL_INSTALL' '0'
     Set-ProcessEnvironmentValue 'FAKE_NPM_FAIL_UNINSTALL' '0'
+    Set-ProcessEnvironmentValue 'FAKE_NPM_STDERR' '0'
     Set-ProcessEnvironmentValue 'FAKE_CLI_EXIT' '0'
     Set-ProcessEnvironmentValue 'FAKE_CLI_LOG_DIR' $cliLogDirectory
     Set-ProcessEnvironmentValue 'FAKE_REMOTE_CORE' $null
@@ -365,13 +368,13 @@ function Test-WrapperForwarding {
         Install-AiCliBypass -Tool 'codex'
         $paths = Get-AiCliPaths -Tool 'codex'
 
-        $exitCode = Invoke-CmdFile -CommandPath $paths.Wrapper -Arguments 'alpha "two words"' -RunnerDirectory $context.Root
+        $exitCode = Invoke-CmdFile -CommandPath $paths.Wrapper -Arguments 'alpha "two words" 100%' -RunnerDirectory $context.Root
         Assert-Equal 37 $exitCode 'Wrapper did not propagate the target exit code.'
 
         $argumentLog = Join-Path $context.CliLogDirectory 'codex-args.txt'
         Assert-True (Test-Path -LiteralPath $argumentLog -PathType Leaf) 'Codex target was not called.'
         $arguments = [System.IO.File]::ReadAllText($argumentLog, [System.Text.Encoding]::Default).Trim()
-        Assert-Equal '--dangerously-bypass-approvals-and-sandbox alpha "two words"' $arguments 'Wrapper did not inject before user arguments.'
+        Assert-Equal '--dangerously-bypass-approvals-and-sandbox alpha "two words" 100%' $arguments 'Wrapper did not preserve and inject user arguments.'
     }
     finally {
         Remove-TestContext $context
@@ -385,13 +388,16 @@ function Test-PathCharactersAndWrapperValidation {
         $paths = Get-AiCliPaths -Tool 'claude'
         $target = Join-Path $context.Prefix 'claude.cmd'
         $wrapperText = [System.IO.File]::ReadAllText($paths.Wrapper, (New-Object System.Text.UTF8Encoding($false)))
-        Assert-True ($wrapperText.Contains($target.Replace('%', '%%%%'))) 'Percent characters in the target were not escaped for both CALL parsing passes.'
+        Assert-True ($wrapperText.Contains($target.Replace('%', '%%'))) 'Percent characters in the target were not escaped for batch parsing.'
+        Assert-True (-not $wrapperText.Contains('call "')) 'Wrapper still uses CALL and reparses user arguments.'
 
         $exitCode = Invoke-CmdFile -CommandPath $paths.Wrapper -Arguments 'plain' -RunnerDirectory $context.Root
         Assert-Equal 0 $exitCode 'Wrapper failed for a path containing spaces, non-ASCII, and percent characters.'
         Assert-True (Test-Path -LiteralPath (Join-Path $context.CliLogDirectory 'claude-args.txt')) 'Target in special-character path was not executed.'
 
         Assert-Throws { New-AiCliWrapperContent -Target 'relative\claude.cmd' -Arguments @('--flag') } 'Drive-relative wrapper targets must fail.' '*absolute*'
+        Assert-Throws { New-AiCliWrapperContent -Target 'C:relative\claude.cmd' -Arguments @('--flag') } 'Drive-relative wrapper targets must fail.' '*absolute*'
+        Assert-Throws { New-AiCliWrapperContent -Target '\root-relative\claude.cmd' -Arguments @('--flag') } 'Root-relative wrapper targets must fail.' '*absolute*'
         Assert-Throws { New-AiCliWrapperContent -Target ('C:\bad"path\claude.cmd') -Arguments @('--flag') } 'Quoted wrapper targets must fail.' '*quotes*'
         Assert-Throws { New-AiCliWrapperContent -Target ("C:\bad`npath\claude.cmd") -Arguments @('--flag') } 'Multiline wrapper targets must fail.' '*newlines*'
 
@@ -399,6 +405,12 @@ function Test-PathCharactersAndWrapperValidation {
         $null = New-Item -ItemType Directory -Path (Split-Path -Parent $insideBin) -Force
         Write-TestText -Path $insideBin -Text "@exit /b 0`r`n"
         Assert-Throws { New-AiCliWrapperContent -Target $insideBin -Arguments @('--flag') } 'Targets beneath the wrapper directory must fail.' '*wrapper directory*'
+
+        $junction = Join-Path $context.Root 'wrapper-bin-junction'
+        $null = New-Item -ItemType Junction -Path $junction -Target $paths.Bin
+        $junctionTarget = Join-Path $junction 'aliased.cmd'
+        Write-TestText -Path (Join-Path $paths.Bin 'aliased.cmd') -Text "@exit /b 0`r`n"
+        Assert-Throws { New-AiCliWrapperContent -Target $junctionTarget -Arguments @('--flag') } 'Junction aliases into the wrapper directory must fail.' '*wrapper directory*'
     }
     finally {
         Remove-TestContext $context
@@ -430,6 +442,20 @@ function Test-Reinstall {
         Assert-SequenceEqual $wrapperBeforeFailure ([System.IO.File]::ReadAllBytes($paths.Wrapper)) 'Failed reinstall changed wrapper bytes.'
         Assert-SequenceEqual $stateBeforeFailure ([System.IO.File]::ReadAllBytes($paths.ToolState)) 'Failed reinstall changed tool state bytes.'
         Assert-SequenceEqual $globalBeforeFailure ([System.IO.File]::ReadAllBytes($paths.GlobalState)) 'Failed reinstall changed global state bytes.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-NpmStderrWarning {
+    $context = New-TestContext
+    try {
+        Set-ProcessEnvironmentValue 'FAKE_NPM_STDERR' '1'
+        Install-AiCliBypass -Tool 'claude'
+        $paths = Get-AiCliPaths -Tool 'claude'
+        Assert-True (Test-Path -LiteralPath $paths.Wrapper -PathType Leaf) 'A non-fatal npm warning prevented installation.'
+        Assert-True (Test-Path -LiteralPath $paths.ToolState -PathType Leaf) 'A non-fatal npm warning prevented state creation.'
     }
     finally {
         Remove-TestContext $context
@@ -525,6 +551,34 @@ function Test-PathLifecycle {
 
         Uninstall-AiCliBypass -Tool 'opencode'
         Assert-Equal $preExistingPath ([System.IO.File]::ReadAllText($context.UserPathFile)) 'Unowned PATH entry was changed during uninstall.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $paths = Get-AiCliPaths -Tool 'claude'
+        $processBefore = $paths.Bin + ';' + $env:Path
+        Set-ProcessEnvironmentValue 'Path' $processBefore
+        Install-AiCliBypass -Tool 'claude'
+        Uninstall-AiCliBypass -Tool 'claude'
+        Assert-Equal $processBefore $env:Path 'Uninstall removed a pre-existing process PATH entry.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $paths = Get-AiCliPaths -Tool 'claude'
+        $userBefore = $paths.Bin + ';' + [System.IO.File]::ReadAllText($context.UserPathFile)
+        [System.IO.File]::WriteAllText($context.UserPathFile, $userBefore, (New-Object System.Text.UTF8Encoding($false)))
+        $processBefore = $env:Path
+        Install-AiCliBypass -Tool 'claude'
+        Uninstall-AiCliBypass -Tool 'claude'
+        Assert-Equal $processBefore $env:Path 'Uninstall left a process PATH entry owned by this install.'
+        Assert-Equal $userBefore ([System.IO.File]::ReadAllText($context.UserPathFile)) 'Unowned user PATH entry was changed.'
     }
     finally {
         Remove-TestContext $context
@@ -658,9 +712,11 @@ function Test-LocalEntryPoints {
             $expected = $script:ExpectedTools[$toolName]
             $installer = Join-Path $script:RepositoryRoot ('install-' + $toolName + '-windows.ps1')
             $uninstaller = Join-Path $script:RepositoryRoot ('uninstall-' + $toolName + '-windows.ps1')
-            & $installer *> $null
+            & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer *> $null
+            Assert-Equal 0 $LASTEXITCODE "Fresh-process installer failed for $toolName."
             Assert-NpmLogContains $context ('install --global ' + $expected.Package)
-            & $uninstaller *> $null
+            & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $uninstaller *> $null
+            Assert-Equal 0 $LASTEXITCODE "Fresh-process uninstaller failed for $toolName."
             Assert-NpmLogContains $context ('uninstall --global ' + $expected.Package)
         }
         finally {
@@ -672,8 +728,10 @@ function Test-LocalEntryPoints {
     try {
         $installer = Join-Path $script:RepositoryRoot 'install-claude-windows.ps1'
         $uninstaller = Join-Path $script:RepositoryRoot 'uninstall-claude-windows.ps1'
-        & $installer *> $null
-        & $uninstaller -KeepCli *> $null
+        & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $installer *> $null
+        Assert-Equal 0 $LASTEXITCODE 'Fresh-process Claude installer failed.'
+        & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $uninstaller -KeepCli *> $null
+        Assert-Equal 0 $LASTEXITCODE 'Fresh-process Claude uninstaller failed.'
         $lines = @(Get-NpmLogLines $context)
         Assert-True (-not ($lines -contains 'uninstall --global @anthropic-ai/claude-code')) 'Uninstaller entry point did not forward -KeepCli.'
     }
@@ -741,6 +799,7 @@ Invoke-Test 'installs all tool wrappers' { Test-AllToolInstalls }
 Invoke-Test 'wrapper preserves arguments and exit code' { Test-WrapperForwarding }
 Invoke-Test 'paths and wrapper target validation are safe' { Test-PathCharactersAndWrapperValidation }
 Invoke-Test 'reinstall is idempotent and failure-safe' { Test-Reinstall }
+Invoke-Test 'npm stderr warnings do not fail successful commands' { Test-NpmStderrWarning }
 Invoke-Test 'uninstall reverses owned package' { Test-OwnedPackageUninstall }
 Invoke-Test 'uninstall keeps pre-existing package' { Test-ExistingPackageUninstall }
 Invoke-Test 'KeepCli retains package' { Test-KeepCli }
