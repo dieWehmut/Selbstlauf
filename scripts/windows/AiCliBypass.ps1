@@ -254,6 +254,97 @@ function Get-AiCliNpmPrefix {
     return [System.IO.Path]::GetFullPath($prefix)
 }
 
+function Test-AiCliExistingTargetShim {
+    param(
+        [Parameter(Mandatory = $true)][string]$Target,
+        [Parameter(Mandatory = $true)]$Paths,
+        [switch]$RequireCodexShim
+    )
+
+    try {
+        if ([string]::IsNullOrWhiteSpace($Target) -or -not (Test-Path -LiteralPath $Target -PathType Leaf)) {
+            return $null
+        }
+        $canonicalTarget = Get-AiCliCanonicalPath $Target
+        if (-not [string]::Equals([System.IO.Path]::GetExtension($canonicalTarget), '.cmd', [StringComparison]::OrdinalIgnoreCase)) {
+            return $null
+        }
+        if (Test-AiCliPathIsWithin -Path $canonicalTarget -Directory $Paths.Bin) {
+            return $null
+        }
+        if ($RequireCodexShim -and -not (Test-AiCliCodexNpmShimContent -Target $canonicalTarget)) {
+            return $null
+        }
+        return $canonicalTarget
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-AiCliCodexNpmShimContent {
+    param([Parameter(Mandatory = $true)][string]$Target)
+
+    try {
+        if (-not (Test-Path -LiteralPath $Target -PathType Leaf)) {
+            return $false
+        }
+        $targetFullPath = [System.IO.Path]::GetFullPath($Target)
+        $packageEntry = Join-Path (Split-Path -Parent $targetFullPath) 'node_modules\@openai\codex\bin\codex.js'
+        if (-not (Test-Path -LiteralPath $packageEntry -PathType Leaf)) {
+            return $false
+        }
+        $text = [System.IO.File]::ReadAllText($Target, (New-Object System.Text.UTF8Encoding($false)))
+        foreach ($line in @([regex]::Split($text, '\r\n|\n|\r'))) {
+            $trimmed = ([string]$line).Trim()
+            if ([string]::IsNullOrWhiteSpace($trimmed) -or
+                $trimmed.StartsWith('::') -or
+                $trimmed -match '(?i)^@?rem(?:\s|$)') {
+                continue
+            }
+            if ($trimmed -match '(?i)dp0.*node_modules\s*[\\/]+\s*@openai\s*[\\/]+\s*codex\s*[\\/]+\s*bin\s*[\\/]+\s*codex\.js' -and
+                $trimmed -match '%\*') {
+                return $true
+            }
+        }
+        return $false
+    }
+    catch {
+        return $false
+    }
+}
+
+function Find-AiCliExistingTargetShim {
+    param(
+        [Parameter(Mandatory = $true)]$Definition,
+        [Parameter(Mandatory = $true)]$Paths,
+        [AllowNull()]$ExistingState
+    )
+
+    if ($Definition.Tool -ne 'codex') {
+        return $null
+    }
+    if ($null -ne $ExistingState -and $null -ne $ExistingState.PSObject.Properties['TargetShim']) {
+        $fromState = Test-AiCliExistingTargetShim -Target ([string]$ExistingState.TargetShim) -Paths $Paths -RequireCodexShim
+        if ($null -ne $fromState) {
+            return $fromState
+        }
+    }
+
+    $commands = @(Get-Command ($Definition.Command + '.cmd') -CommandType Application -All -ErrorAction SilentlyContinue)
+    foreach ($command in $commands) {
+        $candidate = if (-not [string]::IsNullOrWhiteSpace([string]$command.Source)) { [string]$command.Source } else { [string]$command.Path }
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        $discovered = Test-AiCliExistingTargetShim -Target $candidate -Paths $Paths -RequireCodexShim
+        if ($null -ne $discovered) {
+            return $discovered
+        }
+    }
+    return $null
+}
+
 function Install-AiCliPackage {
     param([Parameter(Mandatory = $true)][string]$Package)
 
@@ -317,10 +408,12 @@ function Write-AiCliAtomicBytes {
     }
     finally {
         if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
-            Remove-Item -LiteralPath $temporaryPath -Force
+            try { Remove-Item -LiteralPath $temporaryPath -Force } catch { }
         }
         if ($replaceSucceeded -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
-            Remove-Item -LiteralPath $backupPath -Force
+            # The replacement is already committed; a cleanup failure must not
+            # make callers believe the write itself failed.
+            try { Remove-Item -LiteralPath $backupPath -Force } catch { }
         }
     }
 }
@@ -332,7 +425,9 @@ function Write-AiCliAtomicText {
         [System.Text.Encoding]$Encoding = (New-Object System.Text.UTF8Encoding($false))
     )
 
-    Write-AiCliAtomicBytes -Path $Path -Bytes $Encoding.GetBytes($Text)
+    $preamble = @($Encoding.GetPreamble())
+    $content = @($Encoding.GetBytes($Text))
+    Write-AiCliAtomicBytes -Path $Path -Bytes ([byte[]]($preamble + $content))
 }
 
 function Write-AiCliJson {
@@ -444,6 +539,672 @@ function Normalize-AiCliPathEntry {
         $normalized = $normalized.Substring(0, $normalized.Length - 1)
     }
     return $normalized
+}
+
+function Get-AiCliCodexConfigPath {
+    $codexHomePath = $env:CODEX_HOME
+    if ([string]::IsNullOrWhiteSpace($codexHomePath)) {
+        if ([string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+            throw 'Cannot determine CODEX_HOME because USERPROFILE is unavailable.'
+        }
+        $codexHomePath = Join-Path $env:USERPROFILE '.codex'
+    }
+
+    return Join-Path (Get-AiCliFullPath $codexHomePath) 'config.toml'
+}
+
+function Read-AiCliUtf8TextFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    $hasBom = $bytes.Length -ge 3 -and
+        $bytes[0] -eq 0xEF -and
+        $bytes[1] -eq 0xBB -and
+        $bytes[2] -eq 0xBF
+    $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+    if ($text.Length -gt 0 -and [int][char]$text[0] -eq 0xFEFF) {
+        $text = $text.Substring(1)
+    }
+    return [pscustomobject]@{
+        Text = $text
+        HasBom = $hasBom
+    }
+}
+
+function Get-AiCliUtf8Encoding {
+    param([bool]$WithBom)
+
+    if ($WithBom) {
+        return New-Object System.Text.UTF8Encoding($true)
+    }
+    return New-Object System.Text.UTF8Encoding($false)
+}
+
+function Get-AiCliTomlCodePortion {
+    param([AllowEmptyString()][AllowNull()][string]$Line)
+
+    if ($null -eq $Line) {
+        return ''
+    }
+
+    # Remove comments without treating quote characters inside a comment as
+    # TOML string delimiters. Triple-quoted strings keep '#' as content.
+    $mode = 0 # 0=code, 1=basic, 2=literal, 3=multiline basic, 4=multiline literal
+    $escaped = $false
+    for ($index = 0; $index -lt $Line.Length;) {
+        if ($mode -eq 0) {
+            if ($index + 2 -lt $Line.Length -and $Line.Substring($index, 3) -eq '"""') {
+                $mode = 3
+                $index += 3
+                continue
+            }
+            if ($index + 2 -lt $Line.Length -and $Line.Substring($index, 3) -eq "'''") {
+                $mode = 4
+                $index += 3
+                continue
+            }
+            $character = $Line[$index]
+            if ($character -eq [char]34) {
+                $mode = 1
+                $index++
+                continue
+            }
+            if ($character -eq [char]39) {
+                $mode = 2
+                $index++
+                continue
+            }
+            if ($character -eq [char]35) {
+                return $Line.Substring(0, $index)
+            }
+            $index++
+            continue
+        }
+
+        if ($mode -eq 1) {
+            $character = $Line[$index]
+            if ($escaped) {
+                $escaped = $false
+                $index++
+                continue
+            }
+            if ($character -eq [char]92) {
+                $escaped = $true
+                $index++
+                continue
+            }
+            if ($character -eq [char]34) {
+                $mode = 0
+            }
+            $index++
+            continue
+        }
+
+        if ($mode -eq 2) {
+            if ($Line[$index] -eq [char]39) {
+                $mode = 0
+            }
+            $index++
+            continue
+        }
+
+        $delimiter = if ($mode -eq 3) { '"""' } else { "'''" }
+        if ($index + 2 -lt $Line.Length -and $Line.Substring($index, 3) -eq $delimiter -and
+            ($mode -eq 4 -or -not $escaped)) {
+            $mode = 0
+            $escaped = $false
+            $index += 3
+        }
+        else {
+            if ($mode -eq 3 -and $Line[$index] -eq [char]92) {
+                $escaped = -not $escaped
+            }
+            else {
+                $escaped = $false
+            }
+            $index++
+        }
+    }
+    return $Line
+}
+
+function Convert-AiCliTomlBasicKey {
+    param([Parameter(Mandatory = $true)][string]$Value)
+
+    $builder = New-Object System.Text.StringBuilder
+    for ($index = 0; $index -lt $Value.Length; $index++) {
+        $character = $Value[$index]
+        if ($character -ne [char]92) {
+            [void]$builder.Append($character)
+            continue
+        }
+        $index++
+        if ($index -ge $Value.Length) {
+            throw 'Codex config contains an unterminated escape in a quoted key.'
+        }
+        $escape = $Value[$index]
+        $digitCount = 0
+        $simpleValue = $null
+        switch -CaseSensitive ($escape) {
+            'b' { $simpleValue = [char]8 }
+            't' { $simpleValue = [char]9 }
+            'n' { $simpleValue = [char]10 }
+            'f' { $simpleValue = [char]12 }
+            'r' { $simpleValue = [char]13 }
+            'e' { $simpleValue = [char]27 }
+            '"' { $simpleValue = [char]34 }
+            '\' { $simpleValue = [char]92 }
+            'u' { $digitCount = 4 }
+            'U' { $digitCount = 8 }
+            default { throw "Codex config contains an unsupported escape '\$escape' in a quoted key." }
+        }
+        if ($digitCount -eq 0) {
+            [void]$builder.Append($simpleValue)
+            continue
+        }
+
+        if ($index + $digitCount -ge $Value.Length) {
+            throw 'Codex config contains an incomplete Unicode escape in a quoted key.'
+        }
+        $hex = $Value.Substring($index + 1, $digitCount)
+        if ($hex -notmatch ('^[0-9A-Fa-f]{' + $digitCount + '}$')) {
+            throw 'Codex config contains an invalid Unicode escape in a quoted key.'
+        }
+        $codePoint = [Convert]::ToUInt32($hex, 16)
+        if ($codePoint -gt 0x10FFFF -or ($codePoint -ge 0xD800 -and $codePoint -le 0xDFFF)) {
+            throw 'Codex config contains an invalid Unicode code point in a quoted key.'
+        }
+        [void]$builder.Append([char]::ConvertFromUtf32([int]$codePoint))
+        $index += $digitCount
+    }
+    return $builder.ToString()
+}
+
+function Get-AiCliTomlKeyName {
+    param(
+        [AllowNull()][string]$BareName,
+        [AllowNull()][string]$DoubleName,
+        [AllowNull()][string]$SingleName
+    )
+
+    if (-not [string]::IsNullOrEmpty($BareName)) {
+        return $BareName
+    }
+    if (-not [string]::IsNullOrEmpty($SingleName)) {
+        return $SingleName
+    }
+    if (-not [string]::IsNullOrEmpty($DoubleName)) {
+        return Convert-AiCliTomlBasicKey -Value $DoubleName
+    }
+    return $null
+}
+
+function Get-AiCliTomlDocument {
+    param([AllowEmptyString()][AllowNull()][string]$Text)
+
+    if ($null -eq $Text) {
+        $Text = ''
+    }
+    if ($Text.Length -gt 0 -and [int][char]$Text[0] -eq 0xFEFF) {
+        $Text = $Text.Substring(1)
+    }
+    $newline = if ($Text.Contains("`r`n")) { "`r`n" } elseif ($Text.Contains("`n")) { "`n" } elseif ($Text.Contains("`r")) { "`r" } else { "`r`n" }
+    $hasFinalNewline = $Text.EndsWith("`r`n") -or $Text.EndsWith("`n") -or $Text.EndsWith("`r")
+    if ([string]::IsNullOrEmpty($Text)) {
+        $lines = @()
+    }
+    else {
+        $lines = @([regex]::Split($Text, "`r`n|`n|`r"))
+    }
+    if ($hasFinalNewline -and $lines.Count -gt 0 -and $lines[$lines.Count - 1] -eq '') {
+        if ($lines.Count -eq 1) {
+            $lines = @()
+        }
+        else {
+            $lines = @($lines[0..($lines.Count - 2)])
+        }
+    }
+
+    $tableIndex = $lines.Count
+    $multilineDelimiter = $null
+    for ($index = 0; $index -lt $lines.Count; $index++) {
+        $line = [string]$lines[$index]
+        if ($null -ne $multilineDelimiter) {
+            $delimiterCount = Get-AiCliTomlMultilineDelimiterCount -Line $line -Delimiter $multilineDelimiter
+            if ($delimiterCount -gt 0) {
+                $multilineDelimiter = $null
+            }
+            continue
+        }
+        $codeLine = Get-AiCliTomlCodePortion -Line $line
+        $newDelimiter = Get-AiCliTomlTripleDelimiter -Line $codeLine
+        if ($null -ne $newDelimiter) {
+            $multilineDelimiter = $newDelimiter
+            continue
+        }
+        if ($codeLine -match '^\s*\[\[?') {
+            $tableIndex = $index
+            break
+        }
+    }
+    if ($null -ne $multilineDelimiter) {
+        throw 'Codex config contains an unterminated TOML multiline string.'
+    }
+
+    return [pscustomobject]@{
+        Lines = @($lines)
+        Newline = $newline
+        HasFinalNewline = $hasFinalNewline
+        TableIndex = $tableIndex
+    }
+}
+
+function Convert-AiCliTomlDocumentToText {
+    param([Parameter(Mandatory = $true)]$Document)
+
+    $text = @($Document.Lines) -join [string]$Document.Newline
+    if ([bool]$Document.HasFinalNewline -and @($Document.Lines).Count -gt 0) {
+        $text += [string]$Document.Newline
+    }
+    return $text
+}
+
+function Get-AiCliTomlAssignmentValue {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Line)
+
+    if ($Line -notmatch '^\s*(?:(?:[A-Za-z0-9_-]+)|"(?:\\.|[^"\\])*"|''[^'']*'')\s*=\s*(?<rhs>.*)$') {
+        return $null
+    }
+    $rhs = $Matches['rhs'].Trim()
+    if ($rhs -match '^"(?<quoted>(?:\\.|[^"\\])*)"\s*(?:#.*)?$') {
+        return [string]$Matches['quoted']
+    }
+    return (($rhs -replace '\s+#.*$', '').Trim())
+}
+
+function Get-AiCliTomlTripleDelimiter {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Line)
+
+    $mode = 0 # 0=code, 1=basic, 2=literal
+    $escaped = $false
+    for ($index = 0; $index -lt $Line.Length;) {
+        if ($mode -eq 0) {
+            if ($index + 2 -lt $Line.Length -and $Line.Substring($index, 3) -eq '"""') {
+                $mode = 3
+                $index += 3
+                continue
+            }
+            if ($index + 2 -lt $Line.Length -and $Line.Substring($index, 3) -eq "'''") {
+                $mode = 4
+                $index += 3
+                continue
+            }
+            $character = $Line[$index]
+            if ($character -eq [char]35) {
+                break
+            }
+            if ($character -eq [char]34) {
+                $mode = 1
+            }
+            elseif ($character -eq [char]39) {
+                $mode = 2
+            }
+            $index++
+            continue
+        }
+        if ($mode -eq 3) {
+            if ($index + 2 -lt $Line.Length -and $Line.Substring($index, 3) -eq '"""' -and -not $escaped) {
+                $mode = 0
+                $escaped = $false
+                $index += 3
+                continue
+            }
+            if ($Line[$index] -eq [char]92) {
+                $escaped = -not $escaped
+            }
+            else {
+                $escaped = $false
+            }
+            $index++
+            continue
+        }
+        if ($mode -eq 4) {
+            if ($index + 2 -lt $Line.Length -and $Line.Substring($index, 3) -eq "'''") {
+                $mode = 0
+                $index += 3
+                continue
+            }
+            $index++
+            continue
+        }
+        if ($mode -eq 1) {
+            $character = $Line[$index]
+            if ($escaped) {
+                $escaped = $false
+                $index++
+                continue
+            }
+            if ($character -eq [char]92) {
+                $escaped = $true
+                $index++
+                continue
+            }
+            if ($character -eq [char]34) {
+                $mode = 0
+            }
+            $index++
+            continue
+        }
+        if ($Line[$index] -eq [char]39) {
+            $mode = 0
+        }
+        $index++
+    }
+    if ($mode -eq 3) {
+        return '"""'
+    }
+    if ($mode -eq 4) {
+        return "'''"
+    }
+    return $null
+}
+
+function Get-AiCliTomlMultilineDelimiterCount {
+    param(
+        [AllowEmptyString()][AllowNull()][string]$Line,
+        [Parameter(Mandatory = $true)][string]$Delimiter
+    )
+
+    if ($null -eq $Line -or $Delimiter.Length -ne 3) {
+        return 0
+    }
+    $count = 0
+    $index = 0
+    $backslashRun = 0
+    while ($index -lt $Line.Length) {
+        if ($Line[$index] -eq [char]92) {
+            $backslashRun++
+            $index++
+            continue
+        }
+        if ($index + 2 -lt $Line.Length -and $Line.Substring($index, 3) -eq $Delimiter) {
+            if ($Delimiter -eq "'''" -or ($backslashRun % 2) -eq 0) {
+                $count++
+            }
+            $index += 3
+            $backslashRun = 0
+            continue
+        }
+        $backslashRun = 0
+        $index++
+    }
+    return $count
+}
+
+function Set-AiCliTomlAssignmentLine {
+    param(
+        [Parameter(Mandatory = $true)][string]$Line,
+        [Parameter(Mandatory = $true)][string]$Value,
+        [Parameter(Mandatory = $true)][string]$FallbackName
+    )
+
+    if ($Line -match '^(?<prefix>\s*(?:(?:[A-Za-z0-9_-]+)|"(?:\\.|[^"\\])*"|''[^'']*'')\s*=\s*)"(?:\\.|[^"\\])*"(?<suffix>\s*(?:#.*)?)$') {
+        return ([string]$Matches['prefix']) + '"' + $Value + '"' + [string]$Matches['suffix']
+    }
+    return "$FallbackName = `"$Value`""
+}
+
+function Get-AiCliTopLevelTomlAssignments {
+    param(
+        [AllowEmptyString()][AllowNull()][string]$Text,
+        [Parameter(Mandatory = $true)][string[]]$Names
+    )
+
+    $document = Get-AiCliTomlDocument -Text $Text
+    $assignments = [System.Collections.Generic.Dictionary[string,object]]::new([System.StringComparer]::Ordinal)
+    $multilineDelimiter = $null
+    for ($index = 0; $index -lt $document.TableIndex; $index++) {
+        $line = [string]$document.Lines[$index]
+        if ($null -ne $multilineDelimiter) {
+            $delimiterCount = Get-AiCliTomlMultilineDelimiterCount -Line $line -Delimiter $multilineDelimiter
+            if ($delimiterCount -gt 0) {
+                $multilineDelimiter = $null
+            }
+            continue
+        }
+        $codeLine = Get-AiCliTomlCodePortion -Line $line
+        $newDelimiter = Get-AiCliTomlTripleDelimiter -Line $codeLine
+        if ($null -ne $newDelimiter) {
+            $multilineDelimiter = $newDelimiter
+            continue
+        }
+        if ($codeLine -notmatch '^\s*(?:(?<bareName>[A-Za-z0-9_-]+)|"(?<doubleName>(?:\\.|[^"\\])*)"|''(?<singleName>[^'']*)'')\s*=\s*(?<rhs>.*)$') {
+            continue
+        }
+        $bareName = if ($Matches.ContainsKey('bareName')) { [string]$Matches['bareName'] } else { $null }
+        $doubleName = if ($Matches.ContainsKey('doubleName')) { [string]$Matches['doubleName'] } else { $null }
+        $singleName = if ($Matches.ContainsKey('singleName')) { [string]$Matches['singleName'] } else { $null }
+        $name = Get-AiCliTomlKeyName -BareName $bareName -DoubleName $doubleName -SingleName $singleName
+        $knownName = $false
+        foreach ($candidate in $Names) {
+            if ([string]::Equals([string]$candidate, [string]$name, [StringComparison]::Ordinal)) {
+                $knownName = $true
+                break
+            }
+        }
+        if (-not $knownName) {
+            continue
+        }
+        if ($assignments.ContainsKey($name)) {
+            throw "Duplicate top-level Codex setting '$name' was found in config.toml."
+        }
+        $assignments[$name] = [pscustomobject][ordered]@{
+            Name = $name
+            Value = Get-AiCliTomlAssignmentValue -Line $line
+            RawLine = $line
+            Index = $index
+        }
+    }
+
+    return [pscustomobject]@{
+        Document = $document
+        Assignments = $assignments
+    }
+}
+
+function New-AiCliCodexConfigBackup {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Assignments,
+        [Parameter(Mandatory = $true)][bool]$ConfigExisted
+    )
+
+    $approval = $Assignments['approval_policy']
+    $sandbox = $Assignments['sandbox_mode']
+    return [pscustomobject][ordered]@{
+        Path = [System.IO.Path]::GetFullPath($Path)
+        ConfigExisted = $ConfigExisted
+        ApprovalPolicy = [pscustomobject][ordered]@{
+            Present = ($null -ne $approval)
+            RawLine = if ($null -ne $approval) { [string]$approval.RawLine } else { $null }
+            InstalledRawLine = $null
+        }
+        SandboxMode = [pscustomobject][ordered]@{
+            Present = ($null -ne $sandbox)
+            RawLine = if ($null -ne $sandbox) { [string]$sandbox.RawLine } else { $null }
+            InstalledRawLine = $null
+        }
+    }
+}
+
+function Set-AiCliCodexFullAccess {
+    param(
+        [AllowNull()]$ExistingBackup,
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = Get-AiCliCodexConfigPath
+    }
+    $configExisted = Test-Path -LiteralPath $Path -PathType Leaf
+    if ((Test-Path -LiteralPath $Path) -and (-not $configExisted)) {
+        throw "Codex config path '$Path' is not a file."
+    }
+    $fileData = if ($configExisted) { Read-AiCliUtf8TextFile -Path $Path } else { $null }
+    $text = if ($null -ne $fileData) { [string]$fileData.Text } else { '' }
+    $parsed = Get-AiCliTopLevelTomlAssignments -Text $text -Names @('approval_policy', 'sandbox_mode', 'default_permissions')
+    if ($parsed.Assignments.ContainsKey('default_permissions')) {
+        throw 'Codex config contains top-level default_permissions; remove or resolve it before enabling legacy sandbox_mode Full Access.'
+    }
+
+    $backup = if ($null -ne $ExistingBackup) {
+        if ($null -eq $ExistingBackup.PSObject.Properties['Path']) {
+            throw 'Existing Codex config backup is missing Path.'
+        }
+        $backupPath = Get-AiCliFullPath ([string]$ExistingBackup.Path)
+        if (-not [string]::Equals($backupPath, (Get-AiCliFullPath $Path), [StringComparison]::OrdinalIgnoreCase)) {
+            throw "CODEX_HOME changed from '$backupPath' to '$Path'. Uninstall the existing bypass before installing into a different Codex home."
+        }
+        $ExistingBackup
+    }
+    else {
+        New-AiCliCodexConfigBackup -Path $Path -Assignments $parsed.Assignments -ConfigExisted $configExisted
+    }
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($line in @($parsed.Document.Lines)) {
+        $lines.Add([string]$line)
+    }
+    $insertions = New-Object System.Collections.Generic.List[string]
+    $installedApprovalLine = $null
+    $installedSandboxLine = $null
+    if ($parsed.Assignments.ContainsKey('approval_policy')) {
+        $assignment = $parsed.Assignments['approval_policy']
+        $installedApprovalLine = Set-AiCliTomlAssignmentLine -Line ([string]$assignment.RawLine) -Value 'never' -FallbackName 'approval_policy'
+        $lines[$assignment.Index] = $installedApprovalLine
+    }
+    else {
+        $installedApprovalLine = 'approval_policy = "never"'
+        $insertions.Add($installedApprovalLine)
+    }
+    if ($parsed.Assignments.ContainsKey('sandbox_mode')) {
+        $assignment = $parsed.Assignments['sandbox_mode']
+        $installedSandboxLine = Set-AiCliTomlAssignmentLine -Line ([string]$assignment.RawLine) -Value 'danger-full-access' -FallbackName 'sandbox_mode'
+        $lines[$assignment.Index] = $installedSandboxLine
+    }
+    else {
+        $installedSandboxLine = 'sandbox_mode = "danger-full-access"'
+        $insertions.Add($installedSandboxLine)
+    }
+
+    if ($insertions.Count -gt 0) {
+        $insertAt = $parsed.Document.TableIndex
+        $combined = New-Object System.Collections.Generic.List[string]
+        for ($index = 0; $index -lt $insertAt; $index++) { $combined.Add($lines[$index]) }
+        foreach ($line in $insertions) { $combined.Add($line) }
+        for ($index = $insertAt; $index -lt $lines.Count; $index++) { $combined.Add($lines[$index]) }
+        $lines = $combined
+    }
+
+    $backup.ApprovalPolicy | Add-Member -MemberType NoteProperty -Name InstalledRawLine -Value $installedApprovalLine -Force | Out-Null
+    $backup.SandboxMode | Add-Member -MemberType NoteProperty -Name InstalledRawLine -Value $installedSandboxLine -Force | Out-Null
+
+    $document = [pscustomobject]@{
+        Lines = @($lines)
+        Newline = $parsed.Document.Newline
+        HasFinalNewline = if ($configExisted) { [bool]$parsed.Document.HasFinalNewline } else { $true }
+    }
+    $encoding = Get-AiCliUtf8Encoding -WithBom ([bool]($null -ne $fileData -and $fileData.HasBom))
+    Write-AiCliAtomicText -Path $Path -Text (Convert-AiCliTomlDocumentToText -Document $document) -Encoding $encoding
+    return $backup
+}
+
+function Restore-AiCliCodexConfig {
+    param([Parameter(Mandatory = $true)]$Backup)
+
+    foreach ($name in @('Path', 'ConfigExisted', 'ApprovalPolicy', 'SandboxMode')) {
+        if ($null -eq $Backup.PSObject.Properties[$name]) {
+            throw "Codex config state is missing '$name'."
+        }
+    }
+    $path = Get-AiCliFullPath ([string]$Backup.Path)
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        if ([bool]$Backup.ApprovalPolicy.Present -or [bool]$Backup.SandboxMode.Present) {
+            Write-Warning "Codex config '$path' is missing; original settings could not be restored."
+        }
+        return
+    }
+
+    $fileData = Read-AiCliUtf8TextFile -Path $path
+    $text = [string]$fileData.Text
+    $parsed = Get-AiCliTopLevelTomlAssignments -Text $text -Names @('approval_policy', 'sandbox_mode')
+    $expected = @{
+        approval_policy = 'never'
+        sandbox_mode = 'danger-full-access'
+    }
+    $backups = @{
+        approval_policy = $Backup.ApprovalPolicy
+        sandbox_mode = $Backup.SandboxMode
+    }
+    $removeIndexes = New-Object System.Collections.Generic.List[int]
+    $replacements = @{}
+    foreach ($name in @('approval_policy', 'sandbox_mode')) {
+        $current = $parsed.Assignments[$name]
+        if ($null -eq $current) {
+            if ([bool]$backups[$name].Present) {
+                Write-Warning "Codex setting '$name' is missing; leaving the user's current configuration unchanged."
+            }
+            continue
+        }
+        $backupSetting = $backups[$name]
+        $hasFingerprint = $null -ne $backupSetting.PSObject.Properties['InstalledRawLine']
+        if ($hasFingerprint) {
+            if (-not [string]::Equals([string]$current.RawLine, [string]$backupSetting.InstalledRawLine, [StringComparison]::Ordinal)) {
+                Write-Warning "Codex setting '$name' was changed after installation; leaving the user's value unchanged."
+                continue
+            }
+        }
+        elseif ([string]$current.Value -ne $expected[$name]) {
+            Write-Warning "Codex setting '$name' was changed after installation; leaving the user's value unchanged."
+            continue
+        }
+        if ([bool]$backups[$name].Present) {
+            $replacements[$current.Index] = [string]$backups[$name].RawLine
+        }
+        else {
+            $removeIndexes.Add([int]$current.Index)
+        }
+    }
+
+    $lines = New-Object System.Collections.Generic.List[string]
+    for ($index = 0; $index -lt @($parsed.Document.Lines).Count; $index++) {
+        if ($removeIndexes.Contains($index)) {
+            continue
+        }
+        if ($replacements.ContainsKey($index)) {
+            $lines.Add([string]$replacements[$index])
+        }
+        else {
+            $lines.Add([string]$parsed.Document.Lines[$index])
+        }
+    }
+    $changed = ($replacements.Count -gt 0 -or $removeIndexes.Count -gt 0)
+    if (-not $changed) {
+        return
+    }
+
+    $document = [pscustomobject]@{
+        Lines = @($lines)
+        Newline = $parsed.Document.Newline
+        HasFinalNewline = [bool]$parsed.Document.HasFinalNewline
+    }
+    $restoredText = Convert-AiCliTomlDocumentToText -Document $document
+    if (-not [bool]$Backup.ConfigExisted -and [string]::IsNullOrEmpty($restoredText)) {
+        Remove-Item -LiteralPath $path -Force
+    }
+    else {
+        Write-AiCliAtomicText -Path $path -Text $restoredText -Encoding (Get-AiCliUtf8Encoding -WithBom ([bool]$fileData.HasBom))
+    }
 }
 
 function Get-AiCliPathOwnershipKey {
@@ -626,6 +1387,37 @@ function Assert-AiCliStateProperty {
     }
 }
 
+function Assert-AiCliCodexConfigState {
+    param([Parameter(Mandatory = $true)]$State)
+
+    foreach ($name in @('Path', 'ConfigExisted', 'ApprovalPolicy', 'SandboxMode')) {
+        Assert-AiCliStateProperty -State $State -Name $name -StateName 'CodexConfig'
+    }
+    if (-not [System.IO.Path]::IsPathRooted([string]$State.Path)) {
+        throw 'CodexConfig Path must be absolute.'
+    }
+    if (-not ($State.ConfigExisted -is [bool])) {
+        throw 'CodexConfig ConfigExisted must be a Boolean.'
+    }
+    foreach ($name in @('ApprovalPolicy', 'SandboxMode')) {
+        $setting = $State.$name
+        foreach ($property in @('Present', 'RawLine')) {
+            Assert-AiCliStateProperty -State $setting -Name $property -StateName ('CodexConfig.' + $name)
+        }
+        if ($null -ne $setting.PSObject.Properties['InstalledRawLine'] -and
+            $null -ne $setting.InstalledRawLine -and
+            -not ($setting.InstalledRawLine -is [string])) {
+            throw "CodexConfig $name InstalledRawLine must be a string when present."
+        }
+        if (-not ($setting.Present -is [bool])) {
+            throw "CodexConfig $name Present must be a Boolean."
+        }
+        if ([bool]$setting.Present -and $null -eq $setting.RawLine) {
+            throw "CodexConfig $name RawLine must be present when the setting existed."
+        }
+    }
+}
+
 function Assert-AiCliToolState {
     param(
         [Parameter(Mandatory = $true)]$State,
@@ -647,6 +1439,9 @@ function Assert-AiCliToolState {
     }
     if (-not ($State.InstalledByBypass -is [bool])) {
         throw 'Tool state InstalledByBypass must be a Boolean.'
+    }
+    if ($Definition.Tool -eq 'codex' -and $null -ne $State.PSObject.Properties['CodexConfig']) {
+        Assert-AiCliCodexConfigState -State $State.CodexConfig
     }
 }
 
@@ -721,29 +1516,96 @@ function Install-AiCliBypass {
     $wrapperSnapshot = Get-AiCliFileSnapshot -Path $paths.Wrapper
     $toolStateSnapshot = Get-AiCliFileSnapshot -Path $paths.ToolState
     $globalStateSnapshot = Get-AiCliFileSnapshot -Path $paths.GlobalState
+    $codexConfigPath = $null
+    $codexConfigSnapshot = $null
+    if ($definition.Tool -eq 'codex') {
+        $codexConfigPath = Get-AiCliCodexConfigPath
+        if ($null -ne $existingToolState -and $null -ne $existingToolState.PSObject.Properties['CodexConfig']) {
+            $savedConfigPath = Get-AiCliFullPath ([string]$existingToolState.CodexConfig.Path)
+            if (-not [string]::Equals($savedConfigPath, $codexConfigPath, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "CODEX_HOME changed from '$savedConfigPath' to '$codexConfigPath'. Uninstall the existing bypass before installing into a different Codex home."
+            }
+        }
+        $codexConfigSnapshot = Get-AiCliFileSnapshot -Path $codexConfigPath
+    }
     $wrapperWritten = $false
     $toolStateWritten = $false
     $globalStateWritten = $false
+    $codexConfigWritten = $false
     $packageCreated = $false
+    $packageExistedBeforeInstall = $null
     $pathChange = $null
+    $existingTargetShim = Find-AiCliExistingTargetShim -Definition $definition -Paths $paths -ExistingState $existingToolState
 
     try {
-        if ($null -ne $existingToolState) {
-            $installedByBypass = [bool]$existingToolState.InstalledByBypass
+        $existingCodexConfig = $null
+        if ($definition.Tool -eq 'codex') {
+            $existingCodexConfig = if ($null -ne $existingToolState -and $null -ne $existingToolState.PSObject.Properties['CodexConfig']) {
+                $existingToolState.CodexConfig
+            }
+            else {
+                $null
+            }
+            $codexConfig = Set-AiCliCodexFullAccess -Path $codexConfigPath -ExistingBackup $existingCodexConfig
+            $codexConfigWritten = $true
+        }
+
+        if ($null -eq $existingTargetShim) {
+            $packageExistedBeforeInstall = Test-AiCliPackageInstalled -Package $definition.Package
+        }
+
+        if ($definition.Tool -eq 'codex' -and $null -eq $existingTargetShim -and [bool]$packageExistedBeforeInstall) {
+            $npmPrefix = Get-AiCliNpmPrefix
+            $prefixTarget = Join-Path $npmPrefix ($definition.Command + '.cmd')
+            $existingTargetShim = Test-AiCliExistingTargetShim -Target $prefixTarget -Paths $paths -RequireCodexShim
+            if ($null -eq $existingTargetShim) {
+                throw "The $($definition.Package) package is already installed, but its official npm shim could not be located. Refusing to mutate the existing package; repair the npm shim or PATH and retry."
+            }
+        }
+
+        $packageCreated = ($null -eq $existingTargetShim -and $packageExistedBeforeInstall -eq $false)
+        $targetWasExisting = ($null -ne $existingTargetShim)
+        if ($null -ne $existingTargetShim) {
+            $targetShim = $existingTargetShim
         }
         else {
-            $packageExisted = Test-AiCliPackageInstalled -Package $definition.Package
-            $installedByBypass = -not $packageExisted
+            Install-AiCliPackage -Package $definition.Package
+            $npmPrefix = Get-AiCliNpmPrefix
+            $targetShim = Join-Path $npmPrefix ($definition.Command + '.cmd')
+            if (-not (Test-Path -LiteralPath $targetShim -PathType Leaf)) {
+                throw "The expected upstream npm shim was not created at '$targetShim'."
+            }
+            if ($definition.Tool -eq 'codex' -and -not (Test-AiCliCodexNpmShimContent -Target $targetShim)) {
+                throw "The npm shim at '$targetShim' does not identify the official @openai/codex CLI."
+            }
+        }
+        $packageCreated = (-not $targetWasExisting -and $packageExistedBeforeInstall -eq $false)
+
+        $targetMatchesSavedState = $false
+        if ($null -ne $existingToolState -and $null -ne $existingToolState.PSObject.Properties['TargetShim']) {
+            try {
+                $targetMatchesSavedState = [string]::Equals(
+                    (Get-AiCliCanonicalPath $targetShim),
+                    (Get-AiCliCanonicalPath ([string]$existingToolState.TargetShim)),
+                    [StringComparison]::OrdinalIgnoreCase)
+            }
+            catch {
+                $targetMatchesSavedState = $false
+            }
+        }
+        if ($packageCreated) {
+            $installedByBypass = $true
+        }
+        elseif ($null -ne $existingToolState) {
+            $installedByBypass = [bool]$existingToolState.InstalledByBypass -and $targetMatchesSavedState
+        }
+        elseif ($targetWasExisting) {
+            $installedByBypass = $false
+        }
+        else {
+            $installedByBypass = -not [bool]$packageExistedBeforeInstall
         }
 
-        $packageCreated = ($null -eq $existingToolState -and $installedByBypass)
-        Install-AiCliPackage -Package $definition.Package
-
-        $npmPrefix = Get-AiCliNpmPrefix
-        $targetShim = Join-Path $npmPrefix ($definition.Command + '.cmd')
-        if (-not (Test-Path -LiteralPath $targetShim -PathType Leaf)) {
-            throw "The expected upstream npm shim was not created at '$targetShim'."
-        }
         $canonicalTarget = Get-AiCliCanonicalPath $targetShim
         $canonicalWrapper = Get-AiCliCanonicalPath $paths.Wrapper
         if ([string]::Equals($canonicalTarget, $canonicalWrapper, [StringComparison]::OrdinalIgnoreCase)) {
@@ -754,7 +1616,8 @@ function Install-AiCliBypass {
         }
 
         $wrapperContent = New-AiCliWrapperContent -Target $canonicalTarget -Arguments @($definition.Arguments)
-        $toolState = [pscustomobject][ordered]@{
+
+        $toolStateData = [ordered]@{
             SchemaVersion = $script:AiCliSchemaVersion
             Tool = $definition.Tool
             Package = $definition.Package
@@ -764,6 +1627,10 @@ function Install-AiCliBypass {
             Arguments = @($definition.Arguments)
             InstalledByBypass = [bool]$installedByBypass
         }
+        if ($definition.Tool -eq 'codex') {
+            $toolStateData.CodexConfig = $codexConfig
+        }
+        $toolState = [pscustomobject]$toolStateData
 
         Write-AiCliAtomicText -Path $paths.Wrapper -Text $wrapperContent -Encoding (New-Object System.Text.UTF8Encoding($false))
         $wrapperWritten = $true
@@ -783,13 +1650,21 @@ function Install-AiCliBypass {
         Write-AiCliJson -Path $paths.GlobalState -Value $globalState
         $globalStateWritten = $true
 
-        Write-Host "Installed $($definition.Command) wrapper with $($definition.Arguments -join ' ')."
+        if ($definition.Tool -eq 'codex' -and $null -ne $existingTargetShim) {
+            Write-Host 'Codex is already installed; configured persistent Full Access and skipped npm.'
+        }
+        else {
+            Write-Host "Installed $($definition.Command) wrapper with $($definition.Arguments -join ' ')."
+        }
         Write-Warning 'This bypass mode disables normal approval protections. Use it only in an environment you trust.'
     }
     catch {
         $originalError = $_
         $rollbackErrors = New-Object System.Collections.Generic.List[string]
 
+        if ($codexConfigWritten) {
+            try { Restore-AiCliFileSnapshot -Path $codexConfigPath -Snapshot $codexConfigSnapshot } catch { $rollbackErrors.Add($_.Exception.Message) }
+        }
         if ($globalStateWritten) {
             try { Restore-AiCliFileSnapshot -Path $paths.GlobalState -Snapshot $globalStateSnapshot } catch { $rollbackErrors.Add($_.Exception.Message) }
         }
@@ -834,34 +1709,92 @@ function Uninstall-AiCliBypass {
         Assert-AiCliGlobalState -State $globalState -Paths $paths
     }
 
-    if ($null -ne $toolState -and [bool]$toolState.InstalledByBypass -and -not $KeepCli) {
-        Uninstall-AiCliPackage -Package $definition.Package
+    # Validate and snapshot every local artifact before changing Codex config or
+    # touching npm. Package removal is the final transaction step.
+    if ((Test-Path -LiteralPath $paths.Wrapper) -and -not (Test-Path -LiteralPath $paths.Wrapper -PathType Leaf)) {
+        throw "Refusing to remove non-file wrapper path '$($paths.Wrapper)'."
     }
+    $wrapperSnapshot = Get-AiCliFileSnapshot -Path $paths.Wrapper
+    $toolStateSnapshot = Get-AiCliFileSnapshot -Path $paths.ToolState
+    $globalStateSnapshot = Get-AiCliFileSnapshot -Path $paths.GlobalState
+    $originalUserPath = Get-AiCliUserPath
+    $originalProcessPath = if ($null -eq $env:Path) { '' } else { $env:Path }
+    $processPathKey = Get-AiCliPathOwnershipKey $paths.Bin
+    $processPathOwnedBefore = $script:AiCliProcessPathOwnership.ContainsKey($processPathKey)
+    $codexConfigSnapshot = $null
+    $codexConfigPath = $null
+    $codexConfigChangeAttempted = $false
+    $wrapperChangeAttempted = $false
+    $toolStateChangeAttempted = $false
+    $pathChangeAttempted = $false
+    $globalStateChangeAttempted = $false
 
-    if (Test-Path -LiteralPath $paths.Wrapper) {
-        if (-not (Test-Path -LiteralPath $paths.Wrapper -PathType Leaf)) {
-            throw "Refusing to remove non-file wrapper path '$($paths.Wrapper)'."
+    try {
+        if ($definition.Tool -eq 'codex' -and $null -ne $toolState -and $null -ne $toolState.PSObject.Properties['CodexConfig']) {
+            $codexConfigPath = Get-AiCliFullPath ([string]$toolState.CodexConfig.Path)
+            $codexConfigSnapshot = Get-AiCliFileSnapshot -Path $codexConfigPath
+            $codexConfigChangeAttempted = $true
+            Restore-AiCliCodexConfig -Backup $toolState.CodexConfig
         }
-        Remove-Item -LiteralPath $paths.Wrapper -Force
-    }
-    if (Test-Path -LiteralPath $paths.ToolState) {
-        if (-not (Test-Path -LiteralPath $paths.ToolState -PathType Leaf)) {
-            throw "Refusing to remove non-file state path '$($paths.ToolState)'."
-        }
-        Remove-Item -LiteralPath $paths.ToolState -Force
-    }
 
-    if (-not (Test-AiCliAnyKnownWrapper -BinDirectory $paths.Bin)) {
-        $removeUserPath = ($null -ne $globalState -and [bool]$globalState.UserPathAddedByBypass)
-        $processPathKey = Get-AiCliPathOwnershipKey $paths.Bin
-        $removeProcessPath = $script:AiCliProcessPathOwnership.ContainsKey($processPathKey)
-        if ($removeUserPath -or $removeProcessPath) {
-            Remove-AiCliPathEntry -Entry $paths.Bin -RemoveUser:$removeUserPath -RemoveProcess:$removeProcessPath
+        if (Test-Path -LiteralPath $paths.Wrapper) {
+            $wrapperChangeAttempted = $true
+            Remove-Item -LiteralPath $paths.Wrapper -Force
         }
-        if (Test-Path -LiteralPath $paths.GlobalState -PathType Leaf) {
-            Remove-Item -LiteralPath $paths.GlobalState -Force
+        if (Test-Path -LiteralPath $paths.ToolState) {
+            $toolStateChangeAttempted = $true
+            Remove-Item -LiteralPath $paths.ToolState -Force
         }
-        Remove-AiCliEmptyDirectories
+
+        if (-not (Test-AiCliAnyKnownWrapper -BinDirectory $paths.Bin)) {
+            $removeUserPath = ($null -ne $globalState -and [bool]$globalState.UserPathAddedByBypass)
+            $removeProcessPath = $script:AiCliProcessPathOwnership.ContainsKey($processPathKey)
+            if ($removeUserPath -or $removeProcessPath) {
+                $pathChangeAttempted = $true
+                Remove-AiCliPathEntry -Entry $paths.Bin -RemoveUser:$removeUserPath -RemoveProcess:$removeProcessPath
+            }
+            if (Test-Path -LiteralPath $paths.GlobalState -PathType Leaf) {
+                $globalStateChangeAttempted = $true
+                Remove-Item -LiteralPath $paths.GlobalState -Force
+            }
+            Remove-AiCliEmptyDirectories
+        }
+
+        if ($null -ne $toolState -and [bool]$toolState.InstalledByBypass -and -not $KeepCli) {
+            Uninstall-AiCliPackage -Package $definition.Package
+        }
+    }
+    catch {
+        $originalError = $_
+        $rollbackErrors = New-Object System.Collections.Generic.List[string]
+
+        if ($globalStateChangeAttempted) {
+            try { Restore-AiCliFileSnapshot -Path $paths.GlobalState -Snapshot $globalStateSnapshot } catch { $rollbackErrors.Add($_.Exception.Message) }
+        }
+        if ($pathChangeAttempted) {
+            try { Set-AiCliUserPath -Value $originalUserPath } catch { $rollbackErrors.Add($_.Exception.Message) }
+            try { $env:Path = $originalProcessPath } catch { $rollbackErrors.Add($_.Exception.Message) }
+            if ($processPathOwnedBefore) {
+                $script:AiCliProcessPathOwnership[$processPathKey] = $true
+            }
+            else {
+                $script:AiCliProcessPathOwnership.Remove($processPathKey)
+            }
+        }
+        if ($toolStateChangeAttempted) {
+            try { Restore-AiCliFileSnapshot -Path $paths.ToolState -Snapshot $toolStateSnapshot } catch { $rollbackErrors.Add($_.Exception.Message) }
+        }
+        if ($wrapperChangeAttempted) {
+            try { Restore-AiCliFileSnapshot -Path $paths.Wrapper -Snapshot $wrapperSnapshot } catch { $rollbackErrors.Add($_.Exception.Message) }
+        }
+        if ($codexConfigChangeAttempted -and $null -ne $codexConfigSnapshot) {
+            try { Restore-AiCliFileSnapshot -Path $codexConfigPath -Snapshot $codexConfigSnapshot } catch { $rollbackErrors.Add($_.Exception.Message) }
+        }
+
+        if ($rollbackErrors.Count -gt 0) {
+            throw "Uninstall failed: $($originalError.Exception.Message) Rollback also failed: $($rollbackErrors -join ' | ')"
+        }
+        throw $originalError
     }
 
     Write-Host "Removed the ai-cli-bypass wrapper for $($definition.Command)."
