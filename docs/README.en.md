@@ -161,6 +161,26 @@ The Linux scripts use tool-specific wrappers. Claude Code additionally uses `LD_
 `-- LICENSE
 ```
 
+## Codex Full Access on Windows
+
+The Codex installer persistently writes the official Full Access settings to
+the active `CODEX_HOME/config.toml`:
+
+```toml
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+```
+
+This makes ordinary `codex` launches use Full Access even when an existing
+PowerShell session resolves npm before the wrapper. Re-running the installer
+detects the existing Codex command, skips npm and core downloads, and repairs
+only bypass-owned files. Uninstall restores the previous settings unless you
+changed them after installation.
+
+> [!WARNING]
+> Full Access disables normal approval and sandbox protections. Use it only in
+> an environment you fully trust.
+
 ## Upstream documentation
 
 - [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code/overview)
