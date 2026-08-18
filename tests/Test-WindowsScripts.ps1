@@ -12,11 +12,14 @@ $script:EnvironmentNames = @(
     'AI_CLI_BYPASS_HOME',
     'AI_CLI_BYPASS_NPM',
     'AI_CLI_BYPASS_USER_PATH_FILE',
+    'CODEX_HOME',
     'FAKE_NPM_PREFIX',
     'FAKE_NPM_LOG',
     'FAKE_NPM_PACKAGE_PRESENT',
     'FAKE_NPM_FAIL_INSTALL',
     'FAKE_NPM_FAIL_UNINSTALL',
+    'FAKE_NPM_RESTORE_SHIM',
+    'FAKE_NPM_RESTORE_SOURCE',
     'FAKE_NPM_STDERR',
     'FAKE_CLI_EXIT',
     'FAKE_CLI_LOG_DIR',
@@ -152,6 +155,7 @@ function New-TestContext {
     $root = Join-Path ([System.IO.Path]::GetTempPath()) $rootName
     $fakeBin = Join-Path $root 'fake npm bin'
     $testHome = Join-Path $root 'local app data\ai-cli-bypass'
+    $codexHome = Join-Path $root 'codex home'
     $prefixName = 'npm prefix {0}' -f $unicodeName
     if ($PercentInPrefix) {
         $prefixName += ' %AI_CLI_UNUSED%'
@@ -162,7 +166,7 @@ function New-TestContext {
     $userPathFile = Join-Path $root 'persisted user path.txt'
     $fakeNpm = Join-Path $fakeBin 'npm.cmd'
 
-    $null = New-Item -ItemType Directory -Path $fakeBin, $testHome, $prefix, $cliLogDirectory -Force
+    $null = New-Item -ItemType Directory -Path $fakeBin, $testHome, $codexHome, $prefix, $cliLogDirectory -Force
     Write-TestText -Path $npmLog -Text '' -Encoding (New-Object System.Text.UTF8Encoding($false))
     Write-TestText -Path $userPathFile -Text 'C:\Existing Tool;C:\Unrelated' -Encoding (New-Object System.Text.UTF8Encoding($false))
 
@@ -172,6 +176,7 @@ setlocal DisableDelayedExpansion
 >>"%FAKE_NPM_LOG%" echo %*
 if /I "%~1"=="list" exit /b %FAKE_NPM_PACKAGE_PRESENT%
 if /I "%~1"=="install" if "%FAKE_NPM_FAIL_INSTALL%"=="1" exit /b 41
+if /I "%~1"=="install" if not "%FAKE_NPM_RESTORE_SHIM%"=="" copy /Y "%FAKE_NPM_RESTORE_SOURCE%" "%FAKE_NPM_RESTORE_SHIM%" >nul
 if /I "%~1"=="uninstall" if "%FAKE_NPM_FAIL_UNINSTALL%"=="1" exit /b 42
 if /I "%~1"=="prefix" echo %FAKE_NPM_PREFIX%
 if "%FAKE_NPM_STDERR%"=="1" >&2 echo npm warning: using cached metadata
@@ -182,23 +187,35 @@ exit /b 0
     foreach ($toolName in $script:ExpectedTools.Keys) {
         $command = $script:ExpectedTools[$toolName].Command
         $shimPath = Join-Path $prefix ($command + '.cmd')
-        $shimContent = @"
-@echo off
-setlocal DisableDelayedExpansion
->>"%FAKE_CLI_LOG_DIR%\$command-args.txt" echo %*
-exit /b %FAKE_CLI_EXIT%
-"@
-        Write-TestText -Path $shimPath -Text ($shimContent -replace "(?<!`r)`n", "`r`n")
+        $shimLines = @(
+            '@echo off'
+            'setlocal DisableDelayedExpansion'
+        )
+        $shimLines += @(
+            ('>>"%FAKE_CLI_LOG_DIR%\' + $command + '-args.txt" echo %*')
+            'exit /b %FAKE_CLI_EXIT%'
+        )
+        if ($toolName -eq 'codex') {
+            # Unreachable, but structurally matches the executable line in npm's Windows shim.
+            $shimLines += 'endLocal & goto #_undefined_# 2>NUL || "%dp0%\node_modules\@openai\codex\bin\codex.js" %*'
+        }
+        Write-TestText -Path $shimPath -Text (($shimLines -join "`r`n") + "`r`n")
     }
+
+    $codexPackageEntry = Join-Path $prefix 'node_modules\@openai\codex\bin\codex.js'
+    Write-TestText -Path $codexPackageEntry -Text '// fake Codex package entry'
 
     Set-ProcessEnvironmentValue 'AI_CLI_BYPASS_HOME' $testHome
     Set-ProcessEnvironmentValue 'AI_CLI_BYPASS_NPM' $fakeNpm
     Set-ProcessEnvironmentValue 'AI_CLI_BYPASS_USER_PATH_FILE' $userPathFile
+    Set-ProcessEnvironmentValue 'CODEX_HOME' $codexHome
     Set-ProcessEnvironmentValue 'FAKE_NPM_PREFIX' $prefix
     Set-ProcessEnvironmentValue 'FAKE_NPM_LOG' $npmLog
     Set-ProcessEnvironmentValue 'FAKE_NPM_PACKAGE_PRESENT' '1'
     Set-ProcessEnvironmentValue 'FAKE_NPM_FAIL_INSTALL' '0'
     Set-ProcessEnvironmentValue 'FAKE_NPM_FAIL_UNINSTALL' '0'
+    Set-ProcessEnvironmentValue 'FAKE_NPM_RESTORE_SHIM' $null
+    Set-ProcessEnvironmentValue 'FAKE_NPM_RESTORE_SOURCE' $null
     Set-ProcessEnvironmentValue 'FAKE_NPM_STDERR' '0'
     Set-ProcessEnvironmentValue 'FAKE_CLI_EXIT' '0'
     Set-ProcessEnvironmentValue 'FAKE_CLI_LOG_DIR' $cliLogDirectory
@@ -213,6 +230,7 @@ exit /b %FAKE_CLI_EXIT%
     return [pscustomobject]@{
         Root = $root
         Home = $testHome
+        CodexHome = $codexHome
         Prefix = $prefix
         FakeNpm = $fakeNpm
         NpmLog = $npmLog
@@ -328,7 +346,11 @@ function Test-AllToolInstalls {
             Assert-True (Test-Path -LiteralPath $paths.GlobalState -PathType Leaf) "Global state missing for $toolName."
 
             $state = Get-JsonFile $paths.ToolState
-            Assert-SequenceEqual @('SchemaVersion', 'Tool', 'Package', 'Command', 'TargetShim', 'WrapperPath', 'Arguments', 'InstalledByBypass') @($state.PSObject.Properties.Name) "Tool state properties for $toolName"
+            $expectedStateProperties = @('SchemaVersion', 'Tool', 'Package', 'Command', 'TargetShim', 'WrapperPath', 'Arguments', 'InstalledByBypass')
+            if ($toolName -eq 'codex') {
+                $expectedStateProperties += 'CodexConfig'
+            }
+            Assert-SequenceEqual $expectedStateProperties @($state.PSObject.Properties.Name) "Tool state properties for $toolName"
             Assert-Equal 1 $state.SchemaVersion "Tool schema for $toolName"
             Assert-Equal $toolName $state.Tool "Tool state name for $toolName"
             Assert-Equal $expected.Package $state.Package "Tool state package for $toolName"
@@ -337,6 +359,10 @@ function Test-AllToolInstalls {
             Assert-Equal ([System.IO.Path]::GetFullPath($paths.Wrapper)) $state.WrapperPath "Wrapper path for $toolName"
             Assert-SequenceEqual @($expected.Argument) @($state.Arguments) "State arguments for $toolName"
             Assert-True ([bool]$state.InstalledByBypass) "Fresh package ownership missing for $toolName."
+            if ($toolName -eq 'codex') {
+                Assert-True ($null -ne $state.CodexConfig) 'Fresh Codex install did not record config ownership.'
+                Assert-Equal ([System.IO.Path]::GetFullPath((Join-Path $context.CodexHome 'config.toml'))) $state.CodexConfig.Path 'Fresh Codex config path mismatch.'
+            }
 
             $globalState = Get-JsonFile $paths.GlobalState
             Assert-SequenceEqual @('SchemaVersion', 'WrapperDirectory', 'UserPathAddedByBypass') @($globalState.PSObject.Properties.Name) "Global state properties for $toolName"
@@ -417,19 +443,477 @@ function Test-PathCharactersAndWrapperValidation {
     }
 }
 
+function Test-CodexFullAccessConfig {
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = "model = `"gpt-test`"`r`n`r`n[features]`r`ngoals = true`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+
+        Install-AiCliBypass -Tool 'codex'
+
+        $after = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        Assert-Equal 1 ([regex]::Matches($after, '(?m)^approval_policy\s*=\s*"never"\s*$')).Count 'approval_policy was not set exactly once.'
+        Assert-Equal 1 ([regex]::Matches($after, '(?m)^sandbox_mode\s*=\s*"danger-full-access"\s*$')).Count 'sandbox_mode was not set exactly once.'
+        Assert-True $after.Contains('model = "gpt-test"') 'Unrelated top-level config changed.'
+        Assert-True $after.Contains("[features]`r`ngoals = true") 'Unrelated table config changed.'
+        Assert-True (-not [regex]::IsMatch($after, "(?<!`r)`n")) 'Config line endings changed.'
+
+        $state = Get-JsonFile (Get-AiCliPaths -Tool 'codex').ToolState
+        Assert-True ($null -ne $state.CodexConfig) 'Codex config ownership was not recorded.'
+        Assert-Equal ([System.IO.Path]::GetFullPath($configPath)) $state.CodexConfig.Path 'Codex config path was not recorded.'
+        Assert-True (-not [bool]$state.CodexConfig.ApprovalPolicy.Present) 'Absent approval_policy was recorded as present.'
+        Assert-True (-not [bool]$state.CodexConfig.SandboxMode.Present) 'Absent sandbox_mode was recorded as present.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-Equal $before ([System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))) 'Uninstall did not remove settings owned by this install.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = ([char]34 + 'approval\u005fpolicy' + [char]34 + ' = ' + [char]34 + 'on-request' + [char]34 + "`r`n" +
+            [char]34 + 'sandbox\u005fmode' + [char]34 + ' = ' + [char]34 + 'workspace-write' + [char]34 + "`r`n" +
+            'Approval_Policy = "leave-me"' + "`r`n" +
+            'Sandbox_Mode = "leave-me"' + "`r`n")
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+
+        Install-AiCliBypass -Tool 'codex'
+        $active = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        Assert-True $active.Contains('"approval\u005fpolicy" = "never"') 'Unicode-escaped approval_policy key was not updated.'
+        Assert-True $active.Contains('"sandbox\u005fmode" = "danger-full-access"') 'Unicode-escaped sandbox_mode key was not updated.'
+        Assert-True $active.Contains('Approval_Policy = "leave-me"') 'Case-distinct approval key was treated as owned.'
+        Assert-True $active.Contains('Sandbox_Mode = "leave-me"') 'Case-distinct sandbox key was treated as owned.'
+        Assert-Equal 0 ([regex]::Matches($active, '(?m)^approval_policy\s*=')).Count 'Escaped approval_policy created a duplicate bare key.'
+        Assert-Equal 0 ([regex]::Matches($active, '(?m)^sandbox_mode\s*=')).Count 'Escaped sandbox_mode created a duplicate bare key.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-Equal $before ([System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))) 'Escaped and case-distinct Codex keys were not restored exactly.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+}
+
+function Test-CodexCommentDelimiterConfigSafety {
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = '# """' + "`r`n" +
+            'model = "gpt-test"' + "`r`n" +
+            '[features]' + "`r`n" +
+            'goals = true' + "`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+
+        Install-AiCliBypass -Tool 'codex'
+
+        $active = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        $approvalIndex = $active.IndexOf('approval_policy = "never"', [StringComparison]::Ordinal)
+        $sandboxIndex = $active.IndexOf('sandbox_mode = "danger-full-access"', [StringComparison]::Ordinal)
+        $tableIndex = $active.IndexOf('[features]', [StringComparison]::Ordinal)
+        Assert-True ($approvalIndex -ge 0 -and $approvalIndex -lt $tableIndex) 'approval_policy was inserted inside or after a table after a comment-only triple quote.'
+        Assert-True ($sandboxIndex -ge 0 -and $sandboxIndex -lt $tableIndex) 'sandbox_mode was inserted inside or after a table after a comment-only triple quote.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-Equal $before ([System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))) 'Comment-delimiter config was not restored byte-for-byte.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+}
+
+function Test-CodexAbsentConfigIsRemoved {
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        Assert-True (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) 'Test context unexpectedly started with a Codex config.'
+
+        Install-AiCliBypass -Tool 'codex'
+        Assert-True (Test-Path -LiteralPath $configPath -PathType Leaf) 'Install did not create the missing Codex config.'
+        $state = Get-JsonFile (Get-AiCliPaths -Tool 'codex').ToolState
+        Assert-True (-not [bool]$state.CodexConfig.ConfigExisted) 'Missing Codex config was recorded as pre-existing.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-True (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) 'Uninstall left a Codex config that was created by the bypass.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexConfigBomIsPreserved {
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = 'model = "gpt-test"' + "`r`n"
+        $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+        Write-TestText -Path $configPath -Text $before -Encoding $utf8Bom
+        $beforeBytes = [System.IO.File]::ReadAllBytes($configPath)
+        Assert-True ($beforeBytes.Length -ge 3 -and $beforeBytes[0] -eq 0xEF -and $beforeBytes[1] -eq 0xBB -and $beforeBytes[2] -eq 0xBF) 'Test config did not contain a UTF-8 BOM.'
+
+        Install-AiCliBypass -Tool 'codex'
+        $activeBytes = [System.IO.File]::ReadAllBytes($configPath)
+        Assert-True ($activeBytes.Length -ge 3 -and $activeBytes[0] -eq 0xEF -and $activeBytes[1] -eq 0xBB -and $activeBytes[2] -eq 0xBF) 'Install dropped the Codex config UTF-8 BOM.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-SequenceEqual $beforeBytes ([System.IO.File]::ReadAllBytes($configPath)) 'Uninstall did not preserve the original BOM and config bytes.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexRejectsUnrelatedExternalShim {
+    $context = New-TestContext
+    try {
+        $externalDirectory = Join-Path $context.Root 'unrelated codex'
+        $null = New-Item -ItemType Directory -Path $externalDirectory -Force
+        $externalShim = Join-Path $externalDirectory 'codex.cmd'
+        $externalPackageEntry = Join-Path $externalDirectory 'node_modules\@openai\codex\bin\codex.js'
+        Write-TestText -Path $externalPackageEntry -Text '// spoofed package entry'
+        Write-TestText -Path $externalShim -Text ("@echo off" + [Environment]::NewLine + "rem node_modules\@openai\codex\bin\codex.js" + [Environment]::NewLine + "exit /b 0" + [Environment]::NewLine)
+
+        # The official-looking fixture remains outside PATH and is found only after npm install.
+        $fakeNpmBin = Split-Path -Parent $context.FakeNpm
+        $systemPath = Join-Path $env:SystemRoot 'System32'
+        Set-ProcessEnvironmentValue 'Path' ($externalDirectory + ';' + $fakeNpmBin + ';' + $systemPath)
+
+        Install-AiCliBypass -Tool 'codex'
+
+        Assert-NpmLogContains $context 'list --global --depth=0 @openai/codex'
+        Assert-NpmLogContains $context 'install --global @openai/codex'
+        $state = Get-JsonFile (Get-AiCliPaths -Tool 'codex').ToolState
+        Assert-Equal ([System.IO.Path]::GetFullPath((Join-Path $context.Prefix 'codex.cmd'))) $state.TargetShim 'Unrelated external codex.cmd was reused instead of the npm shim.'
+        Assert-True (-not [string]::Equals([System.IO.Path]::GetFullPath($externalShim), [System.IO.Path]::GetFullPath([string]$state.TargetShim), [StringComparison]::OrdinalIgnoreCase)) 'Unrelated external codex.cmd was recorded as the target.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexConfigRestoreAndUserChanges {
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = "model = `"gpt-test`"`r`napproval_policy = `"on-request`" # keep me`r`nsandbox_mode = `"workspace-write`"`r`n[features]`r`ngoals = true`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+
+        Install-AiCliBypass -Tool 'codex'
+        $active = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        Assert-True $active.Contains('approval_policy = "never" # keep me') 'Updating approval_policy removed its inline comment.'
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-Equal $before ([System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))) 'Uninstall did not restore original Codex settings.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = "approval_policy = `"on-request`"`r`nsandbox_mode = `"workspace-write`"`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+        Install-AiCliBypass -Tool 'codex'
+
+        $changed = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false))).Replace('approval_policy = "never"', 'approval_policy = "on-request"')
+        [System.IO.File]::WriteAllText($configPath, $changed, (New-Object System.Text.UTF8Encoding($false)))
+        Uninstall-AiCliBypass -Tool 'codex'
+
+        $after = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        Assert-True $after.Contains('approval_policy = "on-request"') 'Uninstall overwrote a user-edited Codex setting.'
+        Assert-True $after.Contains('sandbox_mode = "workspace-write"') 'Uninstall did not restore an unchanged Codex setting.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexConfigRestorePreservesSameValueEdits {
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = "approval_policy = `"on-request`"`r`nsandbox_mode = `"workspace-write`"`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+        Install-AiCliBypass -Tool 'codex'
+
+        $edited = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false))) -replace
+            'approval_policy = "never"', 'approval_policy    = "never" # user formatting'
+        [System.IO.File]::WriteAllText($configPath, $edited, (New-Object System.Text.UTF8Encoding($false)))
+        Uninstall-AiCliBypass -Tool 'codex'
+
+        $after = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        Assert-True $after.Contains('approval_policy    = "never" # user formatting') 'Uninstall removed a same-value user edit to approval_policy.'
+        Assert-True $after.Contains('sandbox_mode = "workspace-write"') 'Uninstall did not restore the untouched sandbox_mode setting.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexConfigConflicts {
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = "approval_policy = `"on-request`"`r`napproval_policy = `"never`"`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+        $beforeBytes = [System.IO.File]::ReadAllBytes($configPath)
+        Assert-Throws { Install-AiCliBypass -Tool 'codex' } 'Duplicate Codex settings must be rejected.' '*duplicate*'
+        Assert-SequenceEqual $beforeBytes ([System.IO.File]::ReadAllBytes($configPath)) 'Duplicate Codex settings changed the config.'
+        Assert-True (-not (Test-Path -LiteralPath (Get-AiCliPaths -Tool 'codex').Wrapper)) 'Duplicate Codex settings left a wrapper.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = "default_permissions = `":workspace`"`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+        $beforeBytes = [System.IO.File]::ReadAllBytes($configPath)
+        Assert-Throws { Install-AiCliBypass -Tool 'codex' } 'default_permissions must not be silently replaced.' '*default_permissions*'
+        Assert-SequenceEqual $beforeBytes ([System.IO.File]::ReadAllBytes($configPath)) 'default_permissions conflict changed the config.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = ([char]34 + 'approval_policy' + [char]34 + ' = ' + [char]34 + 'on-request' + [char]34 + "`r`n" +
+            [char]39 + 'sandbox_mode' + [char]39 + ' = ' + [char]34 + 'workspace-write' + [char]34 + "`r`n")
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+
+        Install-AiCliBypass -Tool 'codex'
+        $active = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        Assert-Equal 1 ([regex]::Matches($active, '(?m)^\s*"approval_policy"\s*=\s*"never"\s*$')).Count 'Quoted approval_policy key was not updated.'
+        Assert-Equal 1 ([regex]::Matches($active, '(?m)^\s*''sandbox_mode''\s*=\s*"danger-full-access"\s*$')).Count 'Literal-quoted sandbox_mode key was not updated.'
+        Assert-Equal 0 ([regex]::Matches($active, '(?m)^\s*approval_policy\s*=')).Count 'Quoted approval_policy created a duplicate bare key.'
+        Assert-Equal 0 ([regex]::Matches($active, '(?m)^\s*sandbox_mode\s*=')).Count 'Quoted sandbox_mode created a duplicate bare key.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-Equal $before ([System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))) 'Quoted Codex keys were not restored exactly.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = 'description = """' + "`r`n" + 'still open' + "`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+        $beforeBytes = [System.IO.File]::ReadAllBytes($configPath)
+
+        Assert-Throws { Install-AiCliBypass -Tool 'codex' } 'An unterminated TOML string must block installation.' '*unterminated*'
+        Assert-SequenceEqual $beforeBytes ([System.IO.File]::ReadAllBytes($configPath)) 'Unterminated TOML changed the config.'
+        Assert-True (-not (Test-Path -LiteralPath (Get-AiCliPaths -Tool 'codex').Wrapper)) 'Unterminated TOML left a wrapper.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexMultilineConfigSafety {
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = "instructions = `"`"`"`r`nsandbox_mode = `"workspace-write`"`r`n`"`"`"`r`nmodel = `"gpt-test`"`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+
+        Install-AiCliBypass -Tool 'codex'
+        $active = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        Assert-True $active.Contains('sandbox_mode = "workspace-write"') 'A multiline string assignment was mistaken for a top-level setting.'
+        Assert-Equal 1 ([regex]::Matches($active, '(?m)^sandbox_mode\s*=\s*"danger-full-access"\s*$')).Count 'Full Access sandbox setting was not inserted outside the multiline string.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-Equal $before ([System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))) 'Multiline Codex config was not restored byte-for-byte.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = 'instructions = """' + "`r`n" +
+            'keep this text # """' + "`r`n" +
+            '[features]' + "`r`n" +
+            'goals = true' + "`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+
+        Install-AiCliBypass -Tool 'codex'
+        $active = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        $sandboxIndex = $active.IndexOf('sandbox_mode = "danger-full-access"', [StringComparison]::Ordinal)
+        $tableIndex = $active.IndexOf('[features]', [StringComparison]::Ordinal)
+        Assert-True ($sandboxIndex -ge 0 -and $sandboxIndex -lt $tableIndex) 'A hash-containing multiline string moved Full Access below the first table.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-Equal $before ([System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))) 'Hash-containing multiline config was not restored exactly.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = 'description = """inline # """' + "`r`n" +
+            '[features]' + "`r`n" +
+            'goals = true' + "`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+
+        Install-AiCliBypass -Tool 'codex'
+        $active = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        $sandboxIndex = $active.IndexOf('sandbox_mode = "danger-full-access"', [StringComparison]::Ordinal)
+        $tableIndex = $active.IndexOf('[features]', [StringComparison]::Ordinal)
+        Assert-True ($sandboxIndex -ge 0 -and $sandboxIndex -lt $tableIndex) 'A same-line hash-containing multiline string moved Full Access below the first table.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-Equal $before ([System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))) 'Same-line multiline Codex config was not restored exactly.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = 'instructions = """' + "`r`n" +
+            'content' + "`r`n" +
+            '""" # """' + "`r`n" +
+            '[features]' + "`r`n" +
+            'goals = true' + "`r`n"
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+
+        Install-AiCliBypass -Tool 'codex'
+        $active = [System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))
+        $sandboxIndex = $active.IndexOf('sandbox_mode = "danger-full-access"', [StringComparison]::Ordinal)
+        $tableIndex = $active.IndexOf('[features]', [StringComparison]::Ordinal)
+        Assert-True ($sandboxIndex -ge 0 -and $sandboxIndex -lt $tableIndex) 'A delimiter in a post-close comment moved Full Access below the first table.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-Equal $before ([System.IO.File]::ReadAllText($configPath, (New-Object System.Text.UTF8Encoding($false)))) 'Post-close comment config was not restored exactly.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexHomeChangeIsRejected {
+    $context = New-TestContext
+    try {
+        Install-AiCliBypass -Tool 'codex'
+        $otherHome = Join-Path $context.Root 'other codex home'
+        $null = New-Item -ItemType Directory -Path $otherHome -Force
+        Set-ProcessEnvironmentValue 'CODEX_HOME' $otherHome
+        Assert-Throws { Install-AiCliBypass -Tool 'codex' } 'Changing CODEX_HOME must not reuse an old config backup.' '*CODEX_HOME changed*'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $otherHome 'config.toml'))) 'A changed CODEX_HOME was modified before rejection.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexExistingTargetSkipsNpm {
+    $context = New-TestContext
+    try {
+        Set-ProcessEnvironmentValue 'Path' ($context.Prefix + ';' + $env:Path)
+        Install-AiCliBypass -Tool 'codex'
+
+        Assert-Equal 0 @(Get-NpmLogLines $context).Count 'An existing Codex shim caused npm operations.'
+        $state = Get-JsonFile (Get-AiCliPaths -Tool 'codex').ToolState
+        Assert-True (-not [bool]$state.InstalledByBypass) 'A discovered Codex package was marked as project-owned.'
+        Assert-Equal ([System.IO.Path]::GetFullPath((Join-Path $context.Prefix 'codex.cmd'))) $state.TargetShim 'Discovered Codex target was not recorded.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexTargetReplacementDoesNotInheritOwnership {
+    $context = New-TestContext
+    try {
+        Install-AiCliBypass -Tool 'codex'
+        $paths = Get-AiCliPaths -Tool 'codex'
+        $oldTarget = Join-Path $context.Prefix 'codex.cmd'
+        $replacementDirectory = Join-Path $context.Root 'replacement npm bin'
+        $replacementTarget = Join-Path $replacementDirectory 'codex.cmd'
+        $null = New-Item -ItemType Directory -Path $replacementDirectory -Force
+        $replacementPackageEntry = Join-Path $replacementDirectory 'node_modules\@openai\codex\bin\codex.js'
+        Write-TestText -Path $replacementPackageEntry -Text '// replacement Codex package entry'
+        [System.IO.File]::WriteAllBytes($replacementTarget, [System.IO.File]::ReadAllBytes($oldTarget))
+        Remove-Item -LiteralPath $oldTarget -Force
+        Set-ProcessEnvironmentValue 'Path' ($replacementDirectory + ';' + $env:Path)
+        [System.IO.File]::WriteAllText($context.NpmLog, '', (New-Object System.Text.UTF8Encoding($false)))
+
+        Install-AiCliBypass -Tool 'codex'
+        $state = Get-JsonFile $paths.ToolState
+        Assert-Equal ([System.IO.Path]::GetFullPath($replacementTarget)) $state.TargetShim 'Replacement Codex target was not selected.'
+        Assert-True (-not [bool]$state.InstalledByBypass) 'Replacement Codex target inherited ownership from the deleted shim.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-True (-not (@(Get-NpmLogLines $context) -contains 'uninstall --global @openai/codex')) 'Uninstall removed a replacement Codex package it did not install.'
+        Assert-True (Test-Path -LiteralPath $replacementTarget -PathType Leaf) 'Uninstall removed the replacement Codex shim.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexRecreatedPackageClaimsOwnership {
+    $context = New-TestContext
+    try {
+        Set-ProcessEnvironmentValue 'FAKE_NPM_PACKAGE_PRESENT' '0'
+        Install-AiCliBypass -Tool 'codex'
+        $paths = Get-AiCliPaths -Tool 'codex'
+        $firstState = Get-JsonFile $paths.ToolState
+        Assert-True (-not [bool]$firstState.InstalledByBypass) 'Pre-existing Codex package was unexpectedly claimed.'
+
+        $target = Join-Path $context.Prefix 'codex.cmd'
+        $restoreSource = Join-Path $context.Root 'saved codex.cmd'
+        [System.IO.File]::WriteAllBytes($restoreSource, [System.IO.File]::ReadAllBytes($target))
+        Remove-Item -LiteralPath $target -Force
+        Set-ProcessEnvironmentValue 'FAKE_NPM_PACKAGE_PRESENT' '1'
+        Set-ProcessEnvironmentValue 'FAKE_NPM_RESTORE_SHIM' $target
+        Set-ProcessEnvironmentValue 'FAKE_NPM_RESTORE_SOURCE' $restoreSource
+        [System.IO.File]::WriteAllText($context.NpmLog, '', (New-Object System.Text.UTF8Encoding($false)))
+
+        Install-AiCliBypass -Tool 'codex'
+        $secondState = Get-JsonFile $paths.ToolState
+        Assert-True ([bool]$secondState.InstalledByBypass) 'A Codex package recreated by this invocation was not claimed.'
+        Assert-NpmLogContains $context 'install --global @openai/codex'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-NpmLogContains $context 'uninstall --global @openai/codex'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
 function Test-Reinstall {
     $context = New-TestContext
     try {
         Install-AiCliBypass -Tool 'codex'
         $paths = Get-AiCliPaths -Tool 'codex'
         $firstState = Get-JsonFile $paths.ToolState
-        Set-ProcessEnvironmentValue 'FAKE_NPM_PACKAGE_PRESENT' '0'
+        $firstConfigState = $firstState.CodexConfig
+        [System.IO.File]::WriteAllText($context.NpmLog, '', (New-Object System.Text.UTF8Encoding($false)))
 
         Install-AiCliBypass -Tool 'codex'
 
         $secondState = Get-JsonFile $paths.ToolState
         Assert-True ([bool]$secondState.InstalledByBypass) 'Reinstall did not preserve original package ownership.'
+        Assert-Equal 0 @(Get-NpmLogLines $context).Count 'Existing Codex reinstall invoked npm.'
         Assert-Equal $firstState.TargetShim $secondState.TargetShim 'Reinstall changed the upstream target unexpectedly.'
+        Assert-Equal ([string]$firstConfigState.ApprovalPolicy.RawLine) ([string]$secondState.CodexConfig.ApprovalPolicy.RawLine) 'Reinstall replaced the original Codex config backup.'
         Assert-True (-not [string]::Equals($secondState.TargetShim, $secondState.WrapperPath, [StringComparison]::OrdinalIgnoreCase)) 'Reinstall created a recursive wrapper.'
         Assert-Equal 1 (Get-NormalizedPathMatchCount ([System.IO.File]::ReadAllText($context.UserPathFile)) $paths.Bin) 'Reinstall duplicated the user PATH entry.'
         Assert-Equal 1 (Get-NormalizedPathMatchCount $env:Path $paths.Bin) 'Reinstall duplicated the process PATH entry.'
@@ -437,11 +921,47 @@ function Test-Reinstall {
         $wrapperBeforeFailure = [System.IO.File]::ReadAllBytes($paths.Wrapper)
         $stateBeforeFailure = [System.IO.File]::ReadAllBytes($paths.ToolState)
         $globalBeforeFailure = [System.IO.File]::ReadAllBytes($paths.GlobalState)
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $configBeforeFailure = [System.IO.File]::ReadAllBytes($configPath)
+        Remove-Item -LiteralPath (Join-Path $context.Prefix 'codex.cmd') -Force
         Set-ProcessEnvironmentValue 'FAKE_NPM_FAIL_INSTALL' '1'
         Assert-Throws { Install-AiCliBypass -Tool 'codex' } 'A failed reinstall must throw.' '*npm*install*'
+        Assert-NpmLogContains $context 'uninstall --global @openai/codex'
         Assert-SequenceEqual $wrapperBeforeFailure ([System.IO.File]::ReadAllBytes($paths.Wrapper)) 'Failed reinstall changed wrapper bytes.'
         Assert-SequenceEqual $stateBeforeFailure ([System.IO.File]::ReadAllBytes($paths.ToolState)) 'Failed reinstall changed tool state bytes.'
         Assert-SequenceEqual $globalBeforeFailure ([System.IO.File]::ReadAllBytes($paths.GlobalState)) 'Failed reinstall changed global state bytes.'
+        Assert-SequenceEqual $configBeforeFailure ([System.IO.File]::ReadAllBytes($configPath)) 'Failed reinstall changed Codex config bytes.'
+
+        [System.IO.File]::WriteAllText($context.NpmLog, '', (New-Object System.Text.UTF8Encoding($false)))
+        Set-ProcessEnvironmentValue 'FAKE_NPM_FAIL_INSTALL' '0'
+        Assert-Throws { Install-AiCliBypass -Tool 'codex' } 'A stale-state reinstall without a recreated shim must throw.' '*shim*'
+        Assert-NpmLogContains $context 'install --global @openai/codex'
+        Assert-NpmLogContains $context 'uninstall --global @openai/codex'
+        Assert-SequenceEqual $wrapperBeforeFailure ([System.IO.File]::ReadAllBytes($paths.Wrapper)) 'Stale-state reinstall changed wrapper bytes.'
+        Assert-SequenceEqual $stateBeforeFailure ([System.IO.File]::ReadAllBytes($paths.ToolState)) 'Stale-state reinstall changed tool state bytes.'
+        Assert-SequenceEqual $globalBeforeFailure ([System.IO.File]::ReadAllBytes($paths.GlobalState)) 'Stale-state reinstall changed global state bytes.'
+        Assert-SequenceEqual $configBeforeFailure ([System.IO.File]::ReadAllBytes($configPath)) 'Stale-state reinstall changed Codex config bytes.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexConfigPreflightBeforeNpmMutation {
+    $context = New-TestContext
+    try {
+        Set-ProcessEnvironmentValue 'FAKE_NPM_PACKAGE_PRESENT' '0'
+        Remove-Item -LiteralPath (Join-Path $context.Prefix 'codex.cmd') -Force
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $before = 'default_permissions = ' + [char]34 + ':workspace' + [char]34 + [Environment]::NewLine
+        Write-TestText -Path $configPath -Text $before -Encoding (New-Object System.Text.UTF8Encoding($false))
+        $beforeBytes = [System.IO.File]::ReadAllBytes($configPath)
+
+        Assert-Throws { Install-AiCliBypass -Tool 'codex' } 'Codex config conflicts must be rejected before npm mutation.' '*default_permissions*'
+        $npmLines = @(Get-NpmLogLines $context)
+        Assert-True (-not ($npmLines -contains 'install --global @openai/codex')) 'A pre-existing Codex package was mutated before config validation.'
+        Assert-SequenceEqual $beforeBytes ([System.IO.File]::ReadAllBytes($configPath)) 'Config preflight changed the conflicting Codex config.'
+        Assert-True (-not (Test-Path -LiteralPath (Get-AiCliPaths -Tool 'codex').Wrapper)) 'Config preflight left a wrapper.'
     }
     finally {
         Remove-TestContext $context
@@ -624,6 +1144,10 @@ function Test-InstallRollback {
         $globalText = '{"SchemaVersion":1,"WrapperDirectory":"' + ($paths.Bin.Replace('\', '\\')) + '","UserPathAddedByBypass":false}'
         [System.IO.File]::WriteAllText($paths.GlobalState, $globalText, (New-Object System.Text.UTF8Encoding($false)))
         $globalBefore = [System.IO.File]::ReadAllBytes($paths.GlobalState)
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $configText = "model = `"gpt-test`"`r`n[features]`r`ngoals = true`r`n"
+        Write-TestText -Path $configPath -Text $configText -Encoding (New-Object System.Text.UTF8Encoding($false))
+        $configBefore = [System.IO.File]::ReadAllBytes($configPath)
         $initialUserPath = [System.IO.File]::ReadAllText($context.UserPathFile)
         $initialProcessPath = $env:Path
         $lock = [System.IO.File]::Open($paths.GlobalState, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
@@ -637,6 +1161,7 @@ function Test-InstallRollback {
         Assert-True (-not (Test-Path -LiteralPath $paths.Wrapper)) 'Late failure left a new wrapper.'
         Assert-True (-not (Test-Path -LiteralPath $paths.ToolState)) 'Late failure left new tool state.'
         Assert-SequenceEqual $globalBefore ([System.IO.File]::ReadAllBytes($paths.GlobalState)) 'Late failure changed prior global state.'
+        Assert-SequenceEqual $configBefore ([System.IO.File]::ReadAllBytes($configPath)) 'Late failure did not restore Codex config bytes.'
         Assert-Equal $initialUserPath ([System.IO.File]::ReadAllText($context.UserPathFile)) 'Late failure did not roll back user PATH.'
         Assert-Equal $initialProcessPath $env:Path 'Late failure did not roll back process PATH.'
         Assert-NpmLogContains $context 'uninstall --global @openai/codex'
@@ -679,6 +1204,74 @@ function Test-FailedUninstallRetry {
         Uninstall-AiCliBypass -Tool 'claude'
         Assert-True (-not (Test-Path -LiteralPath $paths.Wrapper)) 'Retry did not remove wrapper.'
         Assert-True (-not (Test-Path -LiteralPath $paths.ToolState)) 'Retry did not remove state.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexLockedConfigUninstallRetry {
+    $context = New-TestContext
+    try {
+        Install-AiCliBypass -Tool 'codex'
+        $paths = Get-AiCliPaths -Tool 'codex'
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $lock = [System.IO.File]::Open($configPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        try {
+            Assert-Throws { Uninstall-AiCliBypass -Tool 'codex' } 'Locked Codex config must prevent destructive uninstall.' '*'
+        }
+        finally {
+            $lock.Dispose()
+        }
+        $lines = @(Get-NpmLogLines $context)
+        Assert-True (-not ($lines -contains 'uninstall --global @openai/codex')) 'Locked config uninstall removed the npm package before restoring settings.'
+        Assert-True (Test-Path -LiteralPath $paths.Wrapper -PathType Leaf) 'Locked config uninstall removed the retryable wrapper.'
+        Assert-True (Test-Path -LiteralPath $paths.ToolState -PathType Leaf) 'Locked config uninstall removed retryable state.'
+
+        Uninstall-AiCliBypass -Tool 'codex'
+        Assert-NpmLogContains $context 'uninstall --global @openai/codex'
+        Assert-True (-not (Test-Path -LiteralPath $paths.Wrapper)) 'Retry did not remove the Codex wrapper.'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+
+    $context = New-TestContext
+    try {
+        Install-AiCliBypass -Tool 'codex'
+        $paths = Get-AiCliPaths -Tool 'codex'
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $fullAccessBefore = [System.IO.File]::ReadAllBytes($configPath)
+        Set-ProcessEnvironmentValue 'FAKE_NPM_FAIL_UNINSTALL' '1'
+        Assert-Throws { Uninstall-AiCliBypass -Tool 'codex' } 'A failed npm uninstall must roll Codex config back to Full Access.' '*npm*uninstall*'
+        Assert-SequenceEqual $fullAccessBefore ([System.IO.File]::ReadAllBytes($configPath)) 'Failed npm uninstall left Codex in normal mode.'
+        Assert-True (Test-Path -LiteralPath $paths.Wrapper -PathType Leaf) 'Failed npm uninstall removed the wrapper.'
+        Assert-True (Test-Path -LiteralPath $paths.ToolState -PathType Leaf) 'Failed npm uninstall removed state.'
+
+        Set-ProcessEnvironmentValue 'FAKE_NPM_FAIL_UNINSTALL' '0'
+        Uninstall-AiCliBypass -Tool 'codex'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-CodexInvalidWrapperBlocksUninstall {
+    $context = New-TestContext
+    try {
+        Install-AiCliBypass -Tool 'codex'
+        $paths = Get-AiCliPaths -Tool 'codex'
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $fullAccessBefore = [System.IO.File]::ReadAllBytes($configPath)
+        Remove-Item -LiteralPath $paths.Wrapper -Force
+        $null = New-Item -ItemType Directory -Path $paths.Wrapper -Force
+        [System.IO.File]::WriteAllText($context.NpmLog, '', (New-Object System.Text.UTF8Encoding($false)))
+
+        Assert-Throws { Uninstall-AiCliBypass -Tool 'codex' } 'A non-file wrapper must be rejected before destructive uninstall work.' '*non-file wrapper*'
+
+        Assert-Equal 0 @(Get-NpmLogLines $context).Count 'Invalid wrapper path allowed npm uninstall to run.'
+        Assert-SequenceEqual $fullAccessBefore ([System.IO.File]::ReadAllBytes($configPath)) 'Invalid wrapper path changed the Codex Full Access config.'
+        Assert-True (Test-Path -LiteralPath $paths.ToolState -PathType Leaf) 'Invalid wrapper path removed retryable state.'
     }
     finally {
         Remove-TestContext $context
@@ -760,7 +1353,13 @@ function Invoke-RestMethod {
     return [System.IO.File]::ReadAllText($env:FAKE_REMOTE_CORE)
 }
 $entryText = [System.IO.File]::ReadAllText($env:FAKE_REMOTE_ENTRY)
-Invoke-Expression $entryText
+try {
+    Invoke-Expression $entryText
+    exit 0
+}
+catch {
+    exit 77
+}
 '@
         [System.IO.File]::WriteAllText($runner, $runnerContent, (New-Object System.Text.UTF8Encoding($false)))
         & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $runner *> $null
@@ -769,6 +1368,88 @@ Invoke-Expression $entryText
 
         $urls = @([System.IO.File]::ReadAllLines($urlLog) | Where-Object { $_ -ne '' })
         Assert-SequenceEqual @($script:ExpectedRemoteUrl) $urls 'Remote bootstrap URL calls'
+
+        $paths = Get-AiCliPaths -Tool 'codex'
+        Assert-True (Test-Path -LiteralPath $paths.Wrapper -PathType Leaf) 'Initial remote bootstrap did not create the Codex wrapper.'
+        Remove-Item -LiteralPath $paths.Wrapper -Force
+        Assert-True (-not (Test-Path -LiteralPath $paths.Wrapper -PathType Leaf)) 'Remote wrapper repair fixture still had the wrapper.'
+        [System.IO.File]::WriteAllText($context.NpmLog, '', (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($urlLog, '', (New-Object System.Text.UTF8Encoding($false)))
+        & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $runner *> $null
+        Assert-Equal 0 $LASTEXITCODE 'Remote bootstrap wrapper repair runner failed.'
+        Assert-Equal 0 @(Get-NpmLogLines $context).Count 'Remote bootstrap wrapper repair invoked npm.'
+        Assert-SequenceEqual @($script:ExpectedRemoteUrl) @([System.IO.File]::ReadAllLines($urlLog) | Where-Object { $_ -ne '' }) 'Remote bootstrap wrapper repair URL calls'
+        Assert-True (Test-Path -LiteralPath $paths.Wrapper -PathType Leaf) 'Remote bootstrap did not recreate a deleted Codex wrapper.'
+
+        [System.IO.File]::WriteAllText($context.NpmLog, '', (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($urlLog, '', (New-Object System.Text.UTF8Encoding($false)))
+        & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $runner *> $null
+        Assert-Equal 0 $LASTEXITCODE 'Repeated remote bootstrap runner failed.'
+        Assert-Equal 0 @(Get-NpmLogLines $context).Count 'Repeated remote bootstrap invoked npm.'
+        Assert-Equal 0 @([System.IO.File]::ReadAllLines($urlLog) | Where-Object { $_ -ne '' }).Count 'Repeated remote bootstrap downloaded the core.'
+
+        $escapedConfig = '"approval\u005fpolicy" = "never"' + "`r`n" +
+            '"sandbox\u005fmode" = "danger-full-access"' + "`r`n"
+        [System.IO.File]::WriteAllText((Join-Path $context.CodexHome 'config.toml'), $escapedConfig, (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($context.NpmLog, '', (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($urlLog, '', (New-Object System.Text.UTF8Encoding($false)))
+        & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $runner *> $null
+        Assert-Equal 0 $LASTEXITCODE 'Remote bootstrap rejected escaped Full Access keys.'
+        Assert-Equal 0 @(Get-NpmLogLines $context).Count 'Escaped Full Access preflight invoked npm.'
+        Assert-Equal 0 @([System.IO.File]::ReadAllLines($urlLog) | Where-Object { $_ -ne '' }).Count 'Escaped Full Access preflight downloaded the core.'
+
+        $statePath = (Get-AiCliPaths -Tool 'codex').ToolState
+        [System.IO.File]::WriteAllText($statePath, '{not-json', (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($context.NpmLog, '', (New-Object System.Text.UTF8Encoding($false)))
+        [System.IO.File]::WriteAllText($urlLog, '', (New-Object System.Text.UTF8Encoding($false)))
+        & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $runner *> $null
+        Assert-True ($LASTEXITCODE -ne 0) 'Remote bootstrap ignored malformed Codex state.'
+        Assert-SequenceEqual @($script:ExpectedRemoteUrl) @([System.IO.File]::ReadAllLines($urlLog) | Where-Object { $_ -ne '' }) 'Malformed-state remote bootstrap URL calls'
+    }
+    finally {
+        Remove-TestContext $context
+    }
+}
+
+function Test-RemotePreflightRejectsPermissionConflicts {
+    $context = New-TestContext
+    try {
+        $entryPoint = Join-Path $script:RepositoryRoot 'install-codex-windows.ps1'
+        $entryTextPath = Join-Path $context.Root 'downloaded entry point.ps1'
+        $urlLog = Join-Path $context.Root 'remote conflict URL.log'
+        $configPath = Join-Path $context.CodexHome 'config.toml'
+        $conflicting = "approval_policy = `"never`"`r`n" +
+            "sandbox_mode = `"danger-full-access`"`r`n" +
+            "default_permissions = `":danger-full-access`"`r`n"
+        Write-TestText -Path $configPath -Text $conflicting -Encoding (New-Object System.Text.UTF8Encoding($false))
+        $before = [System.IO.File]::ReadAllBytes($configPath)
+        [System.IO.File]::WriteAllText($entryTextPath, [System.IO.File]::ReadAllText($entryPoint), (New-Object System.Text.UTF8Encoding($false)))
+        Set-ProcessEnvironmentValue 'FAKE_REMOTE_CORE' $script:CorePath
+        Set-ProcessEnvironmentValue 'FAKE_REMOTE_ENTRY' $entryTextPath
+        Set-ProcessEnvironmentValue 'FAKE_REMOTE_URL_LOG' $urlLog
+
+        $runner = Join-Path $context.Root 'remote conflict runner.ps1'
+        $runnerContent = @'
+$ErrorActionPreference = 'Stop'
+function Invoke-RestMethod {
+    param([string]$Uri, [switch]$UseBasicParsing)
+    [System.IO.File]::AppendAllText($env:FAKE_REMOTE_URL_LOG, $Uri + [Environment]::NewLine)
+    return [System.IO.File]::ReadAllText($env:FAKE_REMOTE_CORE)
+}
+$entryText = [System.IO.File]::ReadAllText($env:FAKE_REMOTE_ENTRY)
+try {
+    Invoke-Expression $entryText
+    exit 0
+}
+catch {
+    exit 77
+}
+'@
+        [System.IO.File]::WriteAllText($runner, $runnerContent, (New-Object System.Text.UTF8Encoding($false)))
+        & $script:PowerShellExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $runner *> $null
+        Assert-True ($LASTEXITCODE -ne 0) 'Remote preflight accepted conflicting permission formats.'
+        Assert-SequenceEqual @($script:ExpectedRemoteUrl) @([System.IO.File]::ReadAllLines($urlLog) | Where-Object { $_ -ne '' }) 'Remote conflict preflight URL calls'
+        Assert-SequenceEqual $before ([System.IO.File]::ReadAllBytes($configPath)) 'Conflict rejection changed the Codex config.'
     }
     finally {
         Remove-TestContext $context
@@ -798,7 +1479,20 @@ Invoke-Test 'tool definitions are exact' { Test-ToolDefinitions }
 Invoke-Test 'installs all tool wrappers' { Test-AllToolInstalls }
 Invoke-Test 'wrapper preserves arguments and exit code' { Test-WrapperForwarding }
 Invoke-Test 'paths and wrapper target validation are safe' { Test-PathCharactersAndWrapperValidation }
+Invoke-Test 'Codex persists Full Access settings' { Test-CodexFullAccessConfig }
+Invoke-Test 'Codex ignores comment-only triple delimiters' { Test-CodexCommentDelimiterConfigSafety }
+Invoke-Test 'Codex removes a config it created' { Test-CodexAbsentConfigIsRemoved }
+Invoke-Test 'Codex preserves UTF-8 config BOMs' { Test-CodexConfigBomIsPreserved }
+Invoke-Test 'Codex restores settings and respects user changes' { Test-CodexConfigRestoreAndUserChanges }
+Invoke-Test 'Codex preserves same-value config edits' { Test-CodexConfigRestorePreservesSameValueEdits }
+Invoke-Test 'Codex rejects ambiguous permission settings' { Test-CodexConfigConflicts }
+Invoke-Test 'Codex protects multiline config and home ownership' { Test-CodexMultilineConfigSafety; Test-CodexHomeChangeIsRejected }
+Invoke-Test 'existing Codex target skips npm' { Test-CodexExistingTargetSkipsNpm }
+Invoke-Test 'replacement Codex targets do not inherit ownership' { Test-CodexTargetReplacementDoesNotInheritOwnership }
+Invoke-Test 'recreated Codex packages become owned' { Test-CodexRecreatedPackageClaimsOwnership }
+Invoke-Test 'Codex rejects unrelated external shims' { Test-CodexRejectsUnrelatedExternalShim }
 Invoke-Test 'reinstall is idempotent and failure-safe' { Test-Reinstall }
+Invoke-Test 'Codex config preflight precedes npm mutation' { Test-CodexConfigPreflightBeforeNpmMutation }
 Invoke-Test 'npm stderr warnings do not fail successful commands' { Test-NpmStderrWarning }
 Invoke-Test 'uninstall reverses owned package' { Test-OwnedPackageUninstall }
 Invoke-Test 'uninstall keeps pre-existing package' { Test-ExistingPackageUninstall }
@@ -808,9 +1502,12 @@ Invoke-Test 'missing npm fails without state' { Test-MissingNpm }
 Invoke-Test 'npm and late failures roll back' { Test-InstallRollback }
 Invoke-Test 'missing shim rolls back' { Test-MissingShimRollback }
 Invoke-Test 'failed uninstall remains retryable' { Test-FailedUninstallRetry }
+Invoke-Test 'locked Codex config uninstall remains retryable' { Test-CodexLockedConfigUninstallRetry }
+Invoke-Test 'invalid Codex wrapper blocks destructive uninstall work' { Test-CodexInvalidWrapperBlocksUninstall }
 Invoke-Test 'repeated and missing-state uninstall succeeds' { Test-RepeatedUninstall }
 Invoke-Test 'local entry points select the correct action' { Test-LocalEntryPoints }
-Invoke-Test 'remote bootstrap uses the exact URL without network' { Test-RemoteBootstrap }
+Invoke-Test 'remote bootstrap repairs wrappers and avoids repeat work' { Test-RemoteBootstrap }
+Invoke-Test 'remote preflight rejects conflicting permission formats' { Test-RemotePreflightRejectsPermissionConflicts }
 Invoke-Test 'tests isolate real npm and user PATH' { Test-DependencyIsolation }
 
 Assert-Equal $script:RealUserPathBefore ([Environment]::GetEnvironmentVariable('Path', 'User')) 'The suite changed the real user PATH.'

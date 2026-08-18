@@ -69,6 +69,11 @@ foreach ($readmePath in $script:Readmes) {
     foreach ($name in $script:WindowsScripts + $script:LinuxScripts + $script:Packages + $script:Arguments) {
         Assert-Documentation ($readme.Contains($name)) "'$name' is missing in $readmePath"
     }
+    foreach ($name in @('approval_policy', 'sandbox_mode', 'danger-full-access')) {
+        Assert-Documentation ($readme.Contains($name)) "Codex Full Access setting '$name' is missing in $readmePath"
+    }
+    Assert-Documentation ($readme -match '(?i)persistent|persist|持久|持續') "Persistent Codex configuration is not documented in $readmePath"
+    Assert-Documentation ($readme -match '(?i)skips?\s+npm|npm.*skip|跳過.*npm|略過.*npm') "The repeat-install npm fast path is not documented in $readmePath"
     Assert-LinksResolve -Path $readmePath -Text $readme
 }
 
