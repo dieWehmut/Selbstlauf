@@ -127,6 +127,30 @@ test('detectProcessTool recognizes configured executable names exactly', () => {
   );
 });
 
+test('detectProcessTool accepts slash-separated package paths and rejects near misses', () => {
+  const base = {
+    pid: 401,
+    parentPid: 100,
+    name: 'node.exe',
+    executablePath: 'C:\\Program Files\\nodejs\\node.exe',
+    creationTimeMs: Date.UTC(2026, 7, 19),
+    userSid: currentUserSid,
+  };
+
+  assert.equal(
+    detectProcessTool({ ...base, commandLine: 'node C:/tools/@openai/codex/bin/runner.js' }),
+    'codex',
+  );
+  assert.equal(
+    detectProcessTool({ ...base, commandLine: 'node C:/tools/codexXjs' }),
+    null,
+  );
+  assert.equal(
+    detectProcessTool({ ...base, commandLine: 'node C:/tools/notclaude-code/cli.js' }),
+    null,
+  );
+});
+
 test('parseWindowsProcessJson converts DMTF dates to epoch milliseconds', () => {
   const [record] = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture[1]));
 

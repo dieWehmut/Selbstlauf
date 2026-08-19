@@ -58,10 +58,18 @@ function configuredNameMatches(
   });
 }
 
-function containsScriptToken(commandLine: string, scriptName: string): boolean {
-  const command = lower(commandLine);
-  const token = lower(scriptName);
-  return new RegExp(`(?:^|[\\\\/\\s"'])${token}(?:$|[\\\\/\\s"'])`, 'u').test(command);
+function containsPathToken(commandLine: string, token: string): boolean {
+  const command = lower(commandLine).replaceAll('\\', '/');
+  const normalizedToken = lower(token).replaceAll('\\', '/');
+  const escapedToken = normalizedToken.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return new RegExp(`(?:^|[\\s"'/])${escapedToken}(?:$|[\\s"'/])`, 'u').test(command);
+}
+
+function containsPackageToken(commandLine: string, packageName: string): boolean {
+  const command = lower(commandLine).replaceAll('\\', '/');
+  const normalizedPackage = lower(packageName).replaceAll('\\', '/');
+  const escapedPackage = normalizedPackage.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return new RegExp(`(?:^|[\\s"'/])${escapedPackage}(?:$|[\\s"'/])`, 'u').test(command);
 }
 
 /** Return a tool only when the process has one unambiguous known signature. */
@@ -77,12 +85,12 @@ export function detectProcessTool(
 
   const isClaude =
     configuredNameMatches(record, claudeNames) ||
-    commandLine.includes('claude-code') ||
-    containsScriptToken(commandLine, 'claude.ps1');
+    containsPackageToken(commandLine, 'claude-code') ||
+    containsPathToken(commandLine, 'claude.ps1');
   const isCodex =
     configuredNameMatches(record, codexNames) ||
-    commandLine.includes('@openai\\codex') ||
-    containsScriptToken(commandLine, 'codex.js') ||
+    containsPackageToken(commandLine, '@openai/codex') ||
+    containsPathToken(commandLine, 'codex.js') ||
     processName === 'codex.exe' ||
     executableName === 'codex.exe';
 
