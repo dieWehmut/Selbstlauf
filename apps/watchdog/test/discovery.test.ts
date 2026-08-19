@@ -54,6 +54,26 @@ test('groupProcesses fails closed when same-user grouping has no current SID', (
   assert.throws(() => groupProcesses(records, {}), /currentUserSid/);
 });
 
+test('groupProcesses derives the current SID from the watchdog process record', () => {
+  const records = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture));
+  const baseRecord = records[0];
+  assert.ok(baseRecord);
+  const watchdogRecord = {
+    ...baseRecord,
+    pid: 424_242,
+    name: 'node.exe',
+    commandLine: 'node.exe watchdog.js',
+  };
+
+  const sessions = groupProcesses(
+    [...records, watchdogRecord],
+    { currentProcessId: 424_242 },
+  );
+
+  assert.equal(sessions.length, 3);
+  assert.ok(sessions.every((session) => session.userSid === currentUserSid));
+});
+
 test('groupProcesses keeps an orphan native process as a separate unknown session', () => {
   const records = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture));
   const native = records.find((record) => record.pid === 211);
