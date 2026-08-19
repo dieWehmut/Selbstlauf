@@ -2,3 +2,6 @@
 *.o
 *.c
 /tmp/
+/node_modules/
+**/node_modules/
+/apps/*/dist/
