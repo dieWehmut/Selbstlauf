@@ -10,6 +10,8 @@ export interface ProcessNameOptions {
 export interface GroupProcessesOptions extends ProcessNameOptions {
   /** Required when same-user filtering is enabled, unless supplied by the caller. */
   readonly currentUserSid?: string;
+  /** Override the watchdog PID in tests or when discovery runs in a host process. */
+  readonly currentProcessId?: number;
   readonly sameUserOnly?: boolean;
 }
 
@@ -116,7 +118,9 @@ export function groupProcesses(
   options: GroupProcessesOptions = {},
 ): DiscoveredProcessSession[] {
   const sameUserOnly = options.sameUserOnly ?? true;
-  const currentUserSid = options.currentUserSid?.trim();
+  const currentProcessId = options.currentProcessId ?? process.pid;
+  const currentUserSid = options.currentUserSid?.trim() ??
+    records.find((record) => record.pid === currentProcessId)?.userSid?.trim();
   if (sameUserOnly && !currentUserSid) {
     throw new Error('currentUserSid is required when sameUserOnly is enabled');
   }
@@ -188,4 +192,3 @@ export function groupProcesses(
     }))
     .sort(compareSessions);
 }
-
