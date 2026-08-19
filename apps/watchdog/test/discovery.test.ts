@@ -1,0 +1,167 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import {
+  WindowsProcessProvider,
+  parseWindowsProcessJson,
+} from '../src/process/process-provider.js';
+import {
+  detectProcessTool,
+  groupProcesses,
+} from '../src/process/discovery.js';
+import {
+  currentUserSid,
+  windowsProcessFixture,
+} from './fixtures/windows-processes.js';
+
+test('groupProcesses attaches each native Codex child to its Node root', () => {
+  const records = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture));
+
+  const sessions = groupProcesses(records, { currentUserSid });
+
+  assert.deepEqual(
+    sessions.map(({ tool, rootPid, childPids }) => ({ tool, rootPid, childPids })),
+    [
+      { tool: 'claude', rootPid: 110, childPids: [] },
+      { tool: 'codex', rootPid: 210, childPids: [211] },
+      { tool: 'codex', rootPid: 220, childPids: [221] },
+    ],
+  );
+  assert.ok(sessions.every((session) => session.transportHint === 'unknown'));
+});
+
+test('groupProcesses excludes matching records owned by a different user', () => {
+  const records = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture));
+
+  const sessions = groupProcesses(records, { currentUserSid });
+
+  assert.equal(sessions.length, 3);
+  assert.ok(sessions.every((session) => session.userSid === currentUserSid));
+  assert.ok(sessions.every((session) => session.rootPid !== 310));
+});
+
+test('groupProcesses can include matching records from every user explicitly', () => {
+  const records = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture));
+
+  const sessions = groupProcesses(records, { sameUserOnly: false });
+
+  assert.deepEqual(sessions.map((session) => session.rootPid), [110, 210, 220, 310]);
+});
+
+test('groupProcesses fails closed when same-user grouping has no current SID', () => {
+  const records = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture));
+
+  assert.throws(() => groupProcesses(records, {}), /currentUserSid/);
+});
+
+test('groupProcesses keeps an orphan native process as a separate unknown session', () => {
+  const records = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture));
+  const native = records.find((record) => record.pid === 211);
+  assert.ok(native);
+
+  const sessions = groupProcesses(
+    [{ ...native, parentPid: 9_999 }],
+    { currentUserSid },
+  );
+
+  assert.deepEqual(sessions, [
+    {
+      tool: 'codex',
+      rootPid: 211,
+      childPids: [],
+      commandLine: native.commandLine,
+      executablePath: native.executablePath,
+      creationTimeMs: native.creationTimeMs,
+      userSid: currentUserSid,
+      transportHint: 'unknown',
+    },
+  ]);
+});
+
+test('detectProcessTool recognizes configured executable names exactly', () => {
+  const record = {
+    pid: 400,
+    parentPid: 100,
+    name: 'team-agent.exe',
+    commandLine: '"C:\\Tools\\team-agent.exe" --interactive',
+    executablePath: 'C:\\Tools\\team-agent.exe',
+    creationTimeMs: Date.UTC(2026, 7, 19),
+    userSid: currentUserSid,
+  };
+
+  assert.equal(
+    detectProcessTool(record, { claudeExecutableNames: ['team-agent.exe'] }),
+    'claude',
+  );
+  assert.equal(
+    detectProcessTool(
+      {
+        ...record,
+        name: 'team-agent-helper.exe',
+        commandLine: '"C:\\Tools\\team-agent-helper.exe" --interactive',
+        executablePath: 'C:\\Tools\\team-agent-helper.exe',
+      },
+      { claudeExecutableNames: ['team-agent.exe'] },
+    ),
+    null,
+  );
+});
+
+test('parseWindowsProcessJson converts DMTF dates to epoch milliseconds', () => {
+  const [record] = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture[1]));
+
+  assert.ok(record);
+  assert.equal(record.creationTimeMs, Date.parse('2026-08-19T15:00:00.000Z'));
+});
+
+test('parseWindowsProcessJson rejects malformed process fields', () => {
+  const malformed = { ...windowsProcessFixture[1], pid: '110' };
+
+  assert.throws(() => parseWindowsProcessJson(JSON.stringify(malformed)), /pid/);
+});
+
+test('WindowsProcessProvider invokes PowerShell non-interactively and parses one document', async () => {
+  const calls: Array<{ executable: string; args: readonly string[] }> = [];
+  const provider = new WindowsProcessProvider({
+    powershellPath: 'fixture-powershell.exe',
+    scriptPath: 'C:\\watchdog\\windows-processes.ps1',
+    runCommand: async (executable, args) => {
+      calls.push({ executable, args: [...args] });
+      return JSON.stringify([windowsProcessFixture[1]]);
+    },
+  });
+
+  const records = await provider.listProcesses();
+
+  assert.deepEqual(calls, [
+    {
+      executable: 'fixture-powershell.exe',
+      args: [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        'C:\\watchdog\\windows-processes.ps1',
+      ],
+    },
+  ]);
+  assert.equal(records[0]?.pid, 110);
+});
+
+test('WindowsProcessProvider forwards configured executable names to the provider', async () => {
+  let receivedArgs: readonly string[] = [];
+  const provider = new WindowsProcessProvider({
+    scriptPath: 'C:\\watchdog\\windows-processes.ps1',
+    includeExecutableNames: ['team-agent.exe'],
+    runCommand: async (_executable, args) => {
+      receivedArgs = [...args];
+      return '[]';
+    },
+  });
+
+  await provider.listProcesses();
+
+  assert.deepEqual(receivedArgs.slice(-2), ['-IncludeExecutableName', 'team-agent.exe']);
+});
