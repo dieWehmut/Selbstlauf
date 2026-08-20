@@ -91,6 +91,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 0 13px; border: 1px solid var(--line); color: var(--text); background: var(--panel-raised); font-size: 12px; font-weight: 700; }
 .button:hover { border-color: var(--line-strong); }
 .button--primary { border-color: #80612a; color: #241b0e; background: var(--accent); }
+.button--start { border-color: color-mix(in srgb, var(--green) 48%, var(--line)); color: var(--green); background: color-mix(in srgb, var(--green) 8%, transparent); }
 .button--stop { border-color: #6b3c37; color: var(--red); background: transparent; }
 .button--danger { border-color: #6b3c37; color: var(--red); background: transparent; }
 .mode-badge, .capability { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -167,7 +168,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; background: var(--muted); transition: transform .18s ease, background .18s ease; }
 .switch input:checked + span { border-color: #80612a; background: color-mix(in srgb, var(--accent) 25%, var(--panel)); }
 .switch input:checked + span::after { transform: translateX(16px); background: var(--accent); }
-.settings-actions { grid-column: 1 / -1; justify-content: space-between; gap: 12px; }
+.settings-actions { grid-column: 1 / -1; justify-content: flex-end; gap: 12px; }
+.settings-actions .button--primary { margin-right: auto; }
 .spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .mobile-overlay { display: none; }
@@ -187,8 +189,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 @media (max-width: 700px) {
   .workspace { padding: 0 15px 32px; }
   .topbar { min-height: 82px; align-items: center; }
-  .topbar__actions .button--stop { width: 36px; padding: 0; font-size: 0; }
-  .topbar__actions .button--stop svg { margin: 0; }
+  .topbar__actions .button--stop, .topbar__actions .button--start { width: 36px; padding: 0; font-size: 0; }
+  .topbar__actions .button--stop svg, .topbar__actions .button--start svg { margin: 0; }
   .metric-strip { grid-template-columns: 1fr 1fr; margin-top: 18px; }
   .metric-strip > div { min-height: 78px; padding: 14px; }
   .metric-strip strong { margin-top: 7px; font-size: 21px; }
@@ -205,6 +207,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .session-card code { max-width: 100%; }
   .settings-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 18px; }
   .settings-actions { grid-column: auto; align-items: stretch; flex-direction: column; }
+  .settings-actions .button--primary { margin-right: 0; }
   .settings-actions .button { width: 100%; }
   .field-grid { gap: 10px; }
 }

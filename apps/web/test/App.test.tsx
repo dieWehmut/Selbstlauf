@@ -27,6 +27,12 @@ function api(): WatchdogApi {
   };
 }
 
+function stoppedApi(): WatchdogApi {
+  const fake = api();
+  fake.health = vi.fn(async () => ({ ok: true, running: false, dryRun: true }));
+  return fake;
+}
+
 describe('watchdog dashboard', () => {
   it('renders independent PIDs and goal/non-goal prompts', async () => {
     render(<App api={api()} />);
@@ -58,6 +64,29 @@ describe('watchdog dashboard', () => {
     fireEvent.change(claude, { target: { value: '继续工作' } });
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
     await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({ tools: expect.objectContaining({ claude: expect.objectContaining({ normalPrompt: '继续工作' }) }) })));
+  });
+
+  it('stops and restarts the watchdog from the local controls', async () => {
+    const running = api();
+    const first = render(<App api={running} />);
+    fireEvent.click(await screen.findByRole('button', { name: '紧急停止' }));
+    await waitFor(() => expect(running.stop).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('button', { name: '启动 Watchdog' })).toBeInTheDocument();
+    first.unmount();
+
+    const stopped = stoppedApi();
+    const second = render(<App api={stopped} />);
+    fireEvent.click(await screen.findByRole('button', { name: '启动 Watchdog' }));
+    await waitFor(() => expect(stopped.start).toHaveBeenCalledTimes(1));
+    second.unmount();
+  });
+
+  it('offers lifecycle and uninstall controls in settings', async () => {
+    const fake = stoppedApi();
+    render(<App api={fake} />);
+    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    expect((await screen.findAllByRole('button', { name: '启动 Watchdog' })).length).toBe(2);
+    expect(screen.getByRole('button', { name: '卸载 Watchdog' })).toBeInTheDocument();
   });
 
   it('locks the page while the mobile drawer is open and closes it with Escape', async () => {
