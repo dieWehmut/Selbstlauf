@@ -13,9 +13,9 @@ function api(): WatchdogApi {
     }, processFilters: { sameUserOnly: true, include: [], exclude: [] },
   } as const;
   const sessions = [
-    { id: 'goal', tool: 'codex' as const, rootPid: 10, childPids: [], conversationId: 'goal-1', goal: { status: 'paused' }, transport: 'codex-app-server' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 120_000, pendingPrompt: '/goal resume' },
-    { id: 'normal', tool: 'claude' as const, rootPid: 11, childPids: [], conversationId: null, goal: null, transport: 'classic-console' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 4_000, pendingPrompt: '请继续' },
-    { id: 'limited', tool: 'codex' as const, rootPid: 12, childPids: [], conversationId: null, goal: null, transport: 'monitor-only' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 150_000, pendingPrompt: '继续' },
+    { id: 'goal', tool: 'codex' as const, rootPid: 10, childPids: [], conversationId: 'goal-1', goal: { status: 'paused' }, transport: 'codex-app-server' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 120_000, pendingPrompt: '/goal resume', lastDecision: 'awaiting-quiet-period' },
+    { id: 'normal', tool: 'claude' as const, rootPid: 11, childPids: [], conversationId: null, goal: null, transport: 'classic-console' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 4_000, pendingPrompt: '请继续', lastDecision: 'output-observed' },
+    { id: 'limited', tool: 'codex' as const, rootPid: 12, childPids: [], conversationId: null, goal: null, transport: 'monitor-only' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 150_000, pendingPrompt: '继续', lastDecision: 'cannot-inject' },
   ];
   return {
     health: vi.fn(async () => ({ ok: true, running: true, dryRun: true })),
@@ -30,10 +30,13 @@ function api(): WatchdogApi {
 describe('watchdog dashboard', () => {
   it('renders independent PIDs and goal/non-goal prompts', async () => {
     render(<App api={api()} />);
+    expect(screen.getByText('Selbstlauf')).toBeInTheDocument();
     expect((await screen.findAllByText('PID 10')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('/goal resume').length).toBeGreaterThan(0);
     expect(screen.getAllByText('请继续').length).toBeGreaterThan(0);
     expect(screen.getAllByText('仅监控').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('等待静默').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('输出活跃').length).toBeGreaterThan(0);
   });
 
   it('disables injection for monitor-only sessions and calls pause/inject controls', async () => {
