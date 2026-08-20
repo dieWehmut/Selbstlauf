@@ -197,8 +197,8 @@ Pushes to `main`, `feature/continuation-watchdog`, or
 uses local sample data and never connects to or injects input into local CLI
 processes.
 
-The project-site URL is normally
-`https://diewehmut.github.io/ai-cli-bypass/`; use the deployment URL reported
+The project-site URL is
+`https://diewehmut.github.io/Selbstlauf/`; use the deployment URL reported
 by the Actions run after Pages is enabled.
 
 ## 上游文档
