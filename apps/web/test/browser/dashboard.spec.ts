@@ -10,6 +10,11 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await expect(page.locator('.process-table-wrap')).toBeVisible();
     await expect(page.locator('.session-cards')).toBeHidden();
     await expect(page.locator('.process-table tbody tr')).toHaveCount(3);
+    await expect(page.getByRole('button', { name: '紧急停止' })).toBeVisible();
+    await page.getByRole('button', { name: '紧急停止' }).click();
+    await expect(page.getByRole('button', { name: '启动 Watchdog' })).toBeVisible();
+    await page.getByRole('button', { name: '启动 Watchdog' }).click();
+    await expect(page.getByRole('button', { name: '紧急停止' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 
     await page.screenshot({ path: testInfo.outputPath('desktop-1440x900.png'), fullPage: true });
@@ -22,6 +27,11 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await expect(page.locator('.process-table-wrap')).toBeHidden();
     await expect(page.locator('.session-cards')).toBeVisible();
     await expect(page.locator('.session-card')).toHaveCount(3);
+    await expect(page.getByRole('button', { name: '紧急停止' })).toBeVisible();
+    await page.getByRole('button', { name: '紧急停止' }).click();
+    await expect(page.getByRole('button', { name: '启动 Watchdog' })).toBeVisible();
+    await page.getByRole('button', { name: '启动 Watchdog' }).click();
+    await expect(page.getByRole('button', { name: '紧急停止' })).toBeVisible();
     await page.getByRole('button', { name: '打开菜单' }).click();
     await expect(page.locator('.sidebar')).toHaveClass(/is-open/);
     await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
