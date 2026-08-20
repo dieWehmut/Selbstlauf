@@ -1,29 +1,20 @@
-Set-StrictMode -Version 2.0
+[CmdletBinding()]
+param()
+
 $ErrorActionPreference = 'Stop'
-
-$localCore = $null
+$implementation = $null
 if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
-    $candidateCore = Join-Path $PSScriptRoot 'scripts\windows\AiCliBypass.ps1'
-    if (Test-Path -LiteralPath $candidateCore -PathType Leaf) {
-        $localCore = $candidateCore
-    }
+    $candidate = Join-Path $PSScriptRoot 'scripts\install\windows\install-opencode-windows.ps1'
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $implementation = $candidate }
 }
-
-if ($null -ne $localCore) {
-    . $localCore
+if ($null -ne $implementation) {
+    & $implementation
 }
 else {
-    $coreUrl = 'https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/scripts/windows/AiCliBypass.ps1'
+    $coreUrl = 'https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/scripts/windows/AiCliBypass.ps1'
     $coreText = [string](Invoke-RestMethod -Uri $coreUrl -UseBasicParsing)
-    if ([string]::IsNullOrWhiteSpace($coreText)) {
-        throw "Downloaded ai-cli-bypass core from '$coreUrl' was empty."
-    }
-    $coreScript = [scriptblock]::Create($coreText)
-    . $coreScript
+    if ([string]::IsNullOrWhiteSpace($coreText)) { throw "Downloaded Selbstlauf core from '$coreUrl' was empty." }
+    . ([scriptblock]::Create($coreText))
+    Install-AiCliBypass -Tool 'opencode'
 }
-
-if ($null -eq (Get-Command Install-AiCliBypass -CommandType Function -ErrorAction SilentlyContinue)) {
-    throw 'The ai-cli-bypass core did not define Install-AiCliBypass.'
-}
-
-Install-AiCliBypass -Tool 'opencode'
+if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

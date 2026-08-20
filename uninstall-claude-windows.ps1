@@ -1,31 +1,20 @@
+[CmdletBinding()]
 param([switch]$KeepCli)
 
-Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
-
-$localCore = $null
+$implementation = $null
 if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
-    $candidateCore = Join-Path $PSScriptRoot 'scripts\windows\AiCliBypass.ps1'
-    if (Test-Path -LiteralPath $candidateCore -PathType Leaf) {
-        $localCore = $candidateCore
-    }
+    $candidate = Join-Path $PSScriptRoot 'scripts\uninstall\windows\uninstall-claude-windows.ps1'
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $implementation = $candidate }
 }
-
-if ($null -ne $localCore) {
-    . $localCore
+if ($null -ne $implementation) {
+    & $implementation -KeepCli:$KeepCli
 }
 else {
-    $coreUrl = 'https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/scripts/windows/AiCliBypass.ps1'
+    $coreUrl = 'https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/scripts/windows/AiCliBypass.ps1'
     $coreText = [string](Invoke-RestMethod -Uri $coreUrl -UseBasicParsing)
-    if ([string]::IsNullOrWhiteSpace($coreText)) {
-        throw "Downloaded ai-cli-bypass core from '$coreUrl' was empty."
-    }
-    $coreScript = [scriptblock]::Create($coreText)
-    . $coreScript
+    if ([string]::IsNullOrWhiteSpace($coreText)) { throw "Downloaded Selbstlauf core from '$coreUrl' was empty." }
+    . ([scriptblock]::Create($coreText))
+    Uninstall-AiCliBypass -Tool 'claude' -KeepCli:$KeepCli
 }
-
-if ($null -eq (Get-Command Uninstall-AiCliBypass -CommandType Function -ErrorAction SilentlyContinue)) {
-    throw 'The ai-cli-bypass core did not define Uninstall-AiCliBypass.'
-}
-
-Uninstall-AiCliBypass -Tool 'claude' -KeepCli:$KeepCli
+if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -7,7 +7,7 @@ $script:RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $script:CorePath = Join-Path $script:RepositoryRoot 'scripts\windows\AiCliBypass.ps1'
 $script:PowerShellExe = (Get-Command powershell.exe -CommandType Application).Source
 $script:RealUserPathBefore = [Environment]::GetEnvironmentVariable('Path', 'User')
-$script:ExpectedRemoteUrl = 'https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/scripts/windows/AiCliBypass.ps1'
+$script:ExpectedRemoteUrl = 'https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/scripts/windows/AiCliBypass.ps1'
 $script:EnvironmentNames = @(
     'AI_CLI_BYPASS_HOME',
     'AI_CLI_BYPASS_NPM',

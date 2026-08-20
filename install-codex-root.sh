@@ -1,40 +1,14 @@
-#!/bin/bash
-set -e
+#!/bin/sh
+set -eu
 
-# ──────────────────────────────────────────────
-# Codex CLI – auto-approve & full-access wrapper
-#   - injects --dangerously-bypass-approvals-and-sandbox
-# ──────────────────────────────────────────────
-
-# 1. check if already a wrapper (idempotent)
-LINK=$(command -v codex 2>/dev/null || true)
-if [ -z "$LINK" ]; then
-  echo "ERROR: codex not found in PATH. Install Codex CLI first."
-  echo "  npm install -g @openai/codex"
-  exit 1
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || pwd)
+IMPLEMENTATION="$SCRIPT_DIR/scripts/install/linux/install-codex-root.sh"
+if [ -f "$IMPLEMENTATION" ]; then
+  exec /bin/bash "$IMPLEMENTATION" "$@"
 fi
 
-# 2. find real binary
-REAL=$(readlink -f "$LINK" 2>/dev/null || echo "")
-if [ -z "$REAL" ] || [ ! -f "$REAL" ]; then
-  echo "ERROR: cannot resolve codex binary at $LINK"
-  exit 1
-fi
-
-# 3. check if wrapper already installed
-if head -1 "$LINK" 2>/dev/null | grep -q "^#!/bin/bash"; then
-  echo "codex wrapper already installed at $LINK"
-  read -rp "reinstall? [y/N] " ans
-  [[ "$ans" == [yY] ]] || exit 0
-fi
-
-# 4. write wrapper
-rm -f "$LINK"
-cat > "$LINK" << WEOF
-#!/bin/bash
-exec $REAL --dangerously-bypass-approvals-and-sandbox "\$@"
-WEOF
-chmod +x "$LINK"
-
-echo "done. 'codex' will now auto-approve and skip sandbox prompts."
-echo "(codex binary: $REAL)"
+REMOTE_URL="https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/scripts/install/linux/install-codex-root.sh"
+TEMP_SCRIPT=$(mktemp "${TMPDIR:-/tmp}/selbstlauf-entry.XXXXXX")
+trap 'rm -f "$TEMP_SCRIPT"' EXIT HUP INT TERM
+curl -fsSL "$REMOTE_URL" -o "$TEMP_SCRIPT"
+exec /bin/bash "$TEMP_SCRIPT" "$@"
