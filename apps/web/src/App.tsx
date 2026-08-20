@@ -310,6 +310,7 @@ export interface AppProps { api?: WatchdogApi }
 
 export default function App({ api: suppliedApi }: AppProps) {
   const api = useMemo(() => suppliedApi ?? createApi(), [suppliedApi]);
+  const staticDemo = import.meta.env.VITE_STATIC_DEMO === 'true';
   const [page, setPage] = useState<Page>('overview');
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('watchdog-theme') as Theme) || 'dark');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -338,11 +339,12 @@ export default function App({ api: suppliedApi }: AppProps) {
   };
 
   useEffect(() => {
+    if (staticDemo && suppliedApi === undefined) return undefined;
     void refresh();
     const unsubscribe = api.subscribe((event) => setEvents((current) => [event, ...current].slice(0, 100)));
     const timer = window.setInterval(() => void refresh(), 10_000);
     return () => { unsubscribe(); window.clearInterval(timer); };
-  }, [api]);
+  }, [api, staticDemo]);
 
   const mutateSession = async (session: SessionView, action: 'pause' | 'inject') => {
     setBusy(session.id); setNotice(null);
