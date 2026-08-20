@@ -7,6 +7,7 @@ import { AuditStore } from './store/audit-store.js';
 import { ConfigStore } from './store/config-store.js';
 import { WatchdogHttpServer, type SessionController } from './server/http-server.js';
 import { WatchdogController } from './runtime/watchdog-controller.js';
+import { WatchdogInstallation } from './lifecycle/installation.js';
 
 export interface WatchdogProcessOptions {
   readonly stateDirectory?: string;
@@ -30,6 +31,10 @@ export async function startWatchdogProcess(
   await mkdir(stateDirectory, { recursive: true });
   const configStore = new ConfigStore(join(stateDirectory, 'config.json'));
   const auditStore = new AuditStore(join(stateDirectory, 'audit.jsonl'));
+  const installation = new WatchdogInstallation({
+    stateDirectory,
+    repositoryRoot: defaultRepositoryRoot(),
+  });
   const existingConfig = await configStore.load();
   if (process.env.WATCHDOG_DRY_RUN === '1' && !existingConfig.dryRun) {
     await configStore.save({ ...existingConfig, dryRun: true });
@@ -49,15 +54,35 @@ export async function startWatchdogProcess(
     port: options.port ?? readPort(process.env.WATCHDOG_PORT),
     staticDirectory: options.staticDirectory ?? process.env.WATCHDOG_STATIC_DIR ?? defaultStaticDirectory(),
   });
-  if (controller !== null) {
-    server.setLifecycle({ start: () => controller?.start(), stop: () => controller?.stop() });
-  }
+  let stopProcess: (() => Promise<void>) | null = null;
+  server.setLifecycle({
+    ...(controller === null ? {} : {
+      start: () => controller?.start(),
+      stop: () => controller?.stop(),
+    }),
+    install: async () => { await installation.install(); },
+    uninstall: async () => {
+      await installation.install();
+      installation.scheduleUninstall(
+        async () => { await stopProcess?.(); },
+        () => process.exit(0),
+      );
+    },
+  });
   await server.start();
   const pidFile = join(stateDirectory, 'watchdog.pid.json');
   try {
     await writeFile(
       pidFile,
-      `${JSON.stringify({ pid: process.pid, port: new URL(server.url()).port, startedAtMs: Date.now(), entry: 'watchdog' }, null, 2)}\n`,
+      `${JSON.stringify({
+        pid: process.pid,
+        port: new URL(server.url()).port,
+        startedAtMs: Date.now(),
+        processStartedAtMs: Date.now() - Math.round(process.uptime() * 1_000),
+        executablePath: resolve(process.execPath),
+        entryPath: resolve(process.argv[1] ?? fileURLToPath(import.meta.url)),
+        entry: 'watchdog',
+      }, null, 2)}\n`,
       { encoding: 'utf8', mode: 0o600, flag: 'wx' },
     );
   } catch (error) {
@@ -78,6 +103,7 @@ export async function startWatchdogProcess(
     const { rm } = await import('node:fs/promises');
     await rm(pidFile, { force: true });
   };
+  stopProcess = stop;
   return { server, pidFile, stop };
 }
 
@@ -107,6 +133,11 @@ function defaultStaticDirectory(): string | undefined {
   const moduleDirectory = resolve(fileURLToPath(import.meta.url), '..');
   const candidate = resolve(moduleDirectory, '../../../web/dist');
   return existsSync(candidate) ? candidate : undefined;
+}
+
+function defaultRepositoryRoot(): string {
+  const moduleDirectory = resolve(fileURLToPath(import.meta.url), '..');
+  return resolve(moduleDirectory, '../../../..');
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

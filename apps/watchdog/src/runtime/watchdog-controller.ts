@@ -110,7 +110,7 @@ export class WatchdogController {
   private currentConfig: WatchdogConfig = defaultConfig;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
-  private refreshing = false;
+  private currentPoll: Promise<void> | null = null;
 
   public constructor(options: WatchdogControllerOptions) {
     this.configStore = options.configStore;
@@ -141,9 +141,17 @@ export class WatchdogController {
     this.sessions.clear();
   }
 
-  public async poll(): Promise<void> {
-    if (this.refreshing) return;
-    this.refreshing = true;
+  public poll(): Promise<void> {
+    if (this.currentPoll !== null) return this.currentPoll;
+    const operation = this.runPoll();
+    this.currentPoll = operation;
+    void operation.finally(() => {
+      if (this.currentPoll === operation) this.currentPoll = null;
+    });
+    return operation;
+  }
+
+  private async runPoll(): Promise<void> {
     try {
       this.currentConfig = await this.configStore.load();
       const timestamp = this.now();
@@ -196,7 +204,6 @@ export class WatchdogController {
     } catch (error) {
       await this.auditGlobal('transport-error', { reason: errorMessage(error) });
     } finally {
-      this.refreshing = false;
       if (this.running) this.schedule(this.currentConfig.pollIntervalMs);
     }
   }

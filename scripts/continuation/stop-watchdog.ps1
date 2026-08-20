@@ -1,8 +1,11 @@
 [CmdletBinding()]
-param()
+param([string]$StateRoot)
 
 $ErrorActionPreference = 'Stop'
-$stateRoot = Join-Path $env:LOCALAPPDATA 'ai-cli-bypass\continuation'
+if ([string]::IsNullOrWhiteSpace($StateRoot)) {
+    $StateRoot = Join-Path $env:LOCALAPPDATA 'ai-cli-bypass\continuation'
+}
+$stateRoot = [System.IO.Path]::GetFullPath($StateRoot)
 $pidFile = Join-Path $stateRoot 'watchdog.pid.json'
 
 if (-not (Test-Path -LiteralPath $pidFile)) {
