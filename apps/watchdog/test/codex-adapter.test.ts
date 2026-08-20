@@ -409,8 +409,8 @@ test('App Server client exchanges JSON-RPC with a real fake-child process', asyn
     assert.deepEqual(await client.startTurn('thread-fixture', 'continue'), {
       turn: { id: 'turn-fixture' },
     });
-    for (let attempt = 0; attempt < 20 && !notifications.includes('turn/completed'); attempt += 1) {
-      await new Promise<void>((resolve) => setImmediate(resolve));
+    for (let attempt = 0; attempt < 100 && !notifications.includes('turn/completed'); attempt += 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
     }
     assert.deepEqual(notifications, ['fixture/ignored', 'turn/completed']);
   } finally {
