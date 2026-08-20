@@ -181,6 +181,26 @@ unless you changed them after installation.
 > Full Access disables normal approval and sandbox protections. Use it only in
 > an environment you fully trust.
 
+## WebUI demo site
+
+The management UI lives in `apps/web`. Run it locally with:
+
+```powershell
+npm install
+npm --workspace apps/web run dev
+```
+
+The repository includes `.github/workflows/deploy-pages.yml`. In repository
+Settings > Pages > Build and deployment, set Source to **GitHub Actions** once.
+Pushes to `main`, `feature/continuation-watchdog`, or
+`feature/continuation-pages` then build and deploy the static demo. Demo mode
+uses local sample data and never connects to or injects input into local CLI
+processes.
+
+The project-site URL is normally
+`https://diewehmut.github.io/ai-cli-bypass/`; use the deployment URL reported
+by the Actions run after Pages is enabled.
+
 ## 上游文档
 
 - [Claude Code 文档](https://docs.anthropic.com/en/docs/claude-code/overview)
