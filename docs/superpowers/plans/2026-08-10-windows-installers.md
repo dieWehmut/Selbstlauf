@@ -408,7 +408,7 @@ Each file must set strict error behavior, prefer the checked-out core at
 `scripts/windows/AiCliBypass.ps1`, and otherwise load this exact raw URL:
 
 ```powershell
-https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/scripts/windows/AiCliBypass.ps1
+https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/scripts/windows/AiCliBypass.ps1
 ```
 
 The bootstrap must validate that the downloaded text is non-empty, compile it
