@@ -127,6 +127,12 @@ export class CodexAdapter {
     return associateCodexThread(context, threads);
   }
 
+  /** Return only the associated thread's status for dashboard/state reporting. */
+  public getGoal(context: CodexContinuationContext): GoalSnapshot | null {
+    const association = this.associate(context);
+    return association.kind === 'matched' ? this.reader.getGoal(association.thread.id) : null;
+  }
+
   public close(): void {
     this.appServer?.close();
     if (this.ownsReader) this.reader.close();
