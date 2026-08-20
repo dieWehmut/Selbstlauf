@@ -1,0 +1,24 @@
+import { describe, expect, it } from 'vitest';
+import { createStaticDemoApi } from '../src/api/static-demo';
+
+describe('static Pages demo API', () => {
+  it('keeps demo state isolated between page loads', async () => {
+    const first = createStaticDemoApi();
+    const before = await first.sessions();
+    await first.pause(before[0].id);
+    expect((await first.sessions())[0].paused).toBe(true);
+
+    const second = createStaticDemoApi();
+    expect((await second.sessions())[0].paused).toBe(false);
+  });
+
+  it('updates configuration without mutating the caller object', async () => {
+    const api = createStaticDemoApi();
+    const draft = await api.config();
+    draft.tools.codex.normalPrompt = 'demo prompt';
+    const saved = await api.updateConfig(draft);
+    draft.tools.codex.normalPrompt = 'changed later';
+    expect(saved.tools.codex.normalPrompt).toBe('demo prompt');
+    expect((await api.config()).tools.codex.normalPrompt).toBe('demo prompt');
+  });
+});
