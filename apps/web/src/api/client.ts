@@ -1,0 +1,116 @@
+export type ToolName = 'claude' | 'codex';
+export type TransportKind =
+  | 'classic-console'
+  | 'pty'
+  | 'codex-app-server'
+  | 'monitor-only'
+  | 'cannot-inject'
+  | 'unknown';
+
+export interface GoalView {
+  status: string;
+  updatedAtMs?: number;
+}
+
+export interface SessionView {
+  id: string;
+  tool: ToolName;
+  rootPid: number;
+  childPids: number[];
+  conversationId: string | null;
+  goal: GoalView | null;
+  transport: TransportKind;
+  alive: boolean;
+  enabled: boolean;
+  paused: boolean;
+  startedAtMs: number;
+  lastActivityAtMs: number | null;
+  quietForMs?: number;
+  pendingPrompt?: string | null;
+  lastDecision?: string;
+}
+
+export interface WatchdogConfig {
+  enabled: boolean;
+  dryRun: boolean;
+  pollIntervalMs: number;
+  defaultIdleTimeoutMs: number;
+  defaultCooldownMs: number;
+  maxAttemptsPerQuietPeriod: number;
+  tools: {
+    claude: { enabled: boolean; normalPrompt: string };
+    codex: { enabled: boolean; normalPrompt: string; goalPrompt: string; goalStatuses: readonly string[] };
+  };
+  processFilters: { sameUserOnly: boolean; include: readonly string[]; exclude: readonly string[] };
+}
+
+export interface AuditEvent {
+  id: string;
+  timestampMs: number;
+  type: string;
+  sessionId?: string;
+  tool?: ToolName;
+  prompt?: string;
+  details?: Record<string, string | number | boolean | null>;
+}
+
+export interface HealthView {
+  ok: boolean;
+  running: boolean;
+  dryRun: boolean;
+  version?: string;
+}
+
+export interface WatchdogApi {
+  health(): Promise<HealthView>;
+  config(): Promise<WatchdogConfig>;
+  updateConfig(config: WatchdogConfig): Promise<WatchdogConfig>;
+  sessions(): Promise<SessionView[]>;
+  pause(id: string): Promise<void>;
+  resume(id: string): Promise<void>;
+  inject(id: string): Promise<void>;
+  stop(): Promise<void>;
+  uninstall(): Promise<void>;
+  subscribe(onEvent: (event: AuditEvent) => void): () => void;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+  });
+  if (!response.ok) {
+    throw new Error(`API ${response.status}`);
+  }
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+export function createApi(): WatchdogApi {
+  return {
+    health: () => request<HealthView>('/health'),
+    config: () => request<WatchdogConfig>('/config'),
+    updateConfig: (config) => request<WatchdogConfig>('/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+    sessions: () => request<SessionView[]>('/sessions'),
+    pause: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
+    resume: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
+    inject: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/inject`, { method: 'POST' }),
+    stop: () => request<void>('/watchdog/stop', { method: 'POST' }),
+    uninstall: () => request<void>('/lifecycle/uninstall', { method: 'POST' }),
+    subscribe: (onEvent) => {
+      if (typeof EventSource === 'undefined') return () => undefined;
+      const source = new EventSource('/api/events');
+      source.onmessage = (message) => {
+        try {
+          onEvent(JSON.parse(message.data) as AuditEvent);
+        } catch {
+          // Ignore malformed external events; the next poll repairs the view.
+        }
+      };
+      return () => source.close();
+    },
+  };
+}
