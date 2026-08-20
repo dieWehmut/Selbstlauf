@@ -141,6 +141,22 @@ function transportLabel(transport: SessionView['transport']): string {
   return labels[transport];
 }
 
+function decisionLabel(decision: string | undefined): { label: string; tone: 'ready' | 'waiting' | 'limited' | 'error' } {
+  switch (decision) {
+    case 'awaiting-quiet-period': return { label: '等待静默', tone: 'waiting' };
+    case 'output-observed': return { label: '输出活跃', tone: 'ready' };
+    case 'cannot-inject': return { label: '仅监控', tone: 'limited' };
+    case 'transport-error': return { label: '传输错误', tone: 'error' };
+    case 'injected': return { label: '已写入', tone: 'ready' };
+    case 'activity': return { label: '活动', tone: 'ready' };
+    case 'decision': return { label: '决策', tone: 'waiting' };
+    case 'skip': return { label: '跳过', tone: 'limited' };
+    case 'injection': return { label: '已写入', tone: 'ready' };
+    case 'output-recovery': return { label: '输出恢复', tone: 'ready' };
+    default: return { label: decision ?? '等待活动', tone: 'waiting' };
+  }
+}
+
 function canInject(session: SessionView): boolean {
   return session.alive && session.enabled && !['monitor-only', 'cannot-inject', 'unknown'].includes(session.transport);
 }
@@ -161,6 +177,11 @@ function CapabilityBadge({ session }: { session: SessionView }) {
       {transportLabel(session.transport)}
     </span>
   );
+}
+
+function DecisionChip({ decision }: { decision: string | undefined }) {
+  const state = decisionLabel(decision);
+  return <span className={`state-chip state-chip--${state.tone}`}><span className="state-chip__dot" />{state.label}</span>;
 }
 
 function ToolMark({ tool }: { tool: SessionView['tool'] }) {
@@ -228,7 +249,7 @@ function ProcessTable(props: {
                 </td>
                 <td><CapabilityBadge session={session} /></td>
                 <td><strong className="conversation">{session.goal ? `Goal · ${session.goal.status}` : '普通对话'}</strong><span className="subtle">{session.conversationId ?? '未关联'}</span></td>
-                <td><strong>{duration(session.quietForMs ?? (session.lastActivityAtMs ? Date.now() - session.lastActivityAtMs : null))}</strong><span className="subtle">{session.lastDecision ?? '等待活动'}</span></td>
+                <td><strong>{duration(session.quietForMs ?? (session.lastActivityAtMs ? Date.now() - session.lastActivityAtMs : null))}</strong><DecisionChip decision={session.lastDecision} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
                 <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} /></td>
               </tr>
@@ -245,7 +266,7 @@ function ProcessTable(props: {
               <div><dt>静默</dt><dd>{duration(session.quietForMs ?? 0)}</dd></div>
               <div className="session-card__prompt"><dt>下一输入</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
             </dl>
-            <footer><span className="subtle">{session.lastDecision ?? '等待活动'}</span><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} /></footer>
+            <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} /></footer>
           </article>
         ))}
       </div>
@@ -260,7 +281,7 @@ function Timeline({ events }: { events: AuditEvent[] }) {
       {events.map((event) => (
         <div className="timeline__item" key={event.id}>
           <span className={`timeline__icon timeline__icon--${event.type}`}><Activity size={15} /></span>
-          <div><div className="timeline__title"><strong>{event.type}</strong><span>{time(event.timestampMs)}</span></div><p>{event.sessionId ?? 'watchdog'}{event.details ? ` · ${Object.values(event.details).join(' · ')}` : ''}</p></div>
+          <div><div className="timeline__title"><DecisionChip decision={event.type} /><span>{time(event.timestampMs)}</span></div><p>{event.sessionId ?? 'watchdog'}{event.details ? ` · ${Object.values(event.details).join(' · ')}` : ''}</p></div>
         </div>
       ))}
     </div>
@@ -413,7 +434,7 @@ export default function App({ api: suppliedApi }: AppProps) {
     <div className={`app-shell ${sidebarCompact ? 'app-shell--compact' : ''}`}>
       <button className={`mobile-overlay ${sidebarOpen ? 'is-open' : ''}`} type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)} />
       <aside id="watchdog-sidebar" className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-        <div className="brand"><span className="brand__mark"><Activity size={20} /></span><div><strong>Continuation</strong><span>process watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
+        <div className="brand"><span className="brand__mark"><Activity size={20} /></span><div><strong>Selbstlauf</strong><span>continuation watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
         <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { setPage(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
         <div className="sidebar__footer"><div className="service-mini"><span className={`status-light ${connected ? 'is-online' : ''}`} /><div><strong>{connected ? '服务在线' : '离线预览'}</strong><span>{sessions.length} 个进程</span></div></div><button className="nav-button" type="button" title={theme === 'dark' ? '切换亮色' : '切换暗色'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{theme === 'dark' ? '亮色' : '暗色'}</span></button><button className="compact-toggle icon-button" type="button" title={sidebarCompact ? '展开侧栏' : '收起侧栏'} aria-label={sidebarCompact ? '展开侧栏' : '收起侧栏'} onClick={() => setSidebarCompact(!sidebarCompact)}>{sidebarCompact ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
       </aside>
