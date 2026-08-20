@@ -69,6 +69,7 @@ test('local API installs an ownership manifest and asynchronously removes only w
   const parentState = join(localAppData, 'ai-cli-bypass');
   const continuationState = join(parentState, 'continuation');
   const unrelatedState = join(parentState, 'bypass-state.json');
+  const userSentinel = join(continuationState, 'keep-user-file.txt');
   const environment = { ...process.env, LOCALAPPDATA: localAppData };
   let pid: number | undefined;
 
@@ -109,13 +110,14 @@ test('local API installs an ownership manifest and asynchronously removes only w
       ownsStateRoot: true,
     });
 
+    await writeFile(userSentinel, 'preserve me\n', 'utf8');
     const uninstalled = await fetch(`${origin}/api/uninstall`, {
       method: 'POST',
       headers: { origin },
     });
     assert.equal(uninstalled.status, 200);
     try {
-      await waitUntil(async () => !(await pathExists(continuationState)), 12_000);
+      await waitUntil(async () => !(await pathExists(join(continuationState, 'config.json'))), 12_000);
     } catch (error) {
       const uninstallLog = await readFile(join(continuationState, 'watchdog-uninstall.log'), 'utf8').catch(() => 'log unavailable');
       const manifestText = await readFile(join(continuationState, 'install-manifest.json'), 'utf8').catch(() => 'manifest unavailable');
@@ -124,6 +126,8 @@ test('local API installs an ownership manifest and asynchronously removes only w
     }
     pid = undefined;
     assert.equal(await readFile(unrelatedState, 'utf8'), '{"ownedBy":"wrapper"}\n');
+    assert.equal(await readFile(userSentinel, 'utf8'), 'preserve me\n');
+    assert.equal(await pathExists(continuationState), true);
   } finally {
     if (pid !== undefined) {
       try { process.kill(pid); } catch { /* already stopped */ }

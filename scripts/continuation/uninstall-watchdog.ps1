@@ -42,6 +42,18 @@ if ($repositoryRoot -ine $manifestRepositoryRoot) {
     throw 'refusing to uninstall because the repository root does not match the ownership manifest'
 }
 
+$knownOwnedFiles = @('config.json', 'audit.jsonl', 'watchdog.pid.json', 'watchdog.log', 'watchdog-error.log', 'watchdog-uninstall.log', 'install-manifest.json')
+if ($null -eq $manifest.ownedPaths -or @($manifest.ownedPaths).Count -eq 0) {
+    throw 'refusing to uninstall without an owned-path manifest'
+}
+$ownedPaths = @($manifest.ownedPaths | ForEach-Object { [string]$_ })
+foreach ($relativePath in $ownedPaths) {
+    if ($knownOwnedFiles -notcontains $relativePath -or
+        $relativePath -match '[\\/:]' -or $relativePath -in @('.', '..')) {
+        throw "refusing to uninstall unsafe owned path '$relativePath'"
+    }
+}
+
 if ($DelayMilliseconds -gt 0) { Start-Sleep -Milliseconds $DelayMilliseconds }
 $pidFile = Join-Path $stateRoot 'watchdog.pid.json'
 if (Test-Path -LiteralPath $pidFile -PathType Leaf) {
@@ -85,5 +97,12 @@ if ($null -ne $manifest.startupTask -and [bool]$manifest.startupTask.owned) {
     }
 }
 
-Remove-Item -LiteralPath $stateRoot -Recurse -Force
+foreach ($relativePath in $ownedPaths) {
+    $ownedPath = Join-Path $stateRoot $relativePath
+    if (Test-Path -LiteralPath $ownedPath -PathType Container) {
+        throw "refusing to recursively remove owned path '$relativePath'"
+    }
+    Remove-Item -LiteralPath $ownedPath -Force -ErrorAction SilentlyContinue
+}
+Remove-Item -LiteralPath $stateRoot -Force -ErrorAction SilentlyContinue
 Write-Output "watchdog uninstalled; removed owned state: $stateRoot"

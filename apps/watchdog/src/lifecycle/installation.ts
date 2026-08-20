@@ -104,8 +104,16 @@ export class WatchdogInstallation {
 
   public async removeOwnedState(): Promise<void> {
     if (this.platform !== 'win32') throw new Error('watchdog uninstall is supported only on Windows');
-    await readExistingManifest(join(this.stateDirectory, INSTALL_MANIFEST_NAME), this.stateDirectory);
-    await rm(this.stateDirectory, { recursive: true, force: true });
+    const manifest = await readExistingManifest(join(this.stateDirectory, INSTALL_MANIFEST_NAME), this.stateDirectory);
+    if (manifest === null) throw new Error('watchdog install manifest is missing');
+    for (const relativePath of manifest.ownedPaths) {
+      const target = resolve(this.stateDirectory, relativePath);
+      if (dirname(target) !== this.stateDirectory || !isSafeOwnedFileName(relativePath)) {
+        throw new Error(`watchdog manifest contains an unsafe owned path: ${relativePath}`);
+      }
+      await rm(target, { force: true, recursive: false });
+    }
+    await rm(this.stateDirectory, { force: true, recursive: false });
   }
 }
 
@@ -135,17 +143,35 @@ async function readExistingManifest(
     throw new Error('watchdog install manifest is invalid or does not own this state directory');
   }
   const startupTask = parseStartupTask(value.startupTask);
+  const ownedPaths = parseOwnedPaths(value.ownedPaths);
   return {
     schemaVersion: 1,
     product: WATCHDOG_PRODUCT_NAME,
     stateRoot: expectedStateRoot,
     repositoryRoot: typeof value.repositoryRoot === 'string' ? resolve(value.repositoryRoot) : '',
     ownsStateRoot: true,
-    ownedPaths: OWNED_PATHS,
+    ownedPaths,
     startupTask,
     installedAtMs: value.installedAtMs,
     updatedAtMs: typeof value.updatedAtMs === 'number' ? value.updatedAtMs : value.installedAtMs,
   };
+}
+
+function parseOwnedPaths(value: unknown): readonly string[] {
+  if (value === undefined) return OWNED_PATHS;
+  if (!Array.isArray(value) || value.length === 0 || value.some((entry) => typeof entry !== 'string')) {
+    throw new Error('watchdog owned paths are invalid');
+  }
+  const paths = [...new Set(value as string[])];
+  if (paths.some((entry) => !isSafeOwnedFileName(entry) || !OWNED_PATHS.includes(entry))) {
+    throw new Error('watchdog owned paths contain an unexpected file');
+  }
+  return Object.freeze(paths);
+}
+
+function isSafeOwnedFileName(value: string): boolean {
+  return value.length > 0 && value !== '.' && value !== '..' &&
+    !value.includes('\\') && !value.includes('/') && !value.includes(':');
 }
 
 function parseStartupTask(value: unknown): StartupTaskOwnership | null {
