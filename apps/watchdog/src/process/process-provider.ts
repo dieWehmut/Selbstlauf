@@ -13,6 +13,8 @@ export interface RawProcessRecord {
   readonly executablePath: string | null;
   readonly creationTimeMs: number | null;
   readonly userSid: string | null;
+  /** Best-effort working directory extracted by the provider, if available. */
+  readonly workingDirectory?: string | null;
 }
 
 interface WindowsProcessJsonRecord {
@@ -23,6 +25,7 @@ interface WindowsProcessJsonRecord {
   readonly executablePath: unknown;
   readonly creationDate: unknown;
   readonly userSid: unknown;
+  readonly workingDirectory: unknown;
 }
 
 export type ProcessCommandRunner = (
@@ -152,6 +155,7 @@ export function parseWindowsProcessJson(stdout: string): RawProcessRecord[] {
   return values.map((value, index) => {
     const record = asRecord(value, index);
     const name = nullableString(record.name, 'name', index);
+    const workingDirectory = nullableString(record.workingDirectory, 'workingDirectory', index);
     if (name === null) {
       throw new Error(`Process record ${index} has invalid name`);
     }
@@ -163,6 +167,7 @@ export function parseWindowsProcessJson(stdout: string): RawProcessRecord[] {
       executablePath: nullableString(record.executablePath, 'executablePath', index),
       creationTimeMs: nullableCreationDate(record.creationDate, index),
       userSid: nullableString(record.userSid, 'userSid', index),
+      ...(workingDirectory === null ? {} : { workingDirectory }),
     } satisfies RawProcessRecord;
   });
 }

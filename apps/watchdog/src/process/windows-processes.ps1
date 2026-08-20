@@ -82,6 +82,7 @@ $records = @(
             executablePath = ConvertTo-NullableString $process.ExecutablePath
             creationDate = ConvertTo-NullableString $process.CreationDate
             userSid = Resolve-OwnerSid $process
+            workingDirectory = $null
         }
     }
 )

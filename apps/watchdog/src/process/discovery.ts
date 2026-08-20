@@ -23,6 +23,7 @@ export interface DiscoveredProcessSession {
   readonly executablePath: string | null;
   readonly creationTimeMs: number | null;
   readonly userSid: string | null;
+  readonly workingDirectory?: string | null;
   readonly threadId?: string;
   readonly transportHint: 'unknown';
 }
@@ -180,15 +181,26 @@ export function groupProcesses(
   }
 
   return [...groups.values()]
-    .map(({ tool, root, childPids }) => ({
-      tool,
-      rootPid: root.pid,
-      childPids: childPids.sort((left, right) => left - right),
-      commandLine: root.commandLine,
-      executablePath: root.executablePath,
-      creationTimeMs: root.creationTimeMs,
-      userSid: root.userSid,
-      transportHint: 'unknown' as const,
-    }))
+    .map(({ tool, root, childPids }) => {
+      const workingDirectory = root.workingDirectory ?? extractWorkingDirectory(root.commandLine);
+      return {
+        tool,
+        rootPid: root.pid,
+        childPids: childPids.sort((left, right) => left - right),
+        commandLine: root.commandLine,
+        executablePath: root.executablePath,
+        creationTimeMs: root.creationTimeMs,
+        userSid: root.userSid,
+        ...(workingDirectory === null ? {} : { workingDirectory }),
+        transportHint: 'unknown' as const,
+      };
+    })
     .sort(compareSessions);
+}
+
+function extractWorkingDirectory(commandLine: string | null): string | null {
+  if (typeof commandLine !== 'string') return null;
+  const match = /(?:^|\s)(?:--cwd|--directory|-C)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/iu.exec(commandLine);
+  const value = match?.[1] ?? match?.[2] ?? match?.[3];
+  return value === undefined || value.trim().length === 0 ? null : value;
 }

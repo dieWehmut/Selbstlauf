@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   WindowsProcessProvider,
   parseWindowsProcessJson,
+  type RawProcessRecord,
 } from '../src/process/process-provider.js';
 import {
   detectProcessTool,
@@ -46,6 +47,37 @@ test('groupProcesses can include matching records from every user explicitly', (
   const sessions = groupProcesses(records, { sameUserOnly: false });
 
   assert.deepEqual(sessions.map((session) => session.rootPid), [110, 210, 220, 310]);
+});
+
+test('groupProcesses extracts a process working directory from supported CLI flags', () => {
+  const base: RawProcessRecord = {
+    pid: 1,
+    parentPid: 0,
+    name: 'claude.ps1',
+    commandLine: null,
+    executablePath: null,
+    creationTimeMs: 1,
+    userSid: currentUserSid,
+  };
+  const commandLines = [
+    'claude.ps1 --cwd "C:\\work\\quoted project"',
+    "claude.ps1 --directory='C:\\work\\single-quoted'",
+    'codex.exe -C C:\\work\\codex-project',
+  ];
+
+  assert.deepEqual(commandLines.map((commandLine, index) => {
+    const record = {
+      ...base,
+      pid: index + 1,
+      name: index === 2 ? 'codex.exe' : 'claude.ps1',
+      commandLine,
+    };
+    return groupProcesses([record], { currentUserSid })[0]?.workingDirectory;
+  }), [
+    'C:\\work\\quoted project',
+    'C:\\work\\single-quoted',
+    'C:\\work\\codex-project',
+  ]);
 });
 
 test('groupProcesses fails closed when same-user grouping has no current SID', () => {
