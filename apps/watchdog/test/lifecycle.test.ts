@@ -124,6 +124,7 @@ test('local API installs an ownership manifest and asynchronously removes only w
       const files = await import('node:fs/promises').then(async ({ readdir }) => readdir(continuationState).catch(() => [] as string[]));
       throw new Error(`${error instanceof Error ? error.message : String(error)}\nfiles=${files.join(',')}\n${uninstallLog}\n${manifestText}`);
     }
+    await waitUntil(async () => !(await processExists(record.pid)), 8_000);
     pid = undefined;
     assert.equal(await readFile(unrelatedState, 'utf8'), '{"ownedBy":"wrapper"}\n');
     assert.equal(await readFile(userSentinel, 'utf8'), 'preserve me\n');
@@ -201,6 +202,15 @@ function runPowerShell(script: string, arguments_: readonly string[], environmen
 async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function processExists(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0);
     return true;
   } catch {
     return false;

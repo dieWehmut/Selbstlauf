@@ -98,11 +98,18 @@ if ($null -ne $manifest.startupTask -and [bool]$manifest.startupTask.owned) {
 }
 
 foreach ($relativePath in $ownedPaths) {
+    if ($relativePath -eq 'install-manifest.json') { continue }
     $ownedPath = Join-Path $stateRoot $relativePath
     if (Test-Path -LiteralPath $ownedPath -PathType Container) {
         throw "refusing to recursively remove owned path '$relativePath'"
     }
     Remove-Item -LiteralPath $ownedPath -Force -ErrorAction SilentlyContinue
 }
+$remaining = @(Get-ChildItem -LiteralPath $stateRoot -Force | Where-Object { $_.Name -ne 'install-manifest.json' })
+if ($remaining.Count -gt 0) {
+    Write-Output "watchdog stopped; preserved user files: $((@($remaining.Name) -join ', '))"
+    exit 0
+}
+Remove-Item -LiteralPath (Join-Path $stateRoot 'install-manifest.json') -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $stateRoot -Force -ErrorAction SilentlyContinue
 Write-Output "watchdog uninstalled; removed owned state: $stateRoot"

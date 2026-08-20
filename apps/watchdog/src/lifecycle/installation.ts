@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 
 export const INSTALL_MANIFEST_NAME = 'install-manifest.json';
@@ -107,12 +107,24 @@ export class WatchdogInstallation {
     const manifest = await readExistingManifest(join(this.stateDirectory, INSTALL_MANIFEST_NAME), this.stateDirectory);
     if (manifest === null) throw new Error('watchdog install manifest is missing');
     for (const relativePath of manifest.ownedPaths) {
+      if (relativePath === INSTALL_MANIFEST_NAME) continue;
       const target = resolve(this.stateDirectory, relativePath);
       if (dirname(target) !== this.stateDirectory || !isSafeOwnedFileName(relativePath)) {
         throw new Error(`watchdog manifest contains an unsafe owned path: ${relativePath}`);
       }
       await rm(target, { force: true, recursive: false });
     }
+    const remaining = await readdir(this.stateDirectory);
+    const unknownFiles = remaining.filter((entry) => entry !== INSTALL_MANIFEST_NAME);
+    if (unknownFiles.length > 0) {
+      await writeFile(
+        join(this.stateDirectory, 'watchdog-uninstall.log'),
+        `preserved user files: ${unknownFiles.join(', ')}\n`,
+        { encoding: 'utf8', flag: 'a' },
+      );
+      return;
+    }
+    await rm(join(this.stateDirectory, INSTALL_MANIFEST_NAME), { force: true, recursive: false });
     await rm(this.stateDirectory, { force: true, recursive: false });
   }
 }
