@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
 import type { WatchdogApi } from '../src/api/client';
@@ -55,5 +55,19 @@ describe('watchdog dashboard', () => {
     fireEvent.change(claude, { target: { value: '继续工作' } });
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
     await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({ tools: expect.objectContaining({ claude: expect.objectContaining({ normalPrompt: '继续工作' }) }) })));
+  });
+
+  it('locks the page while the mobile drawer is open and closes it with Escape', async () => {
+    render(<App api={api()} />);
+    const navigation = screen.getByRole('navigation', { name: '主导航' });
+    expect(within(navigation).getByRole('button', { name: '进程' })).toHaveAttribute('aria-current', 'page');
+
+    fireEvent.click(await screen.findByRole('button', { name: '打开菜单' }));
+    expect(document.body.style.overflow).toBe('hidden');
+    expect(document.querySelector('.sidebar')).toHaveClass('is-open');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.body.style.overflow).toBe('');
+    expect(document.querySelector('.sidebar')).not.toHaveClass('is-open');
   });
 });
