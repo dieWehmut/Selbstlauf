@@ -37,7 +37,9 @@ $script:OrganizedScriptPaths = @(
     'scripts\uninstall\linux\reset-codex.sh',
     'scripts\uninstall\linux\reset-opencode.sh',
     'scripts\continuation\start-watchdog.ps1',
-    'scripts\continuation\stop-watchdog.ps1'
+    'scripts\continuation\stop-watchdog.ps1',
+    'scripts\continuation\install-watchdog.ps1',
+    'scripts\continuation\uninstall-watchdog.ps1'
 )
 
 function Assert-Documentation {
@@ -94,6 +96,10 @@ foreach ($readmePath in $script:Readmes) {
     }
     Assert-Documentation ($readme -match '(?i)persistent|persist|持久|持續') "Persistent Codex configuration is not documented in $readmePath"
     Assert-Documentation ($readme -match '(?i)skips?\s+npm|npm.*skip|跳過.*npm|略過.*npm') "The repeat-install npm fast path is not documented in $readmePath"
+    Assert-Documentation ($readme.Contains('install-watchdog.ps1') -and $readme.Contains('uninstall-watchdog.ps1')) "Watchdog install/uninstall scripts are missing in $readmePath"
+    Assert-Documentation ($readme -match '(?i)-Startup|启动|啟動') "Watchdog startup-task control is missing in $readmePath"
+    Assert-Documentation ($readme -match '(?i)install-manifest\.json|ownership manifest|所有權 manifest|所有权 manifest') "Watchdog ownership boundary is missing in $readmePath"
+    Assert-Documentation ($readme.Contains('/api/watchdog/start') -and $readme.Contains('/api/watchdog/stop') -and $readme.Contains('/api/uninstall')) "WebUI lifecycle routes are missing in $readmePath"
     Assert-LinksResolve -Path $readmePath -Text $readme
 }
 

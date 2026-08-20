@@ -201,6 +201,19 @@ Start-Process http://127.0.0.1:48920/
 powershell -ExecutionPolicy Bypass -File .\scripts\continuation\stop-watchdog.ps1
 ```
 
+安装为当前用户可重复执行；需要登录后自动启动时加上 `-Startup`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\install-watchdog.ps1 -DryRun -Startup
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchdog.ps1
+```
+
+安装器只拥有 `%LOCALAPPDATA%\ai-cli-bypass\continuation`，并在其中写入
+`install-manifest.json`。卸载器会验证 manifest、PID 和仓库路径，只删除该目录
+及 manifest 声明的登录任务；不会删除 npm 包、CLI wrapper、认证、会话或其他
+`ai-cli-bypass` 状态。WebUI 对应的本机路由是 `/api/watchdog/start`、
+`/api/watchdog/stop` 和 `/api/uninstall`。
+
 Input is accepted only through a PID-validated classic Console bridge or a
 service-owned PTY. Codex sessions use the local App Server when the thread can
 be associated safely; unsupported ConPTY sessions stay `monitor-only`. No

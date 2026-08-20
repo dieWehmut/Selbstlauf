@@ -197,6 +197,19 @@ Start-Process http://127.0.0.1:48920/
 powershell -ExecutionPolicy Bypass -File .\scripts\continuation\stop-watchdog.ps1
 ```
 
+可重複執行目前使用者的安裝；需要登入後自動啟動時加上 `-Startup`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\install-watchdog.ps1 -DryRun -Startup
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchdog.ps1
+```
+
+安裝器只擁有 `%LOCALAPPDATA%\ai-cli-bypass\continuation`，並以
+`install-manifest.json` 記錄所有權。解除安裝器會驗證 manifest、PID 與儲存庫
+路徑，只移除自有狀態及自有登入工作，不會刪除 npm 套件、CLI wrapper、認證、
+工作階段或其他 `ai-cli-bypass` 狀態。WebUI 使用 `/api/watchdog/start`、
+`/api/watchdog/stop` 與 `/api/uninstall` 執行這些生命週期操作。
+
 只有經 PID 驗證的 classic Console、服務擁有的 PTY 或 Codex App Server 才能
 寫入；不支援的 ConPTY 會保持 `monitor-only`，服務不使用全域鍵盤 API。WebUI
 可暫停程序、修改提示文字、查看已遮罩的事件時間線，以及移除 watchdog 自己擁有的狀態。

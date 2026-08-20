@@ -201,6 +201,21 @@ Start-Process http://127.0.0.1:48920/
 powershell -ExecutionPolicy Bypass -File .\scripts\continuation\stop-watchdog.ps1
 ```
 
+Install the per-user watchdog repeatedly without changing CLI packages. Add
+`-Startup` to register an owned logon task:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\install-watchdog.ps1 -DryRun -Startup
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchdog.ps1
+```
+
+The installer owns only `%LOCALAPPDATA%\ai-cli-bypass\continuation` and records
+that boundary in `install-manifest.json`. The uninstaller validates the manifest,
+PID, and repository path, removes only the owned state and owned logon task, and
+leaves npm packages, CLI wrappers, authentication, sessions, and other
+`ai-cli-bypass` state untouched. The local WebUI uses `/api/watchdog/start`,
+`/api/watchdog/stop`, and `/api/uninstall` for these lifecycle actions.
+
 Writes require a PID-validated classic Console bridge, a service-owned PTY, or
 the Codex App Server. Unsupported ConPTY sessions remain `monitor-only`; the
 service never uses a global keyboard API. The WebUI can pause sessions, change
