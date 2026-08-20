@@ -1,7 +1,7 @@
-<h1 align="center">ai-cli-bypass</h1>
+<h1 align="center">Selbstlauf</h1>
 
 <p align="center">
-  <img src="https://count.getloli.com/get/@ai-cli-bypass?theme=rule34" alt="Visitors">
+  <img src="https://count.getloli.com/get/@Selbstlauf?theme=rule34" alt="Visitors">
 </p>
 
 <div align="center">
@@ -23,7 +23,7 @@
 
 ## Overview
 
-`ai-cli-bypass` provides one-command Windows installers and uninstallers for Claude Code, Codex CLI, and OpenCode while retaining the existing Linux root/sudo scripts. On Windows it installs the official npm package, creates an independent user-level wrapper, and injects the approval-bypass argument without replacing npm's own `.cmd` shim.
+`Selbstlauf` (formerly `ai-cli-bypass`) provides one-command Windows installers and uninstallers for Claude Code, Codex CLI, and OpenCode while retaining the existing Linux root/sudo scripts. On Windows it installs the official npm package, creates an independent user-level wrapper, and injects the approval-bypass argument without replacing npm's own `.cmd` shim.
 
 > [!WARNING]
 > These scripts disable or bypass normal permission approval, sandbox, or confirmation protections. A malicious prompt, dependency, or command may read and write files or execute system operations without another prompt. Use this only in an isolated environment, container, or hardened sandbox that you fully trust. Do not run it on a daily-use machine that holds important data or credentials.
@@ -59,13 +59,13 @@ Run the command for the tool you need in PowerShell:
 
 ```powershell
 # Claude Code
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-claude-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-claude-windows.ps1 | iex
 
 # Codex CLI
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-codex-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-windows.ps1 | iex
 
 # OpenCode
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-opencode-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-opencode-windows.ps1 | iex
 ```
 
 Then run `claude`, `codex`, or `opencode`. Re-running an installer is idempotent and does not recursively wrap an existing project wrapper.
@@ -74,13 +74,13 @@ Then run `claude`, `codex`, or `opencode`. Re-running an installer is idempotent
 
 ```powershell
 # Claude Code
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-claude-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-claude-windows.ps1 | iex
 
 # Codex CLI
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-codex-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-codex-windows.ps1 | iex
 
 # OpenCode
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-opencode-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-opencode-windows.ps1 | iex
 ```
 
 Uninstall removes this project's wrapper and state. It removes the npm package only when this project installed that package initially; a pre-existing package is preserved. Authentication, sessions, providers, and CLI configuration are never deleted.
@@ -89,9 +89,9 @@ Keep the npm CLI package and remove only the bypass wrapper:
 
 ```powershell
 # Replace the URL with the matching uninstall-*-windows.ps1 when needed
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-claude-windows.ps1'))) -KeepCli
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-codex-windows.ps1'))) -KeepCli
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-opencode-windows.ps1'))) -KeepCli
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-claude-windows.ps1'))) -KeepCli
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-codex-windows.ps1'))) -KeepCli
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-opencode-windows.ps1'))) -KeepCli
 ```
 
 ## Linux install and reset
@@ -100,28 +100,28 @@ Download each script before executing it so you can inspect its contents:
 
 ```bash
 # Claude Code
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-claude-root.sh -o install-claude-root.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-claude-root.sh -o install-claude-root.sh
 chmod +x install-claude-root.sh && ./install-claude-root.sh
 
 # Codex CLI
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-codex-root.sh -o install-codex-root.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-root.sh -o install-codex-root.sh
 chmod +x install-codex-root.sh && ./install-codex-root.sh
 
 # OpenCode
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-opencode-root.sh -o install-opencode-root.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-opencode-root.sh -o install-opencode-root.sh
 chmod +x install-opencode-root.sh && ./install-opencode-root.sh
 ```
 
 Restore each tool's normal launch behavior:
 
 ```bash
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/reset-claude.sh -o reset-claude.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/reset-claude.sh -o reset-claude.sh
 chmod +x reset-claude.sh && ./reset-claude.sh
 
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/reset-codex.sh -o reset-codex.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/reset-codex.sh -o reset-codex.sh
 chmod +x reset-codex.sh && ./reset-codex.sh
 
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/reset-opencode.sh -o reset-opencode.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/reset-opencode.sh -o reset-opencode.sh
 chmod +x reset-opencode.sh && ./reset-opencode.sh
 ```
 
@@ -149,11 +149,16 @@ The Linux scripts use tool-specific wrappers. Claude Code additionally uses `LD_
 
 ```text
 .
-|-- install-*-windows.ps1       # Windows installer entry points
-|-- uninstall-*-windows.ps1     # Windows uninstaller entry points
-|-- install-*-root.sh           # Linux installer entry points
-|-- reset-*.sh                  # Linux reset entry points
+|-- install-*-windows.ps1       # compatibility entry points
+|-- uninstall-*-windows.ps1     # compatibility entry points
+|-- install-*-root.sh           # compatibility entry points
+|-- reset-*.sh                  # compatibility entry points
+|-- scripts/install/windows/*   # Windows installers
+|-- scripts/install/linux/*     # Linux installers
+|-- scripts/uninstall/windows/* # Windows uninstallers
+|-- scripts/uninstall/linux/*   # Linux reset scripts
 |-- scripts/windows/AiCliBypass.ps1
+|-- scripts/continuation/*      # watchdog lifecycle
 |-- tests/Test-WindowsScripts.ps1
 |-- tests/Test-Documentation.ps1
 |-- docs/README.zh-TW.md
@@ -180,6 +185,26 @@ changed them after installation.
 > [!WARNING]
 > Full Access disables normal approval and sandbox protections. Use it only in
 > an environment you fully trust.
+
+## Continuation Watchdog
+
+The local watchdog monitors each same-user Claude/Codex process independently.
+It waits for the configured quiet period, records decisions, and uses `继续`
+for ordinary sessions or `/goal resume` only for a resumable Codex goal.
+Enable writes only after reviewing the process and transport status in the UI.
+
+```powershell
+npm install
+npm run build
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\start-watchdog.ps1 -DryRun
+Start-Process http://127.0.0.1:48920/
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\stop-watchdog.ps1
+```
+
+Writes require a PID-validated classic Console bridge, a service-owned PTY, or
+the Codex App Server. Unsupported ConPTY sessions remain `monitor-only`; the
+service never uses a global keyboard API. The WebUI can pause sessions, change
+prompts, inspect the redacted audit timeline, and remove watchdog-owned state.
 
 ## Upstream documentation
 

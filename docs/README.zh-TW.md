@@ -1,7 +1,7 @@
-<h1 align="center">ai-cli-bypass</h1>
+<h1 align="center">Selbstlauf</h1>
 
 <p align="center">
-  <img src="https://count.getloli.com/get/@ai-cli-bypass?theme=rule34" alt="Visitors">
+  <img src="https://count.getloli.com/get/@Selbstlauf?theme=rule34" alt="Visitors">
 </p>
 
 <div align="center">
@@ -23,7 +23,7 @@
 
 ## 概覽
 
-`ai-cli-bypass` 為 Claude Code、Codex CLI 與 OpenCode 提供 Windows 一鍵安裝/解除安裝指令碼，並保留既有的 Linux root/sudo 環境指令碼。Windows 版本會安裝官方 npm 套件，在使用者目錄建立獨立 wrapper，自動注入略過核准參數，不會覆寫 npm 原有的 `.cmd` shim。
+`Selbstlauf`（原 `ai-cli-bypass`）為 Claude Code、Codex CLI 與 OpenCode 提供 Windows 一鍵安裝/解除安裝指令碼，並保留既有的 Linux root/sudo 環境指令碼。Windows 版本會安裝官方 npm 套件，在使用者目錄建立獨立 wrapper，自動注入略過核准參數，不會覆寫 npm 原有的 `.cmd` shim。
 
 > [!WARNING]
 > 這些指令碼會關閉或繞過工具原本的權限核准、沙箱或確認保護。惡意提示、相依套件或命令可能直接讀寫檔案並執行系統操作。只應在你完全信任的隔離環境、容器或已強化沙箱中使用；請勿在存放重要資料或憑證的日常主機上執行。
@@ -59,13 +59,13 @@
 
 ```powershell
 # Claude Code
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-claude-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-claude-windows.ps1 | iex
 
 # Codex CLI
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-codex-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-windows.ps1 | iex
 
 # OpenCode
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-opencode-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-opencode-windows.ps1 | iex
 ```
 
 接著直接執行 `claude`、`codex` 或 `opencode`。重複執行安裝指令碼是冪等的，不會遞迴包裝既有 wrapper。
@@ -74,13 +74,13 @@ irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-openc
 
 ```powershell
 # Claude Code
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-claude-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-claude-windows.ps1 | iex
 
 # Codex CLI
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-codex-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-codex-windows.ps1 | iex
 
 # OpenCode
-irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-opencode-windows.ps1 | iex
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-opencode-windows.ps1 | iex
 ```
 
 解除安裝會刪除本專案的 wrapper 與狀態。只有 npm 套件最初由本專案安裝時才會一併移除；原先存在的套件會保留。驗證、工作階段、provider 與 CLI 設定不會被刪除。
@@ -89,9 +89,9 @@ irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-ope
 
 ```powershell
 # 將 URL 換成對應工具的 uninstall-*-windows.ps1
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-claude-windows.ps1'))) -KeepCli
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-codex-windows.ps1'))) -KeepCli
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-opencode-windows.ps1'))) -KeepCli
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-claude-windows.ps1'))) -KeepCli
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-codex-windows.ps1'))) -KeepCli
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/uninstall-opencode-windows.ps1'))) -KeepCli
 ```
 
 ## Linux 安裝與重設
@@ -100,28 +100,28 @@ irm https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/uninstall-ope
 
 ```bash
 # Claude Code
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-claude-root.sh -o install-claude-root.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-claude-root.sh -o install-claude-root.sh
 chmod +x install-claude-root.sh && ./install-claude-root.sh
 
 # Codex CLI
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-codex-root.sh -o install-codex-root.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-root.sh -o install-codex-root.sh
 chmod +x install-codex-root.sh && ./install-codex-root.sh
 
 # OpenCode
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/install-opencode-root.sh -o install-opencode-root.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-opencode-root.sh -o install-opencode-root.sh
 chmod +x install-opencode-root.sh && ./install-opencode-root.sh
 ```
 
 恢復各工具的一般啟動方式：
 
 ```bash
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/reset-claude.sh -o reset-claude.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/reset-claude.sh -o reset-claude.sh
 chmod +x reset-claude.sh && ./reset-claude.sh
 
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/reset-codex.sh -o reset-codex.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/reset-codex.sh -o reset-codex.sh
 chmod +x reset-codex.sh && ./reset-codex.sh
 
-curl -L https://raw.githubusercontent.com/dieWehmut/ai-cli-bypass/main/reset-opencode.sh -o reset-opencode.sh
+curl -L https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/reset-opencode.sh -o reset-opencode.sh
 chmod +x reset-opencode.sh && ./reset-opencode.sh
 ```
 
@@ -149,11 +149,16 @@ Linux 指令碼使用各工具專用 wrapper；Claude Code 另透過 `LD_PRELOAD
 
 ```text
 .
-|-- install-*-windows.ps1       # Windows 安裝入口
-|-- uninstall-*-windows.ps1     # Windows 解除安裝入口
-|-- install-*-root.sh           # Linux 安裝入口
-|-- reset-*.sh                  # Linux 重設入口
+|-- install-*-windows.ps1       # 相容入口
+|-- uninstall-*-windows.ps1     # 相容入口
+|-- install-*-root.sh           # 相容入口
+|-- reset-*.sh                  # 相容入口
+|-- scripts/install/windows/*   # Windows 安裝腳本
+|-- scripts/install/linux/*     # Linux 安裝腳本
+|-- scripts/uninstall/windows/* # Windows 解除安裝腳本
+|-- scripts/uninstall/linux/*  # Linux 重設腳本
 |-- scripts/windows/AiCliBypass.ps1
+|-- scripts/continuation/*      # watchdog 生命週期
 |-- tests/Test-WindowsScripts.ps1
 |-- tests/Test-Documentation.ps1
 |-- docs/README.zh-TW.md
@@ -177,6 +182,24 @@ and uninstall restores settings owned by this project unless you changed them.
 > [!WARNING]
 > Full Access disables normal approval and sandbox protections. Use it only in
 > an environment you fully trust.
+
+## Continuation Watchdog
+
+本機 watchdog 會分別監控同一使用者的 Claude/Codex 程序，等待設定的靜默
+時間後記錄決策；一般對話使用 `继续`，只有可恢復的 Codex Goal 才使用
+`/goal resume`。先在 WebUI 檢查傳輸能力，再關閉 Dry Run。
+
+```powershell
+npm install
+npm run build
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\start-watchdog.ps1 -DryRun
+Start-Process http://127.0.0.1:48920/
+powershell -ExecutionPolicy Bypass -File .\scripts\continuation\stop-watchdog.ps1
+```
+
+只有經 PID 驗證的 classic Console、服務擁有的 PTY 或 Codex App Server 才能
+寫入；不支援的 ConPTY 會保持 `monitor-only`，服務不使用全域鍵盤 API。WebUI
+可暫停程序、修改提示文字、查看已遮罩的事件時間線，以及移除 watchdog 自己擁有的狀態。
 
 ## 上游文件
 
