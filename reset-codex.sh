@@ -1,24 +1,14 @@
-#!/bin/bash
-set -e
+#!/bin/sh
+set -eu
 
-LINK=$(command -v codex 2>/dev/null || true)
-[ -z "$LINK" ] && echo "codex not found in PATH." && exit 0
-
-# skip if not a wrapper
-head -1 "$LINK" 2>/dev/null | grep -q "^#!/bin/bash" || {
-  echo "codex is not a wrapper (likely original binary)."
-  exit 0
-}
-
-rm -f "$LINK"
-# recreate original symlink
-NPM_ROOT=$(npm root -g 2>/dev/null || echo "/usr/lib/node_modules")
-PKG_DIR="$NPM_ROOT/@openai/codex"
-if [ -f "$PKG_DIR/bin/codex.js" ]; then
-  ln -s "$PKG_DIR/bin/codex.js" "$LINK"
-  echo "restored: $LINK -> $PKG_DIR/bin/codex.js"
-else
-  echo "error: cannot find $PKG_DIR/bin/codex.js"
-  echo "reinstall: npm install -g @openai/codex"
-  exit 1
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || pwd)
+IMPLEMENTATION="$SCRIPT_DIR/scripts/uninstall/linux/reset-codex.sh"
+if [ -f "$IMPLEMENTATION" ]; then
+  exec /bin/bash "$IMPLEMENTATION" "$@"
 fi
+
+REMOTE_URL="https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/scripts/uninstall/linux/reset-codex.sh"
+TEMP_SCRIPT=$(mktemp "${TMPDIR:-/tmp}/selbstlauf-entry.XXXXXX")
+trap 'rm -f "$TEMP_SCRIPT"' EXIT HUP INT TERM
+curl -fsSL "$REMOTE_URL" -o "$TEMP_SCRIPT"
+exec /bin/bash "$TEMP_SCRIPT" "$@"

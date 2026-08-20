@@ -1,36 +1,14 @@
-#!/bin/bash
-set -e
+#!/bin/sh
+set -eu
 
-# ──────────────────────────────────────────────
-# OpenCode – auto-approve wrapper
-#   - injects --auto (auto-approve permissions)
-# ──────────────────────────────────────────────
-
-LINK=$(command -v opencode 2>/dev/null || true)
-if [ -z "$LINK" ]; then
-  echo "ERROR: opencode not found in PATH."
-  exit 1
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || pwd)
+IMPLEMENTATION="$SCRIPT_DIR/scripts/install/linux/install-opencode-root.sh"
+if [ -f "$IMPLEMENTATION" ]; then
+  exec /bin/bash "$IMPLEMENTATION" "$@"
 fi
 
-REAL=$(readlink -f "$LINK" 2>/dev/null || echo "")
-if [ -z "$REAL" ] || [ ! -f "$REAL" ]; then
-  echo "ERROR: cannot resolve opencode binary at $LINK"
-  exit 1
-fi
-
-# check if wrapper already installed
-if head -1 "$LINK" 2>/dev/null | grep -q "^#!/bin/bash"; then
-  echo "opencode wrapper already installed at $LINK"
-  read -rp "reinstall? [y/N] " ans
-  [[ "$ans" == [yY] ]] || exit 0
-fi
-
-rm -f "$LINK"
-cat > "$LINK" << WEOF
-#!/bin/bash
-exec $REAL --auto "\$@"
-WEOF
-chmod +x "$LINK"
-
-echo "done. 'opencode' will now auto-approve permissions."
-echo "(opencode binary: $REAL)"
+REMOTE_URL="https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/scripts/install/linux/install-opencode-root.sh"
+TEMP_SCRIPT=$(mktemp "${TMPDIR:-/tmp}/selbstlauf-entry.XXXXXX")
+trap 'rm -f "$TEMP_SCRIPT"' EXIT HUP INT TERM
+curl -fsSL "$REMOTE_URL" -o "$TEMP_SCRIPT"
+exec /bin/bash "$TEMP_SCRIPT" "$@"

@@ -23,6 +23,22 @@ $script:Arguments = @(
     '--dangerously-bypass-approvals-and-sandbox',
     '--auto'
 )
+$script:OrganizedScriptPaths = @(
+    'scripts\install\windows\install-claude-windows.ps1',
+    'scripts\install\windows\install-codex-windows.ps1',
+    'scripts\install\windows\install-opencode-windows.ps1',
+    'scripts\uninstall\windows\uninstall-claude-windows.ps1',
+    'scripts\uninstall\windows\uninstall-codex-windows.ps1',
+    'scripts\uninstall\windows\uninstall-opencode-windows.ps1',
+    'scripts\install\linux\install-claude-root.sh',
+    'scripts\install\linux\install-codex-root.sh',
+    'scripts\install\linux\install-opencode-root.sh',
+    'scripts\uninstall\linux\reset-claude.sh',
+    'scripts\uninstall\linux\reset-codex.sh',
+    'scripts\uninstall\linux\reset-opencode.sh',
+    'scripts\continuation\start-watchdog.ps1',
+    'scripts\continuation\stop-watchdog.ps1'
+)
 
 function Assert-Documentation {
     param([bool]$Condition, [string]$Message)
@@ -55,6 +71,10 @@ function Assert-LinksResolve {
         $resolved = Join-Path (Split-Path -Parent $Path) $targetPath
         Assert-Documentation (Test-Path -LiteralPath $resolved) "Broken relative link in $Path`: $target"
     }
+}
+
+foreach ($relativePath in $script:WindowsScripts + $script:LinuxScripts + $script:OrganizedScriptPaths) {
+    Assert-Documentation (Test-Path -LiteralPath (Join-Path $script:RepositoryRoot $relativePath) -PathType Leaf) "Missing organized or compatibility script: $relativePath"
 }
 
 foreach ($readmePath in $script:Readmes) {
