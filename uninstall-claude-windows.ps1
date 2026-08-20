@@ -2,6 +2,7 @@
 param([switch]$KeepCli)
 
 $ErrorActionPreference = 'Stop'
+$LASTEXITCODE = 0
 $implementation = $null
 if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
     $candidate = Join-Path $PSScriptRoot 'scripts\uninstall\windows\uninstall-claude-windows.ps1'
