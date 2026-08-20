@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 describe('local service API client', () => {
-  it('normalizes health, unwraps sessions, and uses the service uninstall route', async () => {
+  it('normalizes health, unwraps sessions, and uses the service lifecycle routes', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === '/api/health') {
@@ -19,6 +19,9 @@ describe('local service API client', () => {
       if (path === '/api/uninstall' && init?.method === 'POST') {
         return json({ ok: true });
       }
+      if (path === '/api/watchdog/start' && init?.method === 'POST') {
+        return json({ ok: true, running: true });
+      }
       return new Response(null, { status: 404 });
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -26,8 +29,10 @@ describe('local service API client', () => {
     const api = createApi();
     await expect(api.health()).resolves.toEqual({ ok: true, running: true, dryRun: true, version: 'fixture' });
     await expect(api.sessions()).resolves.toEqual([{ id: 'claude:10' }]);
+    await api.start();
     await api.uninstall();
 
+    expect(fetchMock).toHaveBeenCalledWith('/api/watchdog/start', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/uninstall', expect.objectContaining({ method: 'POST' }));
   });
 

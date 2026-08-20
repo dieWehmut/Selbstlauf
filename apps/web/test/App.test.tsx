@@ -23,7 +23,7 @@ function api(): WatchdogApi {
     updateConfig: vi.fn(async (next) => next),
     sessions: vi.fn(async () => sessions),
     pause: vi.fn(async () => undefined), resume: vi.fn(async () => undefined), inject: vi.fn(async () => undefined),
-    stop: vi.fn(async () => undefined), uninstall: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined),
+    start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined), uninstall: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined),
   };
 }
 

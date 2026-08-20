@@ -21,4 +21,12 @@ describe('static Pages demo API', () => {
     expect(saved.tools.codex.normalPrompt).toBe('demo prompt');
     expect((await api.config()).tools.codex.normalPrompt).toBe('demo prompt');
   });
+
+  it('can recover the demo service after an emergency stop', async () => {
+    const api = createStaticDemoApi();
+    await api.stop();
+    expect((await api.health()).running).toBe(false);
+    await api.start();
+    expect((await api.health()).running).toBe(true);
+  });
 });

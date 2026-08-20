@@ -77,6 +77,7 @@ export interface WatchdogApi {
   pause(id: string): Promise<void>;
   resume(id: string): Promise<void>;
   inject(id: string): Promise<void>;
+  start(): Promise<void>;
   stop(): Promise<void>;
   uninstall(): Promise<void>;
   subscribe(onEvent: (event: AuditEvent) => void): () => void;
@@ -117,6 +118,7 @@ export function createApi(): WatchdogApi {
     pause: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
     resume: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
     inject: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/inject`, { method: 'POST' }),
+    start: () => request<void>('/watchdog/start', { method: 'POST' }),
     stop: () => request<void>('/watchdog/stop', { method: 'POST' }),
     uninstall: () => request<void>('/uninstall', { method: 'POST' }),
     subscribe: (onEvent) => {
