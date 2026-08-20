@@ -167,9 +167,12 @@ export class WatchdogHttpServer {
     const url = new URL(request.url ?? '/', base);
 
     if (method === 'GET' && url.pathname === '/api/health') {
+      const config = await this.configStore.load();
       return this.json(response, 200, {
         ok: true,
+        running: this.watchdogRunning,
         watchdogRunning: this.watchdogRunning,
+        dryRun: config.dryRun,
         loopbackOnly: true,
         startedAtMs: this.startedAtMs,
         nowMs: this.now(),
@@ -199,15 +202,15 @@ export class WatchdogHttpServer {
       await this.lifecycle.start?.();
       this.watchdogRunning = true;
       await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'watchdog-start' } });
-      this.publish('health', { watchdogRunning: true });
-      return this.json(response, 200, { ok: true, watchdogRunning: true });
+      this.publish('health', { running: true, watchdogRunning: true });
+      return this.json(response, 200, { ok: true, running: true, watchdogRunning: true });
     }
     if (method === 'POST' && url.pathname === '/api/watchdog/stop') {
       await this.lifecycle.stop?.();
       this.watchdogRunning = false;
       await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'watchdog-stop' } });
-      this.publish('health', { watchdogRunning: false });
-      return this.json(response, 200, { ok: true, watchdogRunning: false });
+      this.publish('health', { running: false, watchdogRunning: false });
+      return this.json(response, 200, { ok: true, running: false, watchdogRunning: false });
     }
     if (method === 'POST' && url.pathname === '/api/install') {
       if (this.lifecycle.install === undefined) throw new HttpError(501, 'installer is not configured');
@@ -240,8 +243,7 @@ export class WatchdogHttpServer {
       if (session === undefined) throw new HttpError(404, 'session not found');
       const prompt = parsePrompt((body as Record<string, unknown>).prompt, session, config);
       if (config.dryRun) {
-        const result = { ok: true, dryRun: true, prompt, sessionId };
-        await this.audit({
+        const event = await this.audit({
           timestampMs: this.now(),
           type: 'skip',
           sessionId,
@@ -249,8 +251,7 @@ export class WatchdogHttpServer {
           prompt,
           details: { reason: 'dry-run', action: 'manual-inject' },
         });
-        this.publish('audit', result);
-        return this.json(response, 200, result);
+        return this.json(response, 200, { ok: true, dryRun: true, prompt, sessionId, eventId: event.id });
       }
       const result = await this.sessions.inject(sessionId, prompt, false);
       if (!result.ok) throw new HttpError(409, result.error ?? 'session cannot accept input');

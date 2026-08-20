@@ -61,6 +61,14 @@ export interface HealthView {
   version?: string;
 }
 
+interface ServiceHealthResponse {
+  readonly ok?: unknown;
+  readonly running?: unknown;
+  readonly watchdogRunning?: unknown;
+  readonly dryRun?: unknown;
+  readonly version?: unknown;
+}
+
 export interface WatchdogApi {
   health(): Promise<HealthView>;
   config(): Promise<WatchdogConfig>;
@@ -88,29 +96,51 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function createApi(): WatchdogApi {
   return {
-    health: () => request<HealthView>('/health'),
+    health: async () => {
+      const response = await request<ServiceHealthResponse>('/health');
+      return {
+        ok: response.ok === true,
+        running: response.running === true || response.watchdogRunning === true,
+        dryRun: response.dryRun === true,
+        ...(typeof response.version === 'string' ? { version: response.version } : {}),
+      };
+    },
     config: () => request<WatchdogConfig>('/config'),
     updateConfig: (config) => request<WatchdogConfig>('/config', {
       method: 'PUT',
       body: JSON.stringify(config),
     }),
-    sessions: () => request<SessionView[]>('/sessions'),
+    sessions: async () => {
+      const response = await request<SessionView[] | { readonly sessions?: SessionView[] }>('/sessions');
+      return Array.isArray(response) ? response : response.sessions ?? [];
+    },
     pause: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
     resume: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
     inject: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/inject`, { method: 'POST' }),
     stop: () => request<void>('/watchdog/stop', { method: 'POST' }),
-    uninstall: () => request<void>('/lifecycle/uninstall', { method: 'POST' }),
+    uninstall: () => request<void>('/uninstall', { method: 'POST' }),
     subscribe: (onEvent) => {
       if (typeof EventSource === 'undefined') return () => undefined;
       const source = new EventSource('/api/events');
-      source.onmessage = (message) => {
+      const receive = (message: MessageEvent<string>) => {
         try {
-          onEvent(JSON.parse(message.data) as AuditEvent);
+          const event = JSON.parse(message.data) as unknown;
+          if (isAuditEvent(event)) onEvent(event);
         } catch {
           // Ignore malformed external events; the next poll repairs the view.
         }
       };
-      return () => source.close();
+      source.onmessage = receive;
+      source.addEventListener('audit', receive);
+      return () => {
+        source.removeEventListener('audit', receive);
+        source.close();
+      };
     },
   };
+}
+
+function isAuditEvent(value: unknown): value is AuditEvent {
+  return value !== null && typeof value === 'object' &&
+    typeof (value as { type?: unknown }).type === 'string';
 }

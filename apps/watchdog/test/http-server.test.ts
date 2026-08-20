@@ -67,6 +67,8 @@ test('serves health, sessions, validated config, and controls on loopback', asyn
   const health = await request(base, '/api/health');
   assert.equal(health.response.status, 200);
   assert.equal(health.json.ok, true);
+  assert.equal(health.json.running, true);
+  assert.equal(health.json.dryRun, false);
   assert.equal(health.json.loopbackOnly, true);
 
   const sessions = await request(base, '/api/sessions');
