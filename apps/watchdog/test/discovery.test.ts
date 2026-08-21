@@ -243,7 +243,11 @@ test('WindowsProcessProvider reads the working directory of a live same-user pro
     assert.ok(record, `expected process ${child.pid} in the WMI result`);
     assert.equal(resolve(record.workingDirectory ?? ''), resolve(workingDirectory));
   } finally {
-    child.kill();
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit');
+      child.kill();
+      await exited;
+    }
     await rm(workingDirectory, { recursive: true, force: true });
   }
 });
