@@ -31,11 +31,26 @@ export interface WatchdogLifecycle {
   startupStatus?(): Awaitable<StartupTaskStatus>;
   installStartup?(): Awaitable<void>;
   uninstallStartup?(): Awaitable<void>;
+  claudeHookStatus?(): Awaitable<ClaudeHookInstallationStatus>;
+  installClaudeHook?(): Awaitable<ClaudeHookInstallationStatus>;
+  uninstallClaudeHook?(): Awaitable<ClaudeHookInstallationStatus>;
+  disableClaudeHook?(): Awaitable<ClaudeHookInstallationStatus>;
 }
 
 export interface StartupTaskStatus {
   readonly installed: boolean;
   readonly name?: string;
+}
+
+export interface ClaudeHookInstallationStatus {
+  readonly installed: boolean;
+  readonly restartRequired: boolean;
+  readonly manualReviewRequired: boolean;
+  readonly lastError?: string;
+}
+
+export interface ClaudeHookStatus extends ClaudeHookInstallationStatus {
+  readonly enabled: boolean;
 }
 
 export interface WatchdogStatus {
@@ -241,6 +256,50 @@ export class WatchdogHttpServer {
       if (this.lifecycle.startupStatus === undefined) throw new HttpError(501, 'startup task manager is not configured');
       return this.json(response, 200, await this.lifecycle.startupStatus());
     }
+    if (method === 'GET' && url.pathname === '/api/claude-hook') {
+      if (this.lifecycle.claudeHookStatus === undefined) throw new HttpError(501, 'Claude Hook manager is not configured');
+      const [config, hookStatus] = await Promise.all([
+        this.configStore.load(),
+        this.lifecycle.claudeHookStatus(),
+      ]);
+      return this.json(response, 200, claudeHookStatus(config, hookStatus));
+    }
+    if (method === 'POST' && url.pathname === '/api/claude-hook/install') {
+      if (this.lifecycle.installClaudeHook === undefined) throw new HttpError(501, 'Claude Hook installer is not configured');
+      const hookStatus = await this.lifecycle.installClaudeHook();
+      const status = claudeHookStatus(await this.configStore.load(), hookStatus);
+      await this.auditClaudeHookAction('install', status);
+      this.publish('claude-hook', status);
+      return this.json(response, 200, status);
+    }
+    if (method === 'POST' && url.pathname === '/api/claude-hook/uninstall') {
+      if (this.lifecycle.uninstallClaudeHook === undefined) throw new HttpError(501, 'Claude Hook uninstaller is not configured');
+      const hookStatus = await this.lifecycle.uninstallClaudeHook();
+      const status = claudeHookStatus(await this.configStore.load(), hookStatus);
+      await this.auditClaudeHookAction('uninstall', status);
+      this.publish('claude-hook', status);
+      return this.json(response, 200, status);
+    }
+    if (method === 'POST' && url.pathname === '/api/claude-hook/disable') {
+      if (this.lifecycle.disableClaudeHook === undefined) throw new HttpError(501, 'Claude Hook disable action is not configured');
+      const hookStatus = await this.lifecycle.disableClaudeHook();
+      const config = await this.configStore.update((current) => ({
+        ...current,
+        tools: {
+          ...current.tools,
+          claude: {
+            ...current.tools.claude,
+            stopHook: { ...current.tools.claude.stopHook, enabled: false },
+          },
+        },
+      }));
+      await this.sessions.configChanged?.(config);
+      const status = claudeHookStatus(config, hookStatus);
+      await this.auditClaudeHookAction('disable', status);
+      this.publish('config', config);
+      this.publish('claude-hook', status);
+      return this.json(response, 200, status);
+    }
     if (method === 'POST' && url.pathname === '/api/startup/install') {
       if (this.lifecycle.installStartup === undefined) throw new HttpError(501, 'startup task installer is not configured');
       await this.lifecycle.installStartup();
@@ -330,6 +389,24 @@ export class WatchdogHttpServer {
     return stored;
   }
 
+  private async auditClaudeHookAction(
+    action: 'disable' | 'install' | 'uninstall',
+    status: ClaudeHookStatus,
+  ): Promise<void> {
+    await this.audit({
+      timestampMs: this.now(),
+      type: 'user-override',
+      tool: 'claude',
+      details: {
+        action: `claude-hook-${action}`,
+        installed: status.installed,
+        enabled: status.enabled,
+        restartRequired: status.restartRequired,
+        manualReviewRequired: status.manualReviewRequired,
+      },
+    });
+  }
+
   private isAllowedOrigin(origin: string | undefined): boolean {
     if (origin === undefined) return false;
     try {
@@ -385,6 +462,19 @@ export class WatchdogHttpServer {
       return true;
     }
   }
+}
+
+function claudeHookStatus(
+  config: WatchdogConfig,
+  installation: ClaudeHookInstallationStatus,
+): ClaudeHookStatus {
+  return Object.freeze({
+    installed: installation.installed,
+    enabled: config.tools.claude.stopHook.enabled,
+    restartRequired: installation.restartRequired,
+    manualReviewRequired: installation.manualReviewRequired,
+    ...(installation.lastError === undefined ? {} : { lastError: installation.lastError }),
+  });
 }
 
 class HttpError extends Error {

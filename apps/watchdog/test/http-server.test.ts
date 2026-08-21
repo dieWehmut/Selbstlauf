@@ -7,7 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigStore } from '../src/store/config-store.js';
 import { AuditStore } from '../src/store/audit-store.js';
-import { WatchdogHttpServer, type SessionController } from '../src/server/http-server.js';
+import {
+  WatchdogHttpServer,
+  type SessionController,
+  type WatchdogLifecycle,
+} from '../src/server/http-server.js';
 import type { SessionSnapshot } from '../src/domain/types.js';
 
 const session: SessionSnapshot = {
@@ -37,15 +41,17 @@ async function makeServer(
     inject: async (_id, prompt, dryRun) => ({ ok: true, dryRun, prompt }),
     ...overrides,
   };
+  const configStore = new ConfigStore(join(directory, 'config.json'));
+  const auditStore = new AuditStore(join(directory, 'audit.jsonl'));
   const service = new WatchdogHttpServer({
-    configStore: new ConfigStore(join(directory, 'config.json')),
-    auditStore: new AuditStore(join(directory, 'audit.jsonl')),
+    configStore,
+    auditStore,
     sessions: controller,
     status,
     port: 0,
   });
   await service.start();
-  return { service, controller };
+  return { service, controller, configStore, auditStore };
 }
 
 async function request(base: string, path: string, options: { method?: string; body?: unknown; origin?: string } = {}) {
@@ -204,4 +210,137 @@ test('exposes owned startup-task lifecycle endpoints', async (t) => {
   assert.equal(startupStatusCalls, 1);
   assert.equal(installStartupCalls, 1);
   assert.equal(uninstallStartupCalls, 1);
+});
+
+test('exposes explicit Claude Hook status and lifecycle without silently enabling it', async (t) => {
+  let hookState = {
+    installed: false,
+    restartRequired: false,
+    manualReviewRequired: false,
+  };
+  const calls = { status: 0, install: 0, uninstall: 0, disable: 0, clearLeases: 0 };
+  const { service, configStore, auditStore } = await makeServer();
+  const published: Array<{ event: string; data: unknown }> = [];
+  const publish = service.publish.bind(service);
+  service.publish = (event, data) => {
+    published.push({ event, data });
+    return publish(event, data);
+  };
+  service.setLifecycle({
+    claudeHookStatus: async () => {
+      calls.status += 1;
+      return hookState;
+    },
+    installClaudeHook: async () => {
+      calls.install += 1;
+      calls.clearLeases += 1;
+      hookState = { installed: true, restartRequired: true, manualReviewRequired: false };
+      return hookState;
+    },
+    uninstallClaudeHook: async () => {
+      calls.uninstall += 1;
+      calls.clearLeases += 1;
+      hookState = { installed: false, restartRequired: false, manualReviewRequired: false };
+      return hookState;
+    },
+    disableClaudeHook: async () => {
+      calls.disable += 1;
+      calls.clearLeases += 1;
+      return hookState;
+    },
+  } satisfies WatchdogLifecycle);
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const initial = await request(base, '/api/claude-hook');
+  assert.equal(initial.response.status, 200);
+  assert.deepEqual(initial.json, {
+    installed: false,
+    enabled: false,
+    restartRequired: false,
+    manualReviewRequired: false,
+  });
+
+  const forbidden = await request(base, '/api/claude-hook/install', {
+    method: 'POST',
+    origin: 'https://evil.example',
+  });
+  assert.equal(forbidden.response.status, 403);
+  assert.equal(calls.install, 0);
+
+  const installed = await request(base, '/api/claude-hook/install', { method: 'POST', origin: base });
+  assert.equal(installed.response.status, 200);
+  assert.deepEqual(installed.json, {
+    installed: true,
+    enabled: false,
+    restartRequired: true,
+    manualReviewRequired: false,
+  });
+
+  await configStore.update((config) => ({
+    ...config,
+    tools: {
+      ...config.tools,
+      claude: {
+        ...config.tools.claude,
+        stopHook: { ...config.tools.claude.stopHook, enabled: true },
+      },
+    },
+  }));
+  const disabled = await request(base, '/api/claude-hook/disable', { method: 'POST', origin: base });
+  assert.equal(disabled.response.status, 200);
+  assert.deepEqual(disabled.json, {
+    installed: true,
+    enabled: false,
+    restartRequired: true,
+    manualReviewRequired: false,
+  });
+  assert.equal((await configStore.load()).tools.claude.stopHook.enabled, false);
+
+  await configStore.update((config) => ({
+    ...config,
+    tools: {
+      ...config.tools,
+      claude: {
+        ...config.tools.claude,
+        stopHook: { ...config.tools.claude.stopHook, enabled: true },
+      },
+    },
+  }));
+  const uninstalled = await request(base, '/api/claude-hook/uninstall', { method: 'POST', origin: base });
+  assert.equal(uninstalled.response.status, 200);
+  assert.deepEqual(uninstalled.json, {
+    installed: false,
+    enabled: true,
+    restartRequired: false,
+    manualReviewRequired: false,
+  });
+  assert.equal((await configStore.load()).tools.claude.stopHook.enabled, true);
+
+  assert.deepEqual(calls, { status: 1, install: 1, uninstall: 1, disable: 1, clearLeases: 3 });
+  const hookEvents = published.filter(({ event }) => event === 'claude-hook');
+  assert.equal(hookEvents.length, 3);
+  assert.deepEqual(hookEvents.at(-1)?.data, uninstalled.json);
+  const actionEvents = (await auditStore.list()).filter((event) =>
+    typeof event.details?.action === 'string' && event.details.action.startsWith('claude-hook-'));
+  assert.deepEqual(actionEvents.map((event) => event.details?.action), [
+    'claude-hook-install',
+    'claude-hook-disable',
+    'claude-hook-uninstall',
+  ]);
+  assert.doesNotMatch(JSON.stringify(actionEvents), /settings\.json|claude-hook-manifest/i);
+});
+
+test('returns 501 when Claude Hook lifecycle actions are not configured', async (t) => {
+  const { service } = await makeServer();
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const responses = await Promise.all([
+    request(base, '/api/claude-hook'),
+    request(base, '/api/claude-hook/install', { method: 'POST', origin: base }),
+    request(base, '/api/claude-hook/uninstall', { method: 'POST', origin: base }),
+    request(base, '/api/claude-hook/disable', { method: 'POST', origin: base }),
+  ]);
+  assert.deepEqual(responses.map(({ response }) => response.status), [501, 501, 501, 501]);
 });
