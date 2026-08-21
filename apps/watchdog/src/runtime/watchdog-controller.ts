@@ -72,8 +72,11 @@ interface RuntimeSession {
   userPaused: boolean;
   alive: boolean;
   transport: SessionTransport | null;
+  validatedTransportKind: Extract<TransportKind, 'classic-console' | 'pty'> | null;
   transportKind: TransportKind;
   transportError: string | undefined;
+  consoleProcessIds: readonly number[] | null;
+  transportFingerprint: string | null;
   probeAttempted: boolean;
   claudeFile: ClaudeSessionFile | null;
   claudeActivity: { readonly size: number; readonly mtimeMs: number } | null;
@@ -88,6 +91,7 @@ interface RuntimeSession {
 
 const DEFAULT_CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 const DEFAULT_CODEX_HOME = join(homedir(), '.codex');
+const SHARED_CONSOLE_ERROR = 'shared classic Console contains multiple discovered CLI sessions';
 
 /**
  * Owns one polling loop and one state machine per discovered process group.
@@ -175,7 +179,6 @@ export class WatchdogController {
         });
         try {
           await this.updateAssociation(session, claudeFiles, timestamp);
-          await this.updateActivity(session, timestamp);
         } catch (error) {
           // A malformed session database or an attach failure must not stop
           // discovery and quiet-period decisions for unrelated processes.
@@ -183,6 +186,21 @@ export class WatchdogController {
           session.transportKind = 'monitor-only';
           await this.record(session, 'transport-error', {
             reason: `session-refresh: ${session.transportError}`,
+          });
+        }
+      }
+
+      this.resolveConsoleCollisions();
+
+      for (const session of this.sessions.values()) {
+        if (!seen.has(session.id)) continue;
+        try {
+          await this.updateActivity(session, timestamp);
+        } catch (error) {
+          session.transportError = errorMessage(error);
+          session.transportKind = 'cannot-inject';
+          await this.record(session, 'transport-error', {
+            reason: `activity-refresh: ${session.transportError}`,
           });
         }
       }
@@ -319,8 +337,11 @@ export class WatchdogController {
       userPaused: false,
       alive: true,
       transport: null,
+      validatedTransportKind: null,
       transportKind: 'monitor-only',
       transportError: undefined,
+      consoleProcessIds: null,
+      transportFingerprint: null,
       probeAttempted: false,
       claudeFile: null,
       claudeActivity: null,
@@ -396,9 +417,15 @@ export class WatchdogController {
         const probe = await transport.probe(session.group.rootPid);
         if (probe.ok) {
           session.transport = transport;
+          session.validatedTransportKind = probe.kind;
           session.transportKind = probe.kind;
+          session.consoleProcessIds = probe.kind === 'classic-console'
+            ? Object.freeze([...(probe.consoleProcessIds ?? [])])
+            : null;
           session.transportError = undefined;
         } else {
+          session.validatedTransportKind = null;
+          session.consoleProcessIds = null;
           session.transportError = probe.error.message;
         }
       }
@@ -435,9 +462,7 @@ export class WatchdogController {
         await this.record(session, 'activity', { source: 'claude-jsonl' });
       }
       session.claudeActivity = current;
-      return;
-    }
-    if (session.codexActivity !== null) {
+    } else if (session.codexActivity !== null) {
       try {
         const snapshot = await session.codexActivity.snapshot();
         if (snapshot.changed) {
@@ -447,6 +472,50 @@ export class WatchdogController {
       } catch (error) {
         session.transportError = errorMessage(error);
       }
+    }
+    await this.updateTransportActivity(session, timestamp);
+  }
+
+  private resolveConsoleCollisions(): void {
+    const aliveSessions = [...this.sessions.values()].filter((session) => session.alive);
+    for (const session of aliveSessions) {
+      if (session.transportError === SHARED_CONSOLE_ERROR) session.transportError = undefined;
+      if (session.validatedTransportKind !== null) session.transportKind = session.validatedTransportKind;
+    }
+
+    const byRootPid = new Map(aliveSessions.map((session) => [session.group.rootPid, session]));
+    const collided = new Set<RuntimeSession>();
+    for (const session of aliveSessions) {
+      if (session.validatedTransportKind !== 'classic-console' || session.consoleProcessIds === null) continue;
+      const roots = session.consoleProcessIds
+        .map((pid) => byRootPid.get(pid))
+        .filter((candidate): candidate is RuntimeSession => candidate !== undefined);
+      if (roots.length > 1) roots.forEach((candidate) => collided.add(candidate));
+    }
+    for (const session of collided) {
+      session.transportKind = 'cannot-inject';
+      session.transportError = SHARED_CONSOLE_ERROR;
+    }
+  }
+
+  private async updateTransportActivity(session: RuntimeSession, timestamp: number): Promise<void> {
+    if (session.transport === null || session.validatedTransportKind === null) return;
+    if (session.transportError === SHARED_CONSOLE_ERROR) return;
+    const result = await session.transport.activityFingerprint(session.group.rootPid);
+    if (!result.ok) {
+      session.transportKind = 'cannot-inject';
+      session.transportError = result.error.message;
+      await this.record(session, 'transport-error', { reason: `activity-fingerprint: ${result.error.message}` });
+      return;
+    }
+    const previous = session.transportFingerprint;
+    session.transportFingerprint = result.fingerprint;
+    session.validatedTransportKind = result.kind;
+    session.transportKind = result.kind;
+    session.transportError = undefined;
+    if (previous !== null && previous !== result.fingerprint) {
+      session.engine.observeOutput(session.id, timestamp);
+      await this.record(session, 'activity', { source: result.kind });
     }
   }
 
@@ -500,7 +569,9 @@ export class WatchdogController {
         return { ok: false, error: errorMessage(error) };
       }
     }
-    if (session.transport === null) return { ok: false, error: session.transportError ?? 'no trusted transport' };
+    if (session.transport === null || !['classic-console', 'pty'].includes(session.transportKind)) {
+      return { ok: false, error: session.transportError ?? 'no trusted transport' };
+    }
     const result = await session.transport.write(session.group.rootPid, prompt);
     return result.ok ? { ok: true } : { ok: false, error: result.error.message };
   }

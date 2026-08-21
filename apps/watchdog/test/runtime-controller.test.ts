@@ -24,6 +24,22 @@ class FixtureTransport implements SessionTransport {
   public async write(pid: number, text: string) { this.writes.push(`${pid}:${text}`); return { ok: true as const, kind: 'classic-console' as const, pid, recordsWritten: 2 }; }
 }
 
+class ConsoleFixtureTransport extends FixtureTransport {
+  public fingerprint = 'initial';
+
+  public constructor(private readonly consoleProcessIds: readonly number[]) {
+    super();
+  }
+
+  public override async probe(pid: number) {
+    return { ok: true as const, kind: 'classic-console' as const, pid, consoleProcessIds: [...this.consoleProcessIds] };
+  }
+
+  public override async activityFingerprint(pid: number) {
+    return { ok: true as const, kind: 'classic-console' as const, pid, fingerprint: this.fingerprint };
+  }
+}
+
 class ThrowingTransport extends FixtureTransport {
   public override async probe(pid: number) {
     if (pid === 100) throw new Error('fixture attach failed');
@@ -150,6 +166,95 @@ test('isolates a session probe failure so later sessions are still refreshed', a
     assert.equal(sessions.find((session) => session.id === 'claude:100')?.transport, 'monitor-only');
     assert.equal(sessions.find((session) => session.id === 'claude:200')?.transport, 'classic-console');
     assert.ok((await auditStore.list()).some((event) => event.details?.reason === 'session-refresh: fixture attach failed'));
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('treats a changed classic Console fingerprint as response activity before injecting', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-console-activity-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  await writeFile(join(projects, 'project', 'session.jsonl'), `${JSON.stringify({ cwd, sessionId: 'console-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+  });
+  const auditStore = new AuditStore(join(root, 'audit.jsonl'));
+  const records: RawProcessRecord[] = [
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+  ];
+  const transport = new ConsoleFixtureTransport([100]);
+  let clock = processCreatedAt;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore,
+    provider: new FixtureProvider(records),
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    now: () => clock,
+    transportFactory: () => transport,
+  });
+  try {
+    await controller.poll();
+    transport.fingerprint = 'response-arrived';
+    clock += 1_000;
+    await controller.poll();
+
+    assert.deepEqual(transport.writes, []);
+    assert.equal((await controller.list())[0]?.lastActivityAtMs, clock);
+    assert.ok((await auditStore.list()).some((event) => event.type === 'activity' && event.details?.source === 'classic-console'));
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('fails closed when two discovered sessions share one classic Console', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-console-collision-'));
+  const projects = join(root, 'projects');
+  const firstCwd = join(root, 'first');
+  const secondCwd = join(root, 'second');
+  await mkdir(join(projects, 'first'), { recursive: true });
+  await mkdir(join(projects, 'second'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  await writeFile(join(projects, 'first', 'first.jsonl'), `${JSON.stringify({ cwd: firstCwd, sessionId: 'first-session' })}\n`, 'utf8');
+  await writeFile(join(projects, 'second', 'second.jsonl'), `${JSON.stringify({ cwd: secondCwd, sessionId: 'second-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  const auditStore = new AuditStore(join(root, 'audit.jsonl'));
+  const records: RawProcessRecord[] = [
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${firstCwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    { pid: 200, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${secondCwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+  ];
+  const transports = new Map<number, ConsoleFixtureTransport>([
+    [100, new ConsoleFixtureTransport([100, 200])],
+    [200, new ConsoleFixtureTransport([100, 200])],
+  ]);
+  const controller = new WatchdogController({
+    configStore,
+    auditStore,
+    provider: new FixtureProvider(records),
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    now: () => processCreatedAt,
+    transportFactory: (session) => transports.get(session.rootPid) ?? null,
+  });
+  try {
+    await controller.poll();
+    const sessions = await controller.list();
+
+    assert.deepEqual(sessions.map((session) => session.transport), ['cannot-inject', 'cannot-inject']);
+    assert.ok(sessions.every((session) => session.transportError?.includes('shared classic Console')));
+    assert.deepEqual([...transports.values()].flatMap((transport) => transport.writes), []);
   } finally {
     await controller.stop();
     await rm(root, { recursive: true, force: true });
