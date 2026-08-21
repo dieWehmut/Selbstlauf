@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 
 import { defaultConfig } from '../src/domain/config.js';
+import { AppServerClient } from '../src/codex/app-server.js';
 import { WatchdogController } from '../src/runtime/watchdog-controller.js';
 import { AuditStore } from '../src/store/audit-store.js';
 import { ConfigStore } from '../src/store/config-store.js';
@@ -45,6 +46,42 @@ class ThrowingTransport extends FixtureTransport {
     if (pid === 100) throw new Error('fixture attach failed');
     return super.probe(pid);
   }
+}
+
+async function createCodexState(
+  root: string,
+  threadId: string,
+  cwd: string,
+  goalStatus: 'active' | 'complete',
+): Promise<{ statePath: string; goalPath: string }> {
+  const { DatabaseSync } = await import('node:sqlite');
+  const statePath = join(root, 'state.sqlite');
+  const goalPath = join(root, 'goals.sqlite');
+  const state = new DatabaseSync(statePath);
+  state.exec(`
+    CREATE TABLE threads (
+      id TEXT PRIMARY KEY,
+      cwd TEXT NOT NULL,
+      rollout_path TEXT,
+      created_at_ms INTEGER,
+      updated_at_ms INTEGER
+    );
+  `);
+  state.prepare('INSERT INTO threads (id, cwd, rollout_path, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?)')
+    .run(threadId, cwd, null, 1_000, 2_000);
+  state.close();
+  const goals = new DatabaseSync(goalPath);
+  goals.exec(`
+    CREATE TABLE thread_goals (
+      thread_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      updated_at_ms INTEGER
+    );
+  `);
+  goals.prepare('INSERT INTO thread_goals (thread_id, status, updated_at_ms) VALUES (?, ?, ?)')
+    .run(threadId, goalStatus, 2_500);
+  goals.close();
+  return { statePath, goalPath };
 }
 
 test('polls independent Claude processes and records a dry-run quiet-period decision', async () => {
@@ -255,6 +292,46 @@ test('fails closed when two discovered sessions share one classic Console', asyn
     assert.deepEqual(sessions.map((session) => session.transport), ['cannot-inject', 'cannot-inject']);
     assert.ok(sessions.every((session) => session.transportError?.includes('shared classic Console')));
     assert.deepEqual([...transports.values()].flatMap((transport) => transport.writes), []);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('manual Codex injection sends the requested prompt to its associated thread', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-codex-manual-'));
+  const cwd = join(root, 'conversation');
+  const threadId = '01a01234-1234-7abc-8def-0123456789ab';
+  const paths = await createCodexState(root, threadId, cwd, 'complete');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  const auditStore = new AuditStore(join(root, 'audit.jsonl'));
+  const records: RawProcessRecord[] = [
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+    { pid: 100, parentPid: 1, name: 'codex.exe', commandLine: `codex resume ${threadId}`, executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test', workingDirectory: cwd },
+  ];
+  const calls: string[] = [];
+  const appServer = {
+    resumeThread: async (id: string) => { calls.push(`resume:${id}`); return {}; },
+    startTurn: async (id: string, prompt: string) => { calls.push(`turn:${id}:${prompt}`); return {}; },
+    close: () => undefined,
+  } as unknown as AppServerClient;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore,
+    provider: new FixtureProvider(records),
+    platform: 'win32',
+    currentProcessId: 50,
+    codexStatePath: paths.statePath,
+    codexGoalPath: paths.goalPath,
+    codexAppServerFactory: () => appServer,
+    now: () => 1_000,
+  });
+  try {
+    await controller.poll();
+    const result = await controller.inject('codex:100', '检查最新输出', false);
+
+    assert.deepEqual(result, { ok: true, prompt: '检查最新输出' });
+    assert.deepEqual(calls, [`resume:${threadId}`, `turn:${threadId}:检查最新输出`]);
   } finally {
     await controller.stop();
     await rm(root, { recursive: true, force: true });

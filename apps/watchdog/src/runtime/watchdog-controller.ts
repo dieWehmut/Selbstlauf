@@ -53,6 +53,7 @@ export interface WatchdogControllerOptions {
   readonly claudeProjectsDirectory?: string;
   readonly codexStatePath?: string;
   readonly codexGoalPath?: string;
+  readonly codexAppServerFactory?: () => AppServerClient;
   readonly transportFactory?: (session: DiscoveredProcessSession) => SessionTransport | null;
 }
 
@@ -108,6 +109,7 @@ export class WatchdogController {
   private readonly claudeProjectsDirectory: string;
   private readonly codexStatePath?: string;
   private readonly codexGoalPath?: string;
+  private readonly codexAppServerFactory: () => AppServerClient;
   private readonly transportFactory?: (session: DiscoveredProcessSession) => SessionTransport | null;
   private readonly sessions = new Map<string, RuntimeSession>();
   private codexPathsPromise: Promise<CodexPaths | null> | null = null;
@@ -127,6 +129,7 @@ export class WatchdogController {
     this.claudeProjectsDirectory = options.claudeProjectsDirectory ?? DEFAULT_CLAUDE_PROJECTS;
     this.codexStatePath = options.codexStatePath;
     this.codexGoalPath = options.codexGoalPath;
+    this.codexAppServerFactory = options.codexAppServerFactory ?? (() => new AppServerClient());
     this.transportFactory = options.transportFactory;
   }
 
@@ -259,7 +262,7 @@ export class WatchdogController {
       await this.record(session, 'skip', { reason: 'dry-run', action: 'manual-inject' }, prompt);
       return { ok: true, dryRun: true, prompt };
     }
-    const result = await this.writeSession(session, prompt);
+    const result = await this.writeSession(session, prompt, true);
     if (!result.ok) return { ok: false, prompt, error: result.error };
     await this.record(session, 'injection', { action: 'manual-inject' }, prompt);
     return { ok: true, prompt };
@@ -379,7 +382,7 @@ export class WatchdogController {
       return;
     }
     try {
-      const appServer = new AppServerClient();
+      const appServer = this.codexAppServerFactory();
       session.codexAdapter = new CodexAdapter({
         statePath: paths.statePath,
         goalPath: paths.goalPath,
@@ -557,11 +560,17 @@ export class WatchdogController {
     }
   }
 
-  private async writeSession(session: RuntimeSession, prompt: string): Promise<WriteResultLike> {
+  private async writeSession(
+    session: RuntimeSession,
+    prompt: string,
+    explicitPrompt = false,
+  ): Promise<WriteResultLike> {
     if (session.group.tool === 'codex') {
       if (session.codexAdapter === null || session.codexContext === null) return { ok: false, error: 'Codex App Server is unavailable' };
       try {
-        const result = await session.codexAdapter.injectContinuation(session.codexContext);
+        const result = explicitPrompt
+          ? await session.codexAdapter.injectPrompt(session.codexContext, prompt)
+          : await session.codexAdapter.injectContinuation(session.codexContext);
         return result.kind === 'inject'
           ? { ok: true }
           : { ok: false, error: result.reason };
