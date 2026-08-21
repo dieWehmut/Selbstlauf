@@ -8,6 +8,7 @@ import { ConfigStore } from './store/config-store.js';
 import { WatchdogHttpServer, type SessionController } from './server/http-server.js';
 import { WatchdogController } from './runtime/watchdog-controller.js';
 import { WatchdogInstallation } from './lifecycle/installation.js';
+import { ClaudeLeaseStore } from './claude/lease-store.js';
 
 export interface WatchdogProcessOptions {
   readonly stateDirectory?: string;
@@ -31,6 +32,7 @@ export async function startWatchdogProcess(
   await mkdir(stateDirectory, { recursive: true });
   const configStore = new ConfigStore(join(stateDirectory, 'config.json'));
   const auditStore = new AuditStore(join(stateDirectory, 'audit.jsonl'));
+  const claudeLeaseStore = new ClaudeLeaseStore(join(stateDirectory, 'claude-leases.json'));
   const installation = new WatchdogInstallation({
     stateDirectory,
     repositoryRoot: defaultRepositoryRoot(),
@@ -44,6 +46,8 @@ export async function startWatchdogProcess(
   const sessionController = sessions ?? (controller = new WatchdogController({
     configStore,
     auditStore,
+    claudeLeaseStore,
+    claudeHookInstalled: () => false,
     publish: (event, data) => server?.publish(event, data),
   }));
   server = new WatchdogHttpServer({

@@ -17,6 +17,7 @@ export interface InjectionResult {
 
 export interface SessionController {
   list(): Awaitable<readonly SessionSnapshot[]>;
+  configChanged?(config: WatchdogConfig): Awaitable<void>;
   pause(sessionId: string): Awaitable<boolean>;
   resume(sessionId: string): Awaitable<boolean>;
   inject(sessionId: string, prompt: string, dryRun: boolean): Awaitable<InjectionResult>;
@@ -201,6 +202,7 @@ export class WatchdogHttpServer {
     }
     if (method === 'PUT' && url.pathname === '/api/config') {
       const config = await this.configStore.save(await readJson(request, this.maxJsonBytes, false));
+      await this.sessions.configChanged?.(config);
       await this.audit({ timestampMs: this.now(), type: 'config-change', details: { dryRun: config.dryRun } });
       this.publish('config', config);
       return this.json(response, 200, config);

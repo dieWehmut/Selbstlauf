@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { CodexAdapter, type CodexContinuationContext } from '../codex/codex-adapter.js';
 import { AppServerClient } from '../codex/app-server.js';
+import { ClaudeLeaseStore } from '../claude/lease-store.js';
 import {
   associateClaudeSession,
   hasClaudeSessionActivity,
@@ -55,6 +56,8 @@ export interface WatchdogControllerOptions {
   readonly codexGoalPath?: string;
   readonly codexAppServerFactory?: () => AppServerClient;
   readonly transportFactory?: (session: DiscoveredProcessSession) => SessionTransport | null;
+  readonly claudeLeaseStore?: ClaudeLeaseStore;
+  readonly claudeHookInstalled?: () => boolean | Promise<boolean>;
 }
 
 export interface RuntimeSessionView extends SessionSnapshot {
@@ -85,6 +88,7 @@ interface RuntimeSession {
   probeAttempted: boolean;
   claudeFile: ClaudeSessionFile | null;
   claudeActivity: { readonly size: number; readonly mtimeMs: number } | null;
+  claudeLeaseSessionId: string | null;
   codexAdapter: CodexAdapter | null;
   codexContext: CodexContinuationContext | null;
   codexActivity: { snapshot(): Promise<{ readonly changed: boolean }> } | null;
@@ -115,11 +119,15 @@ export class WatchdogController {
   private readonly codexGoalPath?: string;
   private readonly codexAppServerFactory: () => AppServerClient;
   private readonly transportFactory?: (session: DiscoveredProcessSession) => SessionTransport | null;
+  private readonly claudeLeaseStore?: ClaudeLeaseStore;
+  private readonly claudeHookInstalled: () => boolean | Promise<boolean>;
+  private readonly activeClaudeLeaseWrites = new Set<Promise<WriteResultLike>>();
   private readonly sessions = new Map<string, RuntimeSession>();
   private codexPathsPromise: Promise<CodexPaths | null> | null = null;
   private currentConfig: WatchdogConfig = defaultConfig;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private stopping = false;
   private currentPoll: Promise<void> | null = null;
   private completedPollAtMs: number | null = null;
 
@@ -136,10 +144,13 @@ export class WatchdogController {
     this.codexGoalPath = options.codexGoalPath;
     this.codexAppServerFactory = options.codexAppServerFactory ?? (() => new AppServerClient());
     this.transportFactory = options.transportFactory;
+    this.claudeLeaseStore = options.claudeLeaseStore;
+    this.claudeHookInstalled = options.claudeHookInstalled ?? (() => false);
   }
 
   public async start(): Promise<void> {
     if (this.running) return;
+    this.stopping = false;
     this.running = true;
     await this.poll();
     this.schedule(this.currentConfig.pollIntervalMs);
@@ -147,8 +158,12 @@ export class WatchdogController {
 
   public async stop(): Promise<void> {
     this.running = false;
+    this.stopping = true;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
+    await this.currentPoll;
+    await this.waitForClaudeLeaseWrites();
+    await this.claudeLeaseStore?.clearAll();
     for (const session of this.sessions.values()) session.codexAdapter?.close();
     this.sessions.clear();
   }
@@ -180,7 +195,17 @@ export class WatchdogController {
       for (const group of groups) {
         const id = `${group.tool}:${group.rootPid}`;
         seen.add(id);
-        const session = this.sessions.get(id) ?? await this.createSession(id, group, timestamp);
+        let session = this.sessions.get(id);
+        if (session !== undefined && processIdentityChanged(session.group, group)) {
+          session.alive = false;
+          session.engine.markExited(session.id);
+          await this.clearClaudeLease(session);
+          session.codexAdapter?.close();
+          await this.record(session, 'process-exited', { reason: 'process-identity-changed' });
+          this.sessions.delete(id);
+          session = undefined;
+        }
+        session ??= await this.createSession(id, group, timestamp);
         session.group = group;
         session.alive = true;
         this.configureEngine(session, this.currentConfig, timestamp);
@@ -192,6 +217,9 @@ export class WatchdogController {
           paused: session.userPaused,
           alive: true,
         });
+        if (group.tool === 'claude' && !this.claudeConfigEnabled()) {
+          await this.clearClaudeLease(session);
+        }
         try {
           await this.updateAssociation(session, claudeFiles, timestamp);
         } catch (error) {
@@ -218,6 +246,7 @@ export class WatchdogController {
             reason: `activity-refresh: ${session.transportError}`,
           });
         }
+        await this.refreshClaudeHookCapability(session);
       }
 
       for (const session of this.sessions.values()) {
@@ -225,6 +254,7 @@ export class WatchdogController {
         if (session.alive) {
           session.alive = false;
           session.engine.markExited(session.id);
+          await this.clearClaudeLease(session);
           await this.record(session, 'process-exited', { reason: 'not-discovered' });
         }
       }
@@ -246,11 +276,31 @@ export class WatchdogController {
     return Object.freeze([...this.sessions.values()].map((session) => this.toView(session)));
   }
 
-  public pause(sessionId: string): boolean {
+  public async configChanged(config: WatchdogConfig): Promise<void> {
+    this.currentConfig = config;
+    await this.currentPoll;
+    await this.waitForClaudeLeaseWrites();
+    await this.claudeLeaseStore?.clearAll();
+    for (const session of this.sessions.values()) {
+      session.engine.setEnabled(
+        session.id,
+        config.enabled && config.tools[session.group.tool].enabled,
+      );
+      if (session.group.tool === 'claude') {
+        session.claudeLeaseSessionId = null;
+        if (!this.claudeConfigEnabled() && session.transportKind === 'claude-stop-hook') {
+          session.transportKind = 'monitor-only';
+        }
+      }
+    }
+  }
+
+  public async pause(sessionId: string): Promise<boolean> {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
     session.userPaused = true;
     session.engine.pause(sessionId);
+    await this.clearClaudeLease(session);
     void this.record(session, 'user-override', { action: 'pause' });
     return true;
   }
@@ -361,6 +411,7 @@ export class WatchdogController {
       probeAttempted: false,
       claudeFile: null,
       claudeActivity: null,
+      claudeLeaseSessionId: null,
       codexAdapter: null,
       codexContext: null,
       codexActivity: null,
@@ -426,6 +477,10 @@ export class WatchdogController {
       session.claudeFile = association.sessionPath === null
         ? null
         : claudeFiles.find((file) => file.path === association.sessionPath) ?? null;
+      if (session.claudeLeaseSessionId !== null && session.claudeLeaseSessionId !== association.conversationId) {
+        await this.clearClaudeLease(session);
+      }
+      session.claudeLeaseSessionId = association.conversationId;
       if (association.reason !== undefined) session.transportError = association.reason;
       if (session.claudeFile !== null && !session.probeAttempted) {
         session.probeAttempted = true;
@@ -445,6 +500,7 @@ export class WatchdogController {
           session.transportError = probe.error.message;
         }
       }
+      await this.refreshClaudeHookCapability(session);
       return;
     }
 
@@ -595,11 +651,98 @@ export class WatchdogController {
         return { ok: false, error: errorMessage(error) };
       }
     }
+    if (session.transportKind === 'claude-stop-hook') {
+      return this.armClaudeLease(session, prompt);
+    }
     if (session.transport === null || !['classic-console', 'pty'].includes(session.transportKind)) {
       return { ok: false, error: session.transportError ?? 'no trusted transport' };
     }
     const result = await session.transport.write(session.group.rootPid, prompt);
     return result.ok ? { ok: true } : { ok: false, error: result.error.message };
+  }
+
+  private async armClaudeLease(session: RuntimeSession, prompt: string): Promise<WriteResultLike> {
+    const operation = this.performClaudeLeaseArm(session, prompt);
+    this.activeClaudeLeaseWrites.add(operation);
+    try {
+      return await operation;
+    } finally {
+      this.activeClaudeLeaseWrites.delete(operation);
+    }
+  }
+
+  private async refreshClaudeHookCapability(session: RuntimeSession): Promise<void> {
+    if (session.group.tool !== 'claude' || session.claudeFile === null || session.conversationId === null) return;
+    if (session.validatedTransportKind !== null && !['cannot-inject', 'monitor-only'].includes(session.transportKind)) {
+      return;
+    }
+    if (!this.currentConfig.dryRun && this.claudeConfigEnabled() && await this.hookIsInstalled()) {
+      session.transportKind = 'claude-stop-hook';
+      session.transportError = undefined;
+    } else if (session.transportKind === 'claude-stop-hook') {
+      session.transportKind = 'monitor-only';
+    }
+  }
+
+  private async performClaudeLeaseArm(session: RuntimeSession, prompt: string): Promise<WriteResultLike> {
+    if (this.claudeLeaseStore === undefined || !this.claudeConfigEnabled() || !(await this.hookIsInstalled())) {
+      return { ok: false, error: 'Claude Stop Hook is unavailable' };
+    }
+    if (this.stopping || session.userPaused || !session.alive || session.transportKind !== 'claude-stop-hook') {
+      return { ok: false, error: 'Claude session is not eligible for Hook continuation' };
+    }
+    if (session.conversationId === null || session.claudeFile === null || session.claudeActivity === null ||
+        session.group.workingDirectory === null || session.group.workingDirectory === undefined ||
+        session.group.creationTimeMs === null) {
+      return { ok: false, error: 'Claude session identity is incomplete' };
+    }
+    try {
+      await this.claudeLeaseStore.arm({
+        sessionId: session.conversationId,
+        cwd: session.group.workingDirectory,
+        prompt,
+        rootPid: session.group.rootPid,
+        processStartedAtMs: session.group.creationTimeMs,
+        activity: session.claudeActivity,
+        transcriptPath: session.claudeFile.path,
+        ttlMs: this.currentConfig.tools.claude.stopHook.leaseTtlMs,
+      });
+      if (this.stopping || session.userPaused || !session.alive || !this.claudeConfigEnabled() ||
+          session.transportKind !== 'claude-stop-hook' || !(await this.hookIsInstalled())) {
+        await this.claudeLeaseStore.clearSession(session.conversationId);
+        return { ok: false, error: 'Claude session became ineligible during Hook continuation' };
+      }
+      session.claudeLeaseSessionId = session.conversationId;
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: errorMessage(error) };
+    }
+  }
+
+  private claudeConfigEnabled(): boolean {
+    return this.currentConfig.enabled && this.currentConfig.tools.claude.enabled &&
+      this.currentConfig.tools.claude.stopHook.enabled && this.claudeLeaseStore !== undefined;
+  }
+
+  private async hookIsInstalled(): Promise<boolean> {
+    try {
+      return await this.claudeHookInstalled();
+    } catch {
+      return false;
+    }
+  }
+
+  private async clearClaudeLease(session: RuntimeSession): Promise<void> {
+    await this.waitForClaudeLeaseWrites();
+    const sessionId = session.claudeLeaseSessionId ??
+      (session.group.tool === 'claude' ? session.conversationId : null);
+    if (sessionId !== null) await this.claudeLeaseStore?.clearSession(sessionId);
+    session.claudeLeaseSessionId = null;
+  }
+
+  private async waitForClaudeLeaseWrites(): Promise<void> {
+    if (this.activeClaudeLeaseWrites.size === 0) return;
+    await Promise.allSettled([...this.activeClaudeLeaseWrites]);
   }
 
   private codexContextFor(session: RuntimeSession, timestamp: number): CodexContinuationContext {
@@ -694,6 +837,14 @@ interface WriteResultLike {
 
 function engineKey(config: WatchdogConfig): string {
   return [config.defaultIdleTimeoutMs, config.defaultCooldownMs, config.maxAttemptsPerQuietPeriod].join(':');
+}
+
+function processIdentityChanged(
+  previous: DiscoveredProcessSession,
+  current: DiscoveredProcessSession,
+): boolean {
+  return previous.creationTimeMs !== null && current.creationTimeMs !== null &&
+    previous.creationTimeMs !== current.creationTimeMs;
 }
 
 function errorMessage(error: unknown): string {

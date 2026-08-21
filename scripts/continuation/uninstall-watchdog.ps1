@@ -42,7 +42,7 @@ if ($repositoryRoot -ine $manifestRepositoryRoot) {
     throw 'refusing to uninstall because the repository root does not match the ownership manifest'
 }
 
-$knownOwnedFiles = @('config.json', 'audit.jsonl', 'watchdog.pid.json', 'watchdog.log', 'watchdog-error.log', 'watchdog-uninstall.log', 'install-manifest.json')
+$knownOwnedFiles = @('config.json', 'audit.jsonl', 'claude-leases.json', 'claude-leases.json.lock', 'watchdog.pid.json', 'watchdog.log', 'watchdog-error.log', 'watchdog-uninstall.log', 'install-manifest.json')
 if ($null -eq $manifest.ownedPaths -or @($manifest.ownedPaths).Count -eq 0) {
     throw 'refusing to uninstall without an owned-path manifest'
 }

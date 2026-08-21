@@ -17,6 +17,7 @@ export const TRANSPORT_KINDS = [
   'classic-console',
   'pty',
   'codex-app-server',
+  'claude-stop-hook',
   'monitor-only',
   'cannot-inject',
   'unknown',

@@ -56,6 +56,8 @@ export interface StartupInstallOptions {
 const OWNED_PATHS = Object.freeze([
   'config.json',
   'audit.jsonl',
+  'claude-leases.json',
+  'claude-leases.json.lock',
   'watchdog.pid.json',
   'watchdog.log',
   'watchdog-error.log',

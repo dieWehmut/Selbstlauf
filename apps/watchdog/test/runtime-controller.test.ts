@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 
 import { defaultConfig } from '../src/domain/config.js';
+import { ClaudeLeaseStore } from '../src/claude/lease-store.js';
+import type { ClaudeContinuationLease, ClaudeLeaseRequest } from '../src/claude/lease-store.js';
 import { AppServerClient } from '../src/codex/app-server.js';
 import { WatchdogController } from '../src/runtime/watchdog-controller.js';
 import { AuditStore } from '../src/store/audit-store.js';
@@ -15,6 +17,11 @@ import type { SessionTransport } from '../src/transport/transport.js';
 
 class FixtureProvider implements ProcessProvider {
   public constructor(private readonly records: RawProcessRecord[]) {}
+  public async listProcesses(): Promise<RawProcessRecord[]> { return this.records; }
+}
+
+class MutableFixtureProvider implements ProcessProvider {
+  public constructor(public records: RawProcessRecord[]) {}
   public async listProcesses(): Promise<RawProcessRecord[]> { return this.records; }
 }
 
@@ -45,6 +52,83 @@ class ThrowingTransport extends FixtureTransport {
   public override async probe(pid: number) {
     if (pid === 100) throw new Error('fixture attach failed');
     return super.probe(pid);
+  }
+}
+
+class FailingActivityTransport implements SessionTransport {
+  public writes: string[] = [];
+  private activityCalls = 0;
+
+  public async probe(pid: number) {
+    return { ok: true as const, kind: 'classic-console' as const, pid, consoleProcessIds: [pid] };
+  }
+
+  public async activityFingerprint(pid: number) {
+    this.activityCalls += 1;
+    if (this.activityCalls === 1) {
+      return { ok: true as const, kind: 'classic-console' as const, pid, fingerprint: 'stable' };
+    }
+    return {
+      ok: false as const,
+      kind: 'cannot-inject' as const,
+      pid,
+      error: { code: 'attach-failed', message: 'fixture Console detached' },
+    };
+  }
+
+  public async write(pid: number, text: string) {
+    this.writes.push(`${pid}:${text}`);
+    return { ok: true as const, kind: 'classic-console' as const, pid, recordsWritten: 2 };
+  }
+}
+
+class CannotInjectFixtureTransport implements SessionTransport {
+  public async probe(pid: number) {
+    return {
+      ok: false as const,
+      kind: 'cannot-inject' as const,
+      pid,
+      error: { code: 'attach-failed', message: 'fixture Console is not trusted' },
+    };
+  }
+
+  public async activityFingerprint(pid: number) {
+    return {
+      ok: false as const,
+      kind: 'cannot-inject' as const,
+      pid,
+      error: { code: 'attach-failed', message: 'fixture Console is not trusted' },
+    };
+  }
+
+  public async write(pid: number, _text: string) {
+    return {
+      ok: false as const,
+      kind: 'cannot-inject' as const,
+      pid,
+      error: { code: 'attach-failed', message: 'fixture Console is not trusted' },
+    };
+  }
+}
+
+class DelayedClaudeLeaseStore extends ClaudeLeaseStore {
+  private releaseArm!: () => void;
+  private markArmStarted!: () => void;
+  public readonly armStarted = new Promise<void>((resolveStarted) => {
+    this.markArmStarted = resolveStarted;
+  });
+  private readonly armReleased = new Promise<void>((resolveArm) => {
+    this.releaseArm = resolveArm;
+  });
+
+  public override async arm(request: ClaudeLeaseRequest): Promise<ClaudeContinuationLease> {
+    this.markArmStarted();
+    await this.armReleased;
+    return super.arm(request);
+  }
+
+  public continueArm(): void {
+    this.releaseArm();
   }
 }
 
@@ -153,6 +237,509 @@ test('polls independent Claude processes and records a dry-run quiet-period deci
     assert.deepEqual(transport.writes, []);
     const events = await auditStore.list();
     assert.ok(events.some((event) => event.type === 'skip' && event.details?.reason === 'dry-run'));
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('arms an exact Claude Stop Hook lease when no trusted direct transport exists', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-claude-hook-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  const transcript = join(projects, 'project', 'session.jsonl');
+  await writeFile(transcript, `${JSON.stringify({ cwd, sessionId: 'hook-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+    tools: {
+      ...defaultConfig.tools,
+      claude: {
+        ...defaultConfig.tools.claude,
+        stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: true },
+      },
+    },
+  });
+  const leaseStore = new ClaudeLeaseStore(join(root, 'state', 'claude-leases.json'));
+  const records: RawProcessRecord[] = [
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+  ];
+  const provider = new MutableFixtureProvider(records);
+  let clock = processCreatedAt;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider,
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    claudeLeaseStore: leaseStore,
+    claudeHookInstalled: () => true,
+    now: () => clock,
+    transportFactory: () => new CannotInjectFixtureTransport(),
+  });
+  try {
+    await controller.poll();
+    clock += 1_000;
+    await controller.poll();
+
+    const session = (await controller.list())[0];
+    assert.equal(session?.transport, 'claude-stop-hook');
+    assert.equal(session?.transportError, undefined);
+    const transcriptStat = await stat(transcript);
+    const lease = await leaseStore.consume({
+      sessionId: 'hook-session',
+      cwd,
+      processStartedAtMs: processCreatedAt,
+      transcriptPath: transcript,
+      activity: { size: transcriptStat.size, mtimeMs: transcriptStat.mtimeMs },
+    });
+    assert.equal(lease?.prompt, defaultConfig.tools.claude.normalPrompt);
+    assert.equal(lease?.rootPid, 100);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('keeps direct transport precedence over Claude Hook leases', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-claude-hook-precedence-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  await writeFile(join(projects, 'project', 'session.jsonl'), `${JSON.stringify({ cwd, sessionId: 'direct-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+    tools: {
+      ...defaultConfig.tools,
+      claude: { ...defaultConfig.tools.claude, stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: true } },
+    },
+  });
+  const leaseStore = new ClaudeLeaseStore(join(root, 'claude-leases.json'));
+  const records: RawProcessRecord[] = [
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+  ];
+  const transport = new FixtureTransport();
+  let clock = processCreatedAt;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider(records),
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    claudeLeaseStore: leaseStore,
+    claudeHookInstalled: () => true,
+    now: () => clock,
+    transportFactory: () => transport,
+  });
+  try {
+    await controller.poll();
+    clock += 1_000;
+    await controller.poll();
+    assert.equal((await controller.list())[0]?.transport, 'classic-console');
+    assert.deepEqual(transport.writes, [`100:${defaultConfig.tools.claude.normalPrompt}`]);
+    assert.deepEqual(await leaseStore.list(), []);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('falls back to a Claude Hook lease after a validated Console detaches', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-claude-hook-fallback-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  await writeFile(join(projects, 'project', 'session.jsonl'), `${JSON.stringify({ cwd, sessionId: 'fallback-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+    tools: {
+      ...defaultConfig.tools,
+      claude: { ...defaultConfig.tools.claude, stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: true } },
+    },
+  });
+  const leaseStore = new ClaudeLeaseStore(join(root, 'claude-leases.json'));
+  const transport = new FailingActivityTransport();
+  let clock = processCreatedAt;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+      { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    claudeLeaseStore: leaseStore,
+    claudeHookInstalled: () => true,
+    now: () => clock,
+    transportFactory: () => transport,
+  });
+  try {
+    await controller.poll();
+    clock += 1_000;
+    await controller.poll();
+
+    assert.equal((await controller.list())[0]?.transport, 'claude-stop-hook');
+    assert.equal((await leaseStore.list()).length, 1);
+    assert.deepEqual(transport.writes, []);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('does not arm Claude Hook leases in dry-run mode', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-claude-hook-dry-run-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  await writeFile(join(projects, 'project', 'session.jsonl'), `${JSON.stringify({ cwd, sessionId: 'dry-run-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    dryRun: true,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+    tools: {
+      ...defaultConfig.tools,
+      claude: { ...defaultConfig.tools.claude, stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: true } },
+    },
+  });
+  const leaseStore = new ClaudeLeaseStore(join(root, 'claude-leases.json'));
+  let clock = processCreatedAt;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+      { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    claudeLeaseStore: leaseStore,
+    claudeHookInstalled: () => true,
+    now: () => clock,
+    transportFactory: () => new CannotInjectFixtureTransport(),
+  });
+  try {
+    await controller.poll();
+    clock += 1_000;
+    await controller.poll();
+    assert.deepEqual(await leaseStore.list(), []);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('manual Claude injection arms the same exact Hook lease', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-claude-hook-manual-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  const transcript = join(projects, 'project', 'session.jsonl');
+  await writeFile(transcript, `${JSON.stringify({ cwd, sessionId: 'manual-hook-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    tools: {
+      ...defaultConfig.tools,
+      claude: { ...defaultConfig.tools.claude, stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: true } },
+    },
+  });
+  const leaseStore = new ClaudeLeaseStore(join(root, 'claude-leases.json'));
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+      { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    claudeLeaseStore: leaseStore,
+    claudeHookInstalled: () => true,
+    now: () => processCreatedAt,
+    transportFactory: () => new CannotInjectFixtureTransport(),
+  });
+  try {
+    await controller.poll();
+    assert.deepEqual(await controller.inject('claude:100', '手动继续', false), { ok: true, prompt: '手动继续' });
+    const activity = await stat(transcript);
+    const lease = await leaseStore.consume({
+      sessionId: 'manual-hook-session',
+      cwd,
+      processStartedAtMs: processCreatedAt,
+      transcriptPath: transcript,
+      activity: { size: activity.size, mtimeMs: activity.mtimeMs },
+    });
+    assert.equal(lease?.prompt, '手动继续');
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('does not arm a hook lease for an ambiguous Claude association', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-claude-hook-ambiguous-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  const metadata = JSON.stringify({ cwd });
+  await writeFile(join(projects, 'project', 'first.jsonl'), `${metadata}\n`, 'utf8');
+  await writeFile(join(projects, 'project', 'second.jsonl'), `${metadata}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+    tools: {
+      ...defaultConfig.tools,
+      claude: { ...defaultConfig.tools.claude, stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: true } },
+    },
+  });
+  const leaseStore = new ClaudeLeaseStore(join(root, 'claude-leases.json'));
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+      { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    claudeLeaseStore: leaseStore,
+    claudeHookInstalled: () => true,
+    now: () => processCreatedAt + 1_000,
+    transportFactory: () => new CannotInjectFixtureTransport(),
+  });
+  try {
+    await controller.poll();
+    assert.equal((await controller.list())[0]?.conversationId, null);
+    assert.deepEqual(await leaseStore.list(), []);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('clears Claude Hook leases when paused, exited, disabled, or stopped', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-claude-hook-clear-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  const transcript = join(projects, 'project', 'session.jsonl');
+  await writeFile(transcript, `${JSON.stringify({ cwd, sessionId: 'clear-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+    tools: {
+      ...defaultConfig.tools,
+      claude: { ...defaultConfig.tools.claude, stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: true } },
+    },
+  });
+  const leaseStore = new ClaudeLeaseStore(join(root, 'claude-leases.json'));
+  const seedLease = async () => {
+    const activity = await stat(transcript);
+    await leaseStore.arm({
+      sessionId: 'clear-session',
+      cwd,
+      prompt: defaultConfig.tools.claude.normalPrompt,
+      rootPid: 100,
+      processStartedAtMs: processCreatedAt,
+      activity: { size: activity.size, mtimeMs: activity.mtimeMs },
+      transcriptPath: transcript,
+      ttlMs: 15_000,
+    });
+  };
+  const provider = new MutableFixtureProvider([
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+  ]);
+  let clock = processCreatedAt;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider,
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    claudeLeaseStore: leaseStore,
+    claudeHookInstalled: () => true,
+    now: () => clock,
+    transportFactory: () => new CannotInjectFixtureTransport(),
+  });
+  try {
+    await controller.poll();
+    clock += 1_000;
+    await controller.poll();
+    assert.equal((await leaseStore.list()).length, 1);
+
+    assert.equal(await controller.pause('claude:100'), true);
+    assert.deepEqual(await leaseStore.list(), []);
+
+    await seedLease();
+    assert.equal((await leaseStore.list()).length, 1);
+
+    provider.records = [provider.records[0]!];
+    await controller.poll();
+    assert.deepEqual(await leaseStore.list(), []);
+
+    provider.records = [
+      provider.records[0]!,
+      { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    ];
+    await controller.poll();
+    await seedLease();
+    assert.equal((await leaseStore.list()).length, 1);
+    const disabled = await configStore.save({
+      ...defaultConfig,
+      tools: { ...defaultConfig.tools, claude: { ...defaultConfig.tools.claude, stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: false } } },
+    });
+    await controller.configChanged(disabled);
+    assert.deepEqual(await leaseStore.list(), []);
+
+    await seedLease();
+    await controller.stop();
+    assert.deepEqual(await leaseStore.list(), []);
+  } finally {
+    await controller.stop();
+    assert.deepEqual(await leaseStore.list(), []);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('pause waits for an in-flight poll before clearing its Claude Hook lease', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-claude-hook-race-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const processCreatedAt = Date.now() - 1_000;
+  await writeFile(join(projects, 'project', 'session.jsonl'), `${JSON.stringify({ cwd, sessionId: 'race-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+    tools: {
+      ...defaultConfig.tools,
+      claude: { ...defaultConfig.tools.claude, stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: true } },
+    },
+  });
+  const leaseStore = new DelayedClaudeLeaseStore(join(root, 'claude-leases.json'));
+  let clock = processCreatedAt;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+      { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    claudeLeaseStore: leaseStore,
+    claudeHookInstalled: () => true,
+    now: () => clock,
+    transportFactory: () => new CannotInjectFixtureTransport(),
+  });
+  try {
+    await controller.poll();
+    clock += 1_000;
+    const poll = controller.poll();
+    await leaseStore.armStarted;
+    const pause = controller.pause('claude:100');
+    leaseStore.continueArm();
+    assert.equal(await pause, true);
+    await poll;
+    assert.deepEqual(await leaseStore.list(), []);
+  } finally {
+    leaseStore.continueArm();
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('treats a reused Claude PID with a new creation time as a new process', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-claude-hook-pid-reuse-'));
+  const projects = join(root, 'projects');
+  const cwd = join(root, 'conversation');
+  await mkdir(join(projects, 'project'), { recursive: true });
+  const firstCreatedAt = Date.now() - 10_000;
+  const secondCreatedAt = Date.now() - 1_000;
+  const transcript = join(projects, 'project', 'session.jsonl');
+  await writeFile(transcript, `${JSON.stringify({ cwd, sessionId: 'reused-session' })}\n`, 'utf8');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+    tools: {
+      ...defaultConfig.tools,
+      claude: { ...defaultConfig.tools.claude, stopHook: { ...defaultConfig.tools.claude.stopHook, enabled: true } },
+    },
+  });
+  const watchdogRecord: RawProcessRecord = {
+    pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null,
+    creationTimeMs: firstCreatedAt, userSid: 'S-1-5-21-test',
+  };
+  const claudeRecord = (creationTimeMs: number): RawProcessRecord => ({
+    pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null,
+    creationTimeMs, userSid: 'S-1-5-21-test',
+  });
+  const provider = new MutableFixtureProvider([watchdogRecord, claudeRecord(firstCreatedAt)]);
+  const leaseStore = new ClaudeLeaseStore(join(root, 'claude-leases.json'));
+  let clock = firstCreatedAt;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider,
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeProjectsDirectory: projects,
+    claudeLeaseStore: leaseStore,
+    claudeHookInstalled: () => true,
+    now: () => clock,
+    transportFactory: () => new CannotInjectFixtureTransport(),
+  });
+  try {
+    await controller.poll();
+    clock += 1_000;
+    await controller.poll();
+    assert.equal((await leaseStore.list()).length, 1);
+
+    provider.records = [watchdogRecord, claudeRecord(secondCreatedAt)];
+    clock = secondCreatedAt;
+    await controller.poll();
+
+    assert.deepEqual(await leaseStore.list(), []);
+    assert.equal((await controller.list())[0]?.startedAtMs, secondCreatedAt);
   } finally {
     await controller.stop();
     await rm(root, { recursive: true, force: true });

@@ -64,7 +64,10 @@ async function request(base: string, path: string, options: { method?: string; b
 }
 
 test('serves health, sessions, validated config, and controls on loopback', async (t) => {
-  const { service, controller } = await makeServer({}, () => ({ lastPollAtMs: 12_345 }));
+  let changedDryRun: boolean | undefined;
+  const { service, controller } = await makeServer({
+    configChanged: (config) => { changedDryRun = config.dryRun; },
+  }, () => ({ lastPollAtMs: 12_345 }));
   t.after(() => service.stop());
   const base = service.url();
 
@@ -88,6 +91,7 @@ test('serves health, sessions, validated config, and controls on loopback', asyn
   });
   assert.equal(updated.response.status, 200);
   assert.equal(updated.json.dryRun, true);
+  assert.equal(changedDryRun, true);
 
   const invalid = await request(base, '/api/config', {
     method: 'PUT',
