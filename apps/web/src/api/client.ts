@@ -28,6 +28,7 @@ export interface SessionView {
   quietForMs?: number;
   pendingPrompt?: string | null;
   lastDecision?: string;
+  transportError?: string;
 }
 
 export interface WatchdogConfig {

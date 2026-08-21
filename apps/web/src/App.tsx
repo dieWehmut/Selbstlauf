@@ -105,6 +105,7 @@ const fallbackSessions: SessionView[] = [
     quietForMs: 132_000,
     pendingPrompt: '继续',
     lastDecision: 'cannot-inject',
+    transportError: 'no-cwd-match',
   },
 ];
 
@@ -161,6 +162,24 @@ function canInject(session: SessionView): boolean {
   return session.alive && session.enabled && !['monitor-only', 'cannot-inject', 'unknown'].includes(session.transport);
 }
 
+function transportReason(error: string | undefined): string | null {
+  if (!error) return null;
+  const reasons: Record<string, string> = {
+    'no-cwd-match': '未找到同目录 Codex 线程',
+    'no-thread-index': '未找到 Codex 线程索引',
+    'resume-id-not-found': 'Codex 恢复线程不存在',
+    'multiple-explicit-matches': 'Codex 线程关联不唯一',
+    'equally-recent-threads': 'Codex 线程关联不唯一',
+    'process working directory is unknown': '无法读取进程目录',
+    'no unique recent Claude session was found': '未找到唯一 Claude 会话',
+    'ambiguous Claude resume session association': 'Claude 会话关联不唯一',
+    'shared classic Console contains multiple discovered CLI sessions': '多个 CLI 共用同一 Console',
+    'Codex state database was not found': '未找到 Codex 状态库',
+  };
+  if (error.startsWith('ambiguous Claude session association')) return 'Claude 会话关联不唯一';
+  return reasons[error] ?? error;
+}
+
 function nextPrompt(session: SessionView, config: WatchdogConfig): string {
   if (session.pendingPrompt) return session.pendingPrompt;
   if (session.tool === 'codex' && session.goal && config.tools.codex.goalStatuses.includes(session.goal.status)) {
@@ -171,11 +190,15 @@ function nextPrompt(session: SessionView, config: WatchdogConfig): string {
 
 function CapabilityBadge({ session }: { session: SessionView }) {
   const actionable = canInject(session);
+  const reason = transportReason(session.transportError);
   return (
-    <span className={`capability ${actionable ? 'capability--ready' : 'capability--limited'}`}>
-      <span className="capability__dot" />
-      {transportLabel(session.transport)}
-    </span>
+    <div className="capability-view">
+      <span className={`capability ${actionable ? 'capability--ready' : 'capability--limited'}`}>
+        <span className="capability__dot" />
+        {transportLabel(session.transport)}
+      </span>
+      {reason && <span className="capability-detail" title={session.transportError}>{reason}</span>}
+    </div>
   );
 }
 

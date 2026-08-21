@@ -124,6 +124,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .tool-mark--codex { color: var(--blue); background: color-mix(in srgb, var(--blue) 10%, transparent); }
 .tool-mark--claude { color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .capability { padding: 5px 8px; border: 1px solid var(--line); font: 10px var(--mono); }
+.capability-view { display: grid; justify-items: start; gap: 5px; }
+.capability-detail { display: block; max-width: 190px; color: var(--faint); font: 10px/1.35 var(--mono); }
 .capability__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
 .capability--ready { color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, var(--line)); }
 .capability--ready .capability__dot { background: var(--green); }
@@ -198,6 +200,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .session-cards { display: grid; gap: 10px; }
   .session-card { border: 1px solid var(--line); background: var(--panel); }
   .session-card header, .session-card footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; }
+  .session-card .capability-view { max-width: 55%; justify-items: end; text-align: right; }
   .session-card footer { border-top: 1px solid var(--line); }
   .session-card dl { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; margin: 0; padding: 0 14px 14px; }
   .session-card dl > div { min-width: 0; }
