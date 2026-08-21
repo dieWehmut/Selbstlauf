@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
-import type { WatchdogApi } from '../src/api/client';
+import type { WatchdogApi, WatchdogEvent } from '../src/api/client';
 
 function api(): WatchdogApi {
   const config = {
@@ -112,6 +112,21 @@ describe('watchdog dashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: '移除启动项' }));
     await waitFor(() => expect(fake.uninstallStartup).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('button', { name: '卸载 Watchdog' })).toBeInTheDocument();
+  });
+
+  it('refreshes authoritative state when a named realtime event arrives', async () => {
+    const fake = api();
+    const sessions = vi.mocked(fake.sessions);
+    let receive: ((event: WatchdogEvent) => void) | undefined;
+    fake.subscribe = vi.fn((listener) => {
+      receive = listener;
+      return () => undefined;
+    });
+    render(<App api={fake} />);
+    await waitFor(() => expect(sessions).toHaveBeenCalled());
+    const callsBefore = sessions.mock.calls.length;
+    receive?.({ kind: 'sessions', data: { action: 'inject', sessionId: 'goal' } });
+    await waitFor(() => expect(sessions.mock.calls.length).toBeGreaterThan(callsBefore));
   });
 
   it('locks the page while the mobile drawer is open and closes it with Escape', async () => {

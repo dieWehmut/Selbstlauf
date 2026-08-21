@@ -71,7 +71,9 @@ describe('local service API client', () => {
     const unsubscribe = createApi().subscribe(listener);
 
     source.emit('audit', { id: 'event-1', timestampMs: 1, type: 'skip' });
-    expect(listener).toHaveBeenCalledWith({ id: 'event-1', timestampMs: 1, type: 'skip' });
+    source.emit('sessions', { action: 'refresh', sessionId: 'claude:10' });
+    expect(listener).toHaveBeenCalledWith({ kind: 'audit', event: { id: 'event-1', timestampMs: 1, type: 'skip' } });
+    expect(listener).toHaveBeenCalledWith({ kind: 'sessions', data: { action: 'refresh', sessionId: 'claude:10' } });
     unsubscribe();
     expect(source.closed).toBe(true);
   });

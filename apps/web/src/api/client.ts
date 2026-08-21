@@ -68,6 +68,10 @@ export interface StartupTaskView {
   name?: string;
 }
 
+export type WatchdogEvent =
+  | { readonly kind: 'audit'; readonly event: AuditEvent }
+  | { readonly kind: 'health' | 'sessions' | 'config' | 'ready'; readonly data: unknown };
+
 interface ServiceHealthResponse {
   readonly ok?: unknown;
   readonly running?: unknown;
@@ -92,7 +96,7 @@ export interface WatchdogApi {
   start(): Promise<void>;
   stop(): Promise<void>;
   uninstall(): Promise<void>;
-  subscribe(onEvent: (event: AuditEvent) => void): () => void;
+  subscribe(onEvent: (event: WatchdogEvent) => void): () => void;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -143,18 +147,22 @@ export function createApi(): WatchdogApi {
     subscribe: (onEvent) => {
       if (typeof EventSource === 'undefined') return () => undefined;
       const source = new EventSource('/api/events');
-      const receive = (message: MessageEvent<string>) => {
+      const receive = (kind: WatchdogEvent['kind'], message: MessageEvent<string>) => {
         try {
           const event = JSON.parse(message.data) as unknown;
-          if (isAuditEvent(event)) onEvent(event);
+          if (kind === 'audit' && isAuditEvent(event)) onEvent({ kind, event });
+          else if (kind !== 'audit') onEvent({ kind, data: event });
         } catch {
           // Ignore malformed external events; the next poll repairs the view.
         }
       };
-      source.onmessage = receive;
-      source.addEventListener('audit', receive);
+      const listeners = (['audit', 'health', 'sessions', 'config', 'ready'] as const).map((kind) => {
+        const listener = (message: MessageEvent<string>) => receive(kind, message);
+        source.addEventListener(kind, listener);
+        return { kind, listener };
+      });
       return () => {
-        source.removeEventListener('audit', receive);
+        for (const { kind, listener } of listeners) source.removeEventListener(kind, listener);
         source.close();
       };
     },

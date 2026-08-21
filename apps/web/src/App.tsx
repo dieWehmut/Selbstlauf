@@ -28,6 +28,7 @@ import {
   type HealthView,
   type SessionView,
   type WatchdogApi,
+  type WatchdogEvent,
   type WatchdogConfig,
 } from './api/client';
 
@@ -436,7 +437,10 @@ export default function App({ api: suppliedApi }: AppProps) {
   useEffect(() => {
     if (staticDemo && suppliedApi === undefined) return undefined;
     void refresh();
-    const unsubscribe = api.subscribe((event) => setEvents((current) => [event, ...current].slice(0, 100)));
+    const unsubscribe = api.subscribe((event: WatchdogEvent) => {
+      if (event.kind === 'audit') setEvents((current) => [event.event, ...current].slice(0, 100));
+      else void refresh();
+    });
     const timer = window.setInterval(() => void refresh(), 10_000);
     return () => { unsubscribe(); window.clearInterval(timer); };
   }, [api, staticDemo]);
