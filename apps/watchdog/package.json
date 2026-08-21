@@ -4,6 +4,6 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build --silent && node --test dist/test/*.test.js"
+    "test": "npm run build --silent && node --test --test-concurrency=1 dist/test/*.test.js"
   }
 }
