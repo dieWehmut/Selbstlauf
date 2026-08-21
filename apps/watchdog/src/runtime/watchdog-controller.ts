@@ -546,20 +546,24 @@ export class WatchdogController {
       prompt = this.currentConfig.tools.claude.normalPrompt;
     }
     session.pendingPrompt = prompt;
-    if (this.currentConfig.dryRun) {
-      session.engine.recordInjectionSuccess(session.id, timestamp);
-      await this.record(session, 'skip', { reason: 'dry-run', action: 'automatic-inject' }, prompt);
-      return;
-    }
+    try {
+      if (this.currentConfig.dryRun) {
+        session.engine.recordInjectionSuccess(session.id, timestamp);
+        await this.record(session, 'skip', { reason: 'dry-run', action: 'automatic-inject' }, prompt);
+        return;
+      }
 
-    const result = await this.writeSession(session, prompt);
-    if (result.ok) {
-      session.engine.recordInjectionSuccess(session.id, timestamp);
-      await this.record(session, 'injection', { action: 'automatic-inject' }, prompt);
-    } else {
-      session.engine.recordTransportError(session.id, timestamp);
-      session.transportError = result.error;
-      await this.record(session, 'transport-error', { reason: result.error ?? 'write-failed' });
+      const result = await this.writeSession(session, prompt);
+      if (result.ok) {
+        session.engine.recordInjectionSuccess(session.id, timestamp);
+        await this.record(session, 'injection', { action: 'automatic-inject' }, prompt);
+      } else {
+        session.engine.recordTransportError(session.id, timestamp);
+        session.transportError = result.error;
+        await this.record(session, 'transport-error', { reason: result.error ?? 'write-failed' });
+      }
+    } finally {
+      session.pendingPrompt = null;
     }
   }
 

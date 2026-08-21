@@ -391,3 +391,44 @@ test('existing Codex sessions use prompt changes saved by the WebUI on the next 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('completed automatic decisions do not expose a stale pending prompt', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-pending-prompt-'));
+  const cwd = join(root, 'conversation');
+  const threadId = '01a01234-1234-7abc-8def-2123456789ab';
+  const paths = await createCodexState(root, threadId, cwd, 'active');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    dryRun: true,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+  });
+  const records: RawProcessRecord[] = [
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+    { pid: 100, parentPid: 1, name: 'codex.exe', commandLine: `codex resume ${threadId}`, executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test', workingDirectory: cwd },
+  ];
+  let clock = 1_000;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider(records),
+    platform: 'win32',
+    currentProcessId: 50,
+    codexStatePath: paths.statePath,
+    codexGoalPath: paths.goalPath,
+    now: () => clock,
+  });
+  try {
+    await controller.poll();
+    clock += 1_000;
+    await controller.poll();
+
+    const session = (await controller.list()).find((entry) => entry.id === 'codex:100');
+    assert.equal(session?.lastDecision, 'injected');
+    assert.equal(session?.pendingPrompt, null);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
