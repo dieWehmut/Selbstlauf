@@ -7,3 +7,4 @@
 /apps/*/dist/
 /apps/web/playwright-report/
 /apps/web/test-results/
+prompt/
