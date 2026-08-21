@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { TextDecoder } from 'node:util';
 
+import { CLAUDE_HOOK_OWNER } from './hook-installation.js';
 import { ClaudeLeaseStore } from './lease-store.js';
 import { decideClaudeStopHook, type ClaudeStopHookDecision } from './stop-hook.js';
 
@@ -26,7 +27,9 @@ export async function runClaudeStopHookCli(
 }
 
 function parseLeaseFile(argv: readonly string[]): string | null {
-  if (argv.length !== 2 || argv[0] !== '--lease-file') return null;
+  const ownerIsValid = argv.length === 2 ||
+    (argv.length === 4 && argv[2] === '--owner' && argv[3] === CLAUDE_HOOK_OWNER);
+  if (!ownerIsValid || argv[0] !== '--lease-file') return null;
   const value = argv[1];
   return value !== undefined && value.trim().length > 0 ? value : null;
 }

@@ -81,6 +81,8 @@ test('watchdog installation owns startup task creation and removal', async () =>
   assert.deepEqual(manifest.startupTask, { name: STARTUP_TASK_NAME, owned: true });
   assert.ok(manifest.ownedPaths.includes('claude-leases.json'));
   assert.ok(manifest.ownedPaths.includes('claude-leases.json.lock'));
+  assert.ok(manifest.ownedPaths.includes('claude-hook-manifest.json'));
+  assert.ok(manifest.ownedPaths.includes('claude-settings.backup.json'));
   assert.match(calls.find((call) => call.startsWith('create:')) ?? '', /-Port 49001 -NoBuild -DryRun$/);
 
   await installation.uninstallStartup();

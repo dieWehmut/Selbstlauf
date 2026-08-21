@@ -58,6 +58,8 @@ const OWNED_PATHS = Object.freeze([
   'audit.jsonl',
   'claude-leases.json',
   'claude-leases.json.lock',
+  'claude-hook-manifest.json',
+  'claude-settings.backup.json',
   'watchdog.pid.json',
   'watchdog.log',
   'watchdog-error.log',

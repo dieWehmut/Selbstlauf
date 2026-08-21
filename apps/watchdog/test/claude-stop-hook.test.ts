@@ -80,7 +80,11 @@ test('fails closed when transcript activity changes or the lease expires', async
 test('CLI emits one JSON response and never logs sensitive input', async () => {
   const { store, transcript, input, leasePath } = await fixture();
   await arm(store, transcript, input);
-  const child = spawn(process.execPath, [cliPath, '--lease-file', leasePath], {
+  const child = spawn(process.execPath, [
+    cliPath,
+    '--lease-file', leasePath,
+    '--owner', 'selbstlauf-continuation-v1',
+  ], {
     cwd: resolve(fileURLToPath(import.meta.url), '../../../..'),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
@@ -99,6 +103,28 @@ test('CLI emits one JSON response and never logs sensitive input', async () => {
   });
   assert.equal(stderr, '');
   assert.doesNotMatch(stderr, /继续|transcript|settings|token/u);
+});
+
+test('CLI fails closed for an unexpected ownership marker', async () => {
+  const { leasePath } = await fixture();
+  const child = spawn(process.execPath, [
+    cliPath,
+    '--lease-file', leasePath,
+    '--owner', 'another-owner',
+  ], {
+    cwd: resolve(fileURLToPath(import.meta.url), '../../../..'),
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  child.stdin.end('{}\n');
+  const [stdout, stderr, result] = await Promise.all([
+    readStream(child.stdout),
+    readStream(child.stderr),
+    once(child, 'close'),
+  ]);
+  assert.equal((result as [number])[0], 0);
+  assert.deepEqual(JSON.parse(stdout), {});
+  assert.equal(stderr, '');
 });
 
 test('CLI returns an empty decision for malformed and oversized stdin', async () => {
