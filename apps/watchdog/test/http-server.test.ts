@@ -172,3 +172,32 @@ test('supports lifecycle endpoints and blocks the transport in dry-run mode', as
   await request(base, `/api/sessions/${encodeURIComponent(session.id)}/inject`, { method: 'POST', origin: base, body: { prompt: 'dry' } });
   assert.equal(injectCalls, 0);
 });
+
+test('exposes owned startup-task lifecycle endpoints', async (t) => {
+  let startupStatusCalls = 0;
+  let installStartupCalls = 0;
+  let uninstallStartupCalls = 0;
+  const { service } = await makeServer();
+  service.setLifecycle({
+    startupStatus: async () => {
+      startupStatusCalls += 1;
+      return { installed: true, name: 'Selbstlauf Continuation Watchdog' };
+    },
+    installStartup: async () => { installStartupCalls += 1; },
+    uninstallStartup: async () => { uninstallStartupCalls += 1; },
+  });
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const status = await request(base, '/api/startup');
+  assert.equal(status.response.status, 200);
+  assert.deepEqual(status.json, { installed: true, name: 'Selbstlauf Continuation Watchdog' });
+
+  const installed = await request(base, '/api/startup/install', { method: 'POST', origin: base });
+  const uninstalled = await request(base, '/api/startup/uninstall', { method: 'POST', origin: base });
+  assert.equal(installed.response.status, 200);
+  assert.equal(uninstalled.response.status, 200);
+  assert.equal(startupStatusCalls, 1);
+  assert.equal(installStartupCalls, 1);
+  assert.equal(uninstallStartupCalls, 1);
+});

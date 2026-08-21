@@ -27,6 +27,14 @@ export interface WatchdogLifecycle {
   stop?(): Awaitable<void>;
   install?(): Awaitable<void>;
   uninstall?(): Awaitable<void>;
+  startupStatus?(): Awaitable<StartupTaskStatus>;
+  installStartup?(): Awaitable<void>;
+  uninstallStartup?(): Awaitable<void>;
+}
+
+export interface StartupTaskStatus {
+  readonly installed: boolean;
+  readonly name?: string;
 }
 
 export interface WatchdogStatus {
@@ -226,6 +234,24 @@ export class WatchdogHttpServer {
       await this.lifecycle.install();
       await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'install' } });
       return this.json(response, 200, { ok: true });
+    }
+    if (method === 'GET' && url.pathname === '/api/startup') {
+      if (this.lifecycle.startupStatus === undefined) throw new HttpError(501, 'startup task manager is not configured');
+      return this.json(response, 200, await this.lifecycle.startupStatus());
+    }
+    if (method === 'POST' && url.pathname === '/api/startup/install') {
+      if (this.lifecycle.installStartup === undefined) throw new HttpError(501, 'startup task installer is not configured');
+      await this.lifecycle.installStartup();
+      await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'startup-install' } });
+      this.publish('health', { startupInstalled: true });
+      return this.json(response, 200, { ok: true, installed: true });
+    }
+    if (method === 'POST' && url.pathname === '/api/startup/uninstall') {
+      if (this.lifecycle.uninstallStartup === undefined) throw new HttpError(501, 'startup task uninstaller is not configured');
+      await this.lifecycle.uninstallStartup();
+      await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'startup-uninstall' } });
+      this.publish('health', { startupInstalled: false });
+      return this.json(response, 200, { ok: true, installed: false });
     }
     if (method === 'POST' && url.pathname === '/api/uninstall') {
       if (this.lifecycle.uninstall === undefined) throw new HttpError(501, 'uninstaller is not configured');

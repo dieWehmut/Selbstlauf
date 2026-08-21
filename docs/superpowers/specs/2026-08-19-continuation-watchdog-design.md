@@ -179,6 +179,7 @@ The backend serves the built UI and exposes:
 - `POST /api/watchdog/start`, `/api/watchdog/stop`
 - `POST /api/sessions/:id/pause`, `/resume`, `/inject`
 - `POST /api/install`, `/api/uninstall`
+- `GET /api/startup`, `POST /api/startup/install`, `/api/startup/uninstall`
 
 All mutating routes validate JSON, require a loopback origin, and emit an audit
 event. The server binds to `127.0.0.1` by default and chooses the next free

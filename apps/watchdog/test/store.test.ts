@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { defaultConfig } from '../src/domain/config.js';
 import { ConfigStore } from '../src/store/config-store.js';
 import { AuditStore, redactAuditEvent } from '../src/store/audit-store.js';
+import { STARTUP_TASK_NAME, WatchdogInstallation, type StartupTaskScheduler } from '../src/lifecycle/installation.js';
 
 test('config store writes a validated document atomically and preserves the previous value on failure', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'watchdog-config-'));
@@ -51,6 +52,57 @@ test('audit store redacts secrets and absolute credential paths', async () => {
   assert.equal(events[0].details?.apiKey, '[redacted]');
   assert.equal(events[0].details?.credentialPath, '[redacted-path]');
   assert.equal(redactAuditEvent({ ...events[0], details: { secret: 'Bearer abcdefghijkl' } }).details?.secret, '[redacted]');
+});
+
+test('watchdog installation owns startup task creation and removal', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-startup-owner-'));
+  const stateDirectory = join(root, 'ai-cli-bypass', 'continuation');
+  const calls: string[] = [];
+  let exists = false;
+  const scheduler: StartupTaskScheduler = {
+    query: async (name) => { calls.push(`query:${name}`); return exists; },
+    create: async (name, action) => { calls.push(`create:${name}:${action}`); exists = true; },
+    remove: async (name) => { calls.push(`remove:${name}`); exists = false; },
+  };
+  const installation = new WatchdogInstallation({
+    stateDirectory,
+    repositoryRoot: root,
+    platform: 'win32',
+    scheduler,
+    now: () => 123,
+  });
+
+  await installation.installStartup({ port: 49_001, dryRun: true });
+  assert.deepEqual(await installation.startupStatus(), { installed: true, name: STARTUP_TASK_NAME });
+  const manifest = JSON.parse(await readFile(join(stateDirectory, 'install-manifest.json'), 'utf8')) as {
+    startupTask: { name: string; owned: boolean } | null;
+  };
+  assert.deepEqual(manifest.startupTask, { name: STARTUP_TASK_NAME, owned: true });
+  assert.match(calls.find((call) => call.startsWith('create:')) ?? '', /-Port 49001 -NoBuild -DryRun$/);
+
+  await installation.uninstallStartup();
+  assert.deepEqual(await installation.startupStatus(), { installed: false });
+  assert.ok(calls.includes(`remove:${STARTUP_TASK_NAME}`));
+
+  await installation.installStartup();
+  await installation.removeOwnedState();
+  assert.ok(calls.filter((call) => call === `remove:${STARTUP_TASK_NAME}`).length >= 2);
+});
+
+test('refuses to replace an unowned startup task', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-startup-unowned-'));
+  const scheduler: StartupTaskScheduler = {
+    query: async () => true,
+    create: async () => { throw new Error('create should not be called'); },
+    remove: async () => { throw new Error('remove should not be called'); },
+  };
+  const installation = new WatchdogInstallation({
+    stateDirectory: join(root, 'ai-cli-bypass', 'continuation'),
+    repositoryRoot: root,
+    platform: 'win32',
+    scheduler,
+  });
+  await assert.rejects(() => installation.installStartup(), /unowned scheduled task/);
 });
 
 test('config store keeps the cached last-valid value but rejects a malformed cold start', async () => {

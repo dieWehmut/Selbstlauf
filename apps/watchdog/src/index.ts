@@ -62,8 +62,15 @@ export async function startWatchdogProcess(
       stop: () => controller?.stop(),
     }),
     install: async () => { await installation.install(); },
+    startupStatus: async () => installation.startupStatus(),
+    installStartup: async () => {
+      const config = await configStore.load();
+      await installation.installStartup({ dryRun: config.dryRun, port: Number(new URL(server.url()).port) });
+    },
+    uninstallStartup: async () => { await installation.uninstallStartup(); },
     uninstall: async () => {
       await installation.install();
+      await installation.uninstallStartup();
       installation.scheduleUninstall(
         async () => { await stopProcess?.(); },
         () => process.exit(0),
