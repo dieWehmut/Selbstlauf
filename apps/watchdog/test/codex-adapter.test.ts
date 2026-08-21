@@ -518,3 +518,48 @@ test('CodexAdapter resumes the associated App Server thread before starting a tu
   assert.deepEqual(calls, ['resume:thread-normal', 'turn:thread-normal:继续']);
   adapter.close();
 });
+
+test('CodexAdapter sends an explicit manual prompt to the uniquely associated thread', async () => {
+  const calls: string[] = [];
+  const appServer = {
+    resumeThread: async (threadId: string) => {
+      calls.push(`resume:${threadId}`);
+      return {};
+    },
+    startTurn: async (threadId: string, prompt: string) => {
+      calls.push(`turn:${threadId}:${prompt}`);
+      return {};
+    },
+    close: () => undefined,
+  } as unknown as AppServerClient;
+  const reader: CodexStateReader = {
+    getGoal: () => ({ status: 'complete' }),
+    listThreads: () => [],
+    close: () => undefined,
+  };
+  const adapter = new CodexAdapter({ stateReader: reader, appServer });
+  const context: CodexContinuationContext = {
+    commandLine: 'codex',
+    cwd: process.cwd(),
+    creationTimeMs: 1_000,
+    threadRecords: [{
+      id: 'thread-complete',
+      cwd: process.cwd(),
+      createdAtMs: 1_000,
+      updatedAtMs: 2_000,
+      rolloutPath: null,
+    }],
+  };
+
+  const result = await adapter.injectPrompt(context, '检查最新输出');
+
+  assert.deepEqual(result, {
+    kind: 'inject',
+    threadId: 'thread-complete',
+    prompt: '检查最新输出',
+    goal: { status: 'complete' },
+    transport: 'codex-app-server',
+  });
+  assert.deepEqual(calls, ['resume:thread-complete', 'turn:thread-complete:检查最新输出']);
+  adapter.close();
+});

@@ -122,6 +122,35 @@ export class CodexAdapter {
     return Object.freeze({ ...decision, transport: 'codex-app-server' });
   }
 
+  /** Submit an explicit user-selected prompt after resolving one unique thread. */
+  public async injectPrompt(
+    context: CodexContinuationContext,
+    prompt: string,
+  ): Promise<CodexInjectionResult> {
+    const text = requirePrompt(prompt, 'prompt');
+    const association = this.associate(context);
+    if (association.kind === 'ambiguous') {
+      return Object.freeze({
+        kind: 'skip',
+        reason: 'ambiguous-thread',
+        candidates: association.candidates,
+      });
+    }
+    if (association.kind === 'unmatched') {
+      return Object.freeze({ kind: 'skip', reason: 'thread-not-found' });
+    }
+    const decision = Object.freeze({
+      kind: 'inject' as const,
+      threadId: association.thread.id,
+      prompt: text,
+      goal: this.reader.getGoal(association.thread.id),
+    });
+    if (this.appServer === undefined) return decision;
+    await this.appServer.resumeThread(decision.threadId);
+    await this.appServer.startTurn(decision.threadId, decision.prompt);
+    return Object.freeze({ ...decision, transport: 'codex-app-server' as const });
+  }
+
   public associate(context: CodexContinuationContext): ThreadAssociationResult {
     const threads = context.threadRecords ?? this.reader.listThreads().map(toThreadRecord);
     return associateCodexThread(context, threads);
