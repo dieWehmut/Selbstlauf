@@ -30,4 +30,15 @@ describe('static Pages demo API', () => {
     await api.start();
     expect((await api.health()).running).toBe(true);
   });
+
+  it('keeps startup-task state local to each demo instance', async () => {
+    const first = createStaticDemoApi();
+    await first.installStartup();
+    expect((await first.startup()).installed).toBe(true);
+
+    const second = createStaticDemoApi();
+    expect((await second.startup()).installed).toBe(false);
+    await first.uninstallStartup();
+    expect((await first.startup()).installed).toBe(false);
+  });
 });

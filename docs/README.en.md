@@ -214,7 +214,9 @@ that boundary in `install-manifest.json`. The uninstaller validates the manifest
 PID, and repository path, removes only the owned state and owned logon task, and
 leaves npm packages, CLI wrappers, authentication, sessions, and other
 `ai-cli-bypass` state untouched. The local WebUI uses `/api/watchdog/start`,
-`/api/watchdog/stop`, and `/api/uninstall` for these lifecycle actions.
+`/api/watchdog/stop`, `/api/install`, `/api/startup`,
+`/api/startup/install`, `/api/startup/uninstall`, and `/api/uninstall` for
+these lifecycle actions.
 
 Writes require a PID-validated classic Console bridge, a service-owned PTY, or
 the Codex App Server. Unsupported ConPTY sessions remain `monitor-only`; the

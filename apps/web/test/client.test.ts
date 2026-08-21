@@ -22,6 +22,15 @@ describe('local service API client', () => {
       if (path === '/api/install' && init?.method === 'POST') {
         return json({ ok: true });
       }
+      if (path === '/api/startup') {
+        return json({ installed: false });
+      }
+      if (path === '/api/startup/install' && init?.method === 'POST') {
+        return json({ ok: true });
+      }
+      if (path === '/api/startup/uninstall' && init?.method === 'POST') {
+        return json({ ok: true });
+      }
       if (path === '/api/watchdog/start' && init?.method === 'POST') {
         return json({ ok: true, running: true });
       }
@@ -39,10 +48,16 @@ describe('local service API client', () => {
     });
     await expect(api.sessions()).resolves.toEqual([{ id: 'claude:10' }]);
     await api.install();
+    await expect(api.startup()).resolves.toEqual({ installed: false });
+    await api.installStartup();
+    await api.uninstallStartup();
     await api.start();
     await api.uninstall();
 
     expect(fetchMock).toHaveBeenCalledWith('/api/install', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/startup', expect.objectContaining({ headers: expect.any(Object) }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/startup/install', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/startup/uninstall', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/watchdog/start', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/uninstall', expect.objectContaining({ method: 'POST' }));
   });

@@ -63,6 +63,11 @@ export interface HealthView {
   version?: string;
 }
 
+export interface StartupTaskView {
+  installed: boolean;
+  name?: string;
+}
+
 interface ServiceHealthResponse {
   readonly ok?: unknown;
   readonly running?: unknown;
@@ -81,6 +86,9 @@ export interface WatchdogApi {
   resume(id: string): Promise<void>;
   inject(id: string): Promise<void>;
   install(): Promise<void>;
+  startup(): Promise<StartupTaskView>;
+  installStartup(): Promise<void>;
+  uninstallStartup(): Promise<void>;
   start(): Promise<void>;
   stop(): Promise<void>;
   uninstall(): Promise<void>;
@@ -126,6 +134,9 @@ export function createApi(): WatchdogApi {
     resume: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
     inject: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/inject`, { method: 'POST' }),
     install: () => request<void>('/install', { method: 'POST' }),
+    startup: () => request<StartupTaskView>('/startup'),
+    installStartup: () => request<void>('/startup/install', { method: 'POST' }),
+    uninstallStartup: () => request<void>('/startup/uninstall', { method: 'POST' }),
     start: () => request<void>('/watchdog/start', { method: 'POST' }),
     stop: () => request<void>('/watchdog/stop', { method: 'POST' }),
     uninstall: () => request<void>('/uninstall', { method: 'POST' }),

@@ -39,6 +39,7 @@ export function createStaticDemoApi(): WatchdogApi {
   let currentConfig = structuredClone(initialConfig);
   let currentSessions = structuredClone(initialSessions);
   const currentHealth = structuredClone(initialHealth);
+  let startupInstalled = false;
   return {
     health: async () => structuredClone(currentHealth),
     config: async () => structuredClone(currentConfig),
@@ -48,6 +49,9 @@ export function createStaticDemoApi(): WatchdogApi {
     resume: async (id) => { currentSessions = currentSessions.map((session) => session.id === id ? { ...session, paused: false } : session); },
     inject: async () => undefined,
     install: async () => undefined,
+    startup: async () => ({ installed: startupInstalled, name: 'Selbstlauf Continuation Watchdog' }),
+    installStartup: async () => { startupInstalled = true; },
+    uninstallStartup: async () => { startupInstalled = false; },
     start: async () => { currentHealth.running = true; },
     stop: async () => { currentHealth.running = false; },
     uninstall: async () => { currentHealth.running = false; },

@@ -212,7 +212,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchd
 `install-manifest.json`。卸载器会验证 manifest、PID 和仓库路径，只删除该目录
 及 manifest 声明的登录任务；不会删除 npm 包、CLI wrapper、认证、会话或其他
 `ai-cli-bypass` 状态。WebUI 对应的本机路由是 `/api/watchdog/start`、
-`/api/watchdog/stop` 和 `/api/uninstall`。
+`/api/watchdog/stop`、`/api/install`、`/api/startup`、
+`/api/startup/install`、`/api/startup/uninstall` 和 `/api/uninstall`。
 
 Input is accepted only through a PID-validated classic Console bridge or a
 service-owned PTY. Codex sessions use the local App Server when the thread can
