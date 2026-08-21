@@ -188,6 +188,10 @@ function nextPrompt(session: SessionView, config: WatchdogConfig): string {
   return config.tools[session.tool].normalPrompt;
 }
 
+function parseFilterList(value: string): string[] {
+  return value.split(/[\r\n,]+/u).map((entry) => entry.trim()).filter(Boolean);
+}
+
 function CapabilityBadge({ session }: { session: SessionView }) {
   const actionable = canInject(session);
   const reason = transportReason(session.transportError);
@@ -320,11 +324,24 @@ function SettingsPanel(props: {
   onUninstall: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(() => structuredClone(props.config));
-  useEffect(() => setDraft(structuredClone(props.config)), [props.config]);
+  const [includeFilters, setIncludeFilters] = useState(() => props.config.processFilters.include.join(', '));
+  const [excludeFilters, setExcludeFilters] = useState(() => props.config.processFilters.exclude.join(', '));
+  useEffect(() => {
+    setDraft(structuredClone(props.config));
+    setIncludeFilters(props.config.processFilters.include.join(', '));
+    setExcludeFilters(props.config.processFilters.exclude.join(', '));
+  }, [props.config]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void props.onSave(draft);
+    void props.onSave({
+      ...draft,
+      processFilters: {
+        ...draft.processFilters,
+        include: parseFilterList(includeFilters),
+        exclude: parseFilterList(excludeFilters),
+      },
+    });
   };
 
   return (
@@ -346,6 +363,14 @@ function SettingsPanel(props: {
           <label><span>Codex Goal</span><input value={draft.tools.codex.goalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, goalPrompt: event.target.value } } })} /></label>
         </div>
         <div className="switch-row"><div><strong>Dry run</strong><span>只记录决策，不写入进程</span></div><label className="switch"><input aria-label="Dry run" type="checkbox" checked={draft.dryRun} onChange={(event) => setDraft({ ...draft, dryRun: event.target.checked })} /><span /></label></div>
+      </section>
+      <section className="settings-section settings-section--wide">
+        <div className="section-title"><div><span className="eyebrow">Processes</span><h2>进程范围</h2></div><ShieldAlert size={20} /></div>
+        <div className="field-grid">
+          <label><span>包含匹配</span><input aria-label="包含匹配" placeholder="例如 Nexus, study-os" value={includeFilters} onChange={(event) => setIncludeFilters(event.target.value)} /></label>
+          <label><span>排除匹配</span><input aria-label="排除匹配" placeholder="例如 node_modules" value={excludeFilters} onChange={(event) => setExcludeFilters(event.target.value)} /></label>
+        </div>
+        <div className="switch-row"><div><strong>仅监控当前用户进程</strong><span>关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入</span></div><label className="switch"><input aria-label="仅监控当前用户进程" type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
       </section>
       <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}保存配置</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? '停止 Watchdog' : '启动 Watchdog'}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />卸载 Watchdog</button></div>
     </form>

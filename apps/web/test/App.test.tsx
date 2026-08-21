@@ -67,6 +67,19 @@ describe('watchdog dashboard', () => {
     await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({ tools: expect.objectContaining({ claude: expect.objectContaining({ normalPrompt: '继续工作' }) }) })));
   });
 
+  it('persists process ownership and include/exclude filters through the API', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    fireEvent.click(screen.getByRole('checkbox', { name: '仅监控当前用户进程' }));
+    fireEvent.change(screen.getByLabelText('包含匹配'), { target: { value: 'Nexus, study-os' } });
+    fireEvent.change(screen.getByLabelText('排除匹配'), { target: { value: 'node_modules' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      processFilters: { sameUserOnly: false, include: ['Nexus', 'study-os'], exclude: ['node_modules'] },
+    })));
+  });
+
   it('stops and restarts the watchdog from the local controls', async () => {
     const running = api();
     const first = render(<App api={running} />);
