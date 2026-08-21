@@ -32,6 +32,11 @@ const defaults: WatchdogConfig = {
     claude: {
       enabled: true,
       normalPrompt: '继续',
+      stopHook: {
+        enabled: false,
+        leaseTtlMs: 15_000,
+        commandTimeoutMs: 1_500,
+      },
     },
     codex: {
       enabled: true,
@@ -127,6 +132,9 @@ export function parseConfig(value: unknown): WatchdogConfig {
   }
 
   const claude = requireRecord(tools.claude, 'tools.claude');
+  const claudeStopHook = claude.stopHook === undefined
+    ? defaultConfig.tools.claude.stopHook
+    : requireRecord(claude.stopHook, 'tools.claude.stopHook');
   const processFilters = requireRecord(config.processFilters, 'processFilters');
 
   return deepFreeze({
@@ -151,6 +159,17 @@ export function parseConfig(value: unknown): WatchdogConfig {
       claude: {
         enabled: requireBoolean(claude.enabled, 'tools.claude.enabled'),
         normalPrompt: requirePrompt(claude.normalPrompt, 'tools.claude.normalPrompt'),
+        stopHook: {
+          enabled: requireBoolean(claudeStopHook.enabled, 'tools.claude.stopHook.enabled'),
+          leaseTtlMs: requirePositiveInteger(
+            claudeStopHook.leaseTtlMs,
+            'tools.claude.stopHook.leaseTtlMs',
+          ),
+          commandTimeoutMs: requirePositiveInteger(
+            claudeStopHook.commandTimeoutMs,
+            'tools.claude.stopHook.commandTimeoutMs',
+          ),
+        },
       },
       codex: parseCodexConfig(tools.codex),
     },

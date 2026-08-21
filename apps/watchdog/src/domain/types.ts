@@ -43,12 +43,22 @@ export interface SessionSnapshot {
   readonly lastActivityAtMs: number | null;
 }
 
-export interface ClaudeToolConfig {
+export interface ToolConfig {
   readonly enabled: boolean;
   readonly normalPrompt: string;
 }
 
-export interface CodexToolConfig extends ClaudeToolConfig {
+export interface ClaudeStopHookConfig {
+  readonly enabled: boolean;
+  readonly leaseTtlMs: number;
+  readonly commandTimeoutMs: number;
+}
+
+export interface ClaudeToolConfig extends ToolConfig {
+  readonly stopHook: ClaudeStopHookConfig;
+}
+
+export interface CodexToolConfig extends ToolConfig {
   readonly goalPrompt: string;
   readonly goalStatuses: readonly ResumableGoalStatus[];
 }
