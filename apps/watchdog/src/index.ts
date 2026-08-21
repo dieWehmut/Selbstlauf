@@ -85,6 +85,19 @@ export async function startWatchdogProcess(
       await installation.installStartup({ dryRun: config.dryRun, port: Number(new URL(server.url()).port) });
     },
     uninstallStartup: async () => { await installation.uninstallStartup(); },
+    claudeHookStatus: () => claudeHook.status(),
+    installClaudeHook: async () => {
+      await claudeLeaseStore.clearAll();
+      return claudeHook.install();
+    },
+    uninstallClaudeHook: async () => {
+      await claudeLeaseStore.clearAll();
+      return claudeHook.uninstall();
+    },
+    disableClaudeHook: async () => {
+      await claudeLeaseStore.clearAll();
+      return claudeHook.status();
+    },
     uninstall: async () => {
       await controller?.quiesce();
       try {

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { ClaudeLeaseStore } from '../src/claude/lease-store.js';
 import { startWatchdogProcess } from '../src/index.js';
 import type { SessionController } from '../src/server/http-server.js';
 
@@ -29,6 +30,8 @@ test('process composition exposes an explicit Claude Hook installer without modi
     port: 0,
   }, emptySessions);
   try {
+    const origin = processHandle.server.url();
+    const leaseStore = new ClaudeLeaseStore(join(stateDirectory, 'claude-leases.json'));
     assert.equal(await readFile(settingsPath, 'utf8'), original);
     assert.deepEqual(await processHandle.claudeHook.status(), {
       installed: false,
@@ -36,12 +39,20 @@ test('process composition exposes an explicit Claude Hook installer without modi
       manualReviewRequired: false,
     });
 
-    const installed = await processHandle.claudeHook.install();
+    await armFixtureLease(leaseStore, root, 'install-session');
+    const installedResponse = await fetch(`${origin}/api/claude-hook/install`, {
+      method: 'POST',
+      headers: { origin },
+    });
+    assert.equal(installedResponse.status, 200);
+    const installed = await installedResponse.json();
     assert.deepEqual(installed, {
       installed: true,
+      enabled: false,
       restartRequired: true,
       manualReviewRequired: false,
     });
+    assert.deepEqual(await leaseStore.list(), []);
     const settings = JSON.parse(await readFile(settingsPath, 'utf8')) as {
       hooks: { Stop: Array<{ hooks: Array<{ command: string; timeout: number; type: string }> }> };
     };
@@ -50,7 +61,62 @@ test('process composition exposes an explicit Claude Hook installer without modi
     assert.equal(owned?.timeout, 1.5);
     assert.match(owned?.command ?? '', /stop-hook-cli\.js" --lease-file ".*claude-leases\.json" --owner selbstlauf-continuation-v1$/u);
 
-    assert.equal((await processHandle.claudeHook.uninstall()).installed, false);
+    const configResponse = await fetch(`${origin}/api/config`);
+    const config = await configResponse.json() as Record<string, any>;
+    await fetch(`${origin}/api/config`, {
+      method: 'PUT',
+      headers: { origin, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...config,
+        tools: {
+          ...config.tools,
+          claude: {
+            ...config.tools.claude,
+            stopHook: { ...config.tools.claude.stopHook, enabled: true },
+          },
+        },
+      }),
+    });
+    await armFixtureLease(leaseStore, root, 'disable-session');
+    const disabledResponse = await fetch(`${origin}/api/claude-hook/disable`, {
+      method: 'POST',
+      headers: { origin },
+    });
+    assert.deepEqual(await disabledResponse.json(), {
+      installed: true,
+      enabled: false,
+      restartRequired: true,
+      manualReviewRequired: false,
+    });
+    assert.deepEqual(await leaseStore.list(), []);
+
+    const disabledConfig = await fetch(`${origin}/api/config`).then((response) => response.json()) as Record<string, any>;
+    await fetch(`${origin}/api/config`, {
+      method: 'PUT',
+      headers: { origin, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...disabledConfig,
+        tools: {
+          ...disabledConfig.tools,
+          claude: {
+            ...disabledConfig.tools.claude,
+            stopHook: { ...disabledConfig.tools.claude.stopHook, enabled: true },
+          },
+        },
+      }),
+    });
+    await armFixtureLease(leaseStore, root, 'uninstall-session');
+    const uninstalledResponse = await fetch(`${origin}/api/claude-hook/uninstall`, {
+      method: 'POST',
+      headers: { origin },
+    });
+    assert.deepEqual(await uninstalledResponse.json(), {
+      installed: false,
+      enabled: true,
+      restartRequired: false,
+      manualReviewRequired: false,
+    });
+    assert.deepEqual(await leaseStore.list(), []);
     assert.equal(await readFile(settingsPath, 'utf8'), original);
   } finally {
     await processHandle.stop();
@@ -91,6 +157,18 @@ test('watchdog uninstall refuses a changed Claude settings file and keeps owners
     await rm(root, { recursive: true, force: true });
   }
 });
+
+async function armFixtureLease(store: ClaudeLeaseStore, cwd: string, sessionId: string): Promise<void> {
+  await store.arm({
+    sessionId,
+    cwd,
+    prompt: 'continue',
+    rootPid: 1_200,
+    processStartedAtMs: 1_000,
+    activity: { size: 10, mtimeMs: 20 },
+    ttlMs: 30_000,
+  });
+}
 
 async function pathExists(path: string): Promise<boolean> {
   try {
