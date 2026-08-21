@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
 import {
@@ -216,4 +221,29 @@ test('WindowsProcessProvider forwards configured executable names to the provide
   await provider.listProcesses();
 
   assert.deepEqual(receivedArgs.slice(-2), ['-IncludeExecutableName', 'team-agent.exe']);
+});
+
+test('WindowsProcessProvider reads the working directory of a live same-user process', {
+  skip: process.platform !== 'win32',
+  timeout: 60_000,
+}, async () => {
+  const workingDirectory = await mkdtemp(join(tmpdir(), 'watchdog-process-cwd-'));
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], {
+    cwd: workingDirectory,
+    windowsHide: true,
+    stdio: 'ignore',
+  });
+  try {
+    await once(child, 'spawn');
+    assert.ok(child.pid);
+
+    const records = await new WindowsProcessProvider().listProcesses();
+    const record = records.find((candidate) => candidate.pid === child.pid);
+
+    assert.ok(record, `expected process ${child.pid} in the WMI result`);
+    assert.equal(resolve(record.workingDirectory ?? ''), resolve(workingDirectory));
+  } finally {
+    child.kill();
+    await rm(workingDirectory, { recursive: true, force: true });
+  }
 });
