@@ -223,6 +223,24 @@ test('WindowsProcessProvider forwards configured executable names to the provide
   assert.deepEqual(receivedArgs.slice(-2), ['-IncludeExecutableName', 'team-agent.exe']);
 });
 
+test('WindowsProcessProvider cancels an in-flight PowerShell discovery', async () => {
+  let started!: () => void;
+  const commandStarted = new Promise<void>((resolveStarted) => { started = resolveStarted; });
+  const provider = new WindowsProcessProvider({
+    runCommand: async (_executable, _args, signal) => {
+      started();
+      return await new Promise<string>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('fixture aborted')), { once: true });
+      });
+    },
+  });
+
+  const discovery = provider.listProcesses();
+  await commandStarted;
+  provider.cancelPending();
+  await assert.rejects(discovery, /fixture aborted/);
+});
+
 test('WindowsProcessProvider reads the working directory of a live same-user process', {
   skip: process.platform !== 'win32',
   timeout: 60_000,

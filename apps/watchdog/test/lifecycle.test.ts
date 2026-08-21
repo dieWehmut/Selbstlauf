@@ -7,6 +7,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
+import { ClaudeHookInstallation } from '../src/claude/hook-installation.js';
+import { WatchdogInstallation } from '../src/lifecycle/installation.js';
+
 const run = promisify(execFile);
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 const startScript = join(repositoryRoot, 'scripts', 'continuation', 'start-watchdog.ps1');
@@ -139,7 +142,7 @@ test('local API installs an ownership manifest and asynchronously removes only w
 
 test('startup installation owns and removes only its per-user scheduled task', {
   skip: process.platform !== 'win32' ? 'Windows lifecycle only' : false,
-  timeout: 25_000,
+  timeout: 60_000,
 }, async () => {
   const localAppData = await mkdtemp(join(tmpdir(), 'watchdog-startup-install-'));
   const continuationState = join(localAppData, 'ai-cli-bypass', 'continuation');
@@ -149,6 +152,8 @@ test('startup installation owns and removes only its per-user scheduled task', {
   const environment = {
     ...process.env,
     LOCALAPPDATA: localAppData,
+    USERPROFILE: localAppData,
+    WATCHDOG_CLAUDE_SETTINGS_PATH: join(localAppData, '.claude', 'settings.json'),
     WATCHDOG_SCHTASKS_PATH: scheduler,
     WATCHDOG_SCHTASKS_LOG: schedulerLog,
     WATCHDOG_SCHTASKS_STATE: schedulerState,
@@ -178,6 +183,17 @@ test('startup installation owns and removes only its per-user scheduled task', {
     };
     assert.deepEqual(manifest.startupTask, { name: 'Selbstlauf Continuation Watchdog', owned: true });
 
+    const claudeSettingsPath = join(localAppData, '.claude', 'settings.json');
+    const originalClaudeSettings = '{"theme":"dark"}\r\n';
+    await mkdir(dirname(claudeSettingsPath), { recursive: true });
+    await writeFile(claudeSettingsPath, originalClaudeSettings, 'utf8');
+    const hookInstallation = new ClaudeHookInstallation({
+      settingsPath: claudeSettingsPath,
+      stateDirectory: continuationState,
+      hookCommand: 'node "C:\\fixtures\\stop-hook.js" --lease-file "C:\\fixtures\\leases.json" --owner selbstlauf-continuation-v1',
+    });
+    assert.equal((await hookInstallation.install()).installed, true);
+
     await runPowerShell(uninstallScript, [], environment);
     pid = undefined;
     const calls = await readFile(schedulerLog, 'utf8');
@@ -185,10 +201,57 @@ test('startup installation owns and removes only its per-user scheduled task', {
     assert.match(calls, /\/Delete .*Selbstlauf Continuation Watchdog/i);
     assert.equal(await pathExists(schedulerState), false);
     assert.equal(await pathExists(continuationState), false);
+    assert.equal(await readFile(claudeSettingsPath, 'utf8'), originalClaudeSettings);
   } finally {
     if (pid !== undefined) {
       try { process.kill(pid); } catch { /* already stopped */ }
     }
+    await rm(localAppData, { recursive: true, force: true });
+  }
+});
+
+test('PowerShell uninstall preserves Claude settings and ownership state on checksum conflict', {
+  skip: process.platform !== 'win32' ? 'Windows lifecycle only' : false,
+  timeout: 20_000,
+}, async () => {
+  const localAppData = await mkdtemp(join(tmpdir(), 'watchdog-hook-conflict-'));
+  const continuationState = join(localAppData, 'ai-cli-bypass', 'continuation');
+  const claudeSettingsPath = join(localAppData, '.claude', 'settings.json');
+  const environment = {
+    ...process.env,
+    LOCALAPPDATA: localAppData,
+    USERPROFILE: localAppData,
+    WATCHDOG_CLAUDE_SETTINGS_PATH: claudeSettingsPath,
+  };
+  try {
+    await new WatchdogInstallation({
+      stateDirectory: continuationState,
+      repositoryRoot,
+      platform: 'win32',
+    }).install();
+    await mkdir(dirname(claudeSettingsPath), { recursive: true });
+    await writeFile(claudeSettingsPath, '{"theme":"dark"}\n', 'utf8');
+    const hookInstallation = new ClaudeHookInstallation({
+      settingsPath: claudeSettingsPath,
+      stateDirectory: continuationState,
+      hookCommand: 'node "C:\\fixtures\\stop-hook.js" --lease-file "C:\\fixtures\\leases.json" --owner selbstlauf-continuation-v1',
+    });
+    assert.equal((await hookInstallation.install()).installed, true);
+    const changed = `${JSON.stringify({
+      ...JSON.parse(await readFile(claudeSettingsPath, 'utf8')) as Record<string, unknown>,
+      changedByUser: true,
+    }, null, 2)}\n`;
+    await writeFile(claudeSettingsPath, changed, 'utf8');
+
+    await assert.rejects(
+      () => runPowerShell(uninstallScript, [], environment),
+      /changed after Hook installation|manual review/i,
+    );
+    assert.equal(await readFile(claudeSettingsPath, 'utf8'), changed);
+    assert.equal(await pathExists(join(continuationState, 'claude-hook-manifest.json')), true);
+    assert.equal(await pathExists(join(continuationState, 'claude-settings.backup.json')), true);
+    assert.equal(await pathExists(join(continuationState, 'install-manifest.json')), true);
+  } finally {
     await rm(localAppData, { recursive: true, force: true });
   }
 });

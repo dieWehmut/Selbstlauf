@@ -9,17 +9,23 @@ import { WatchdogHttpServer, type SessionController } from './server/http-server
 import { WatchdogController } from './runtime/watchdog-controller.js';
 import { WatchdogInstallation } from './lifecycle/installation.js';
 import { ClaudeLeaseStore } from './claude/lease-store.js';
+import {
+  CLAUDE_HOOK_OWNER,
+  ClaudeHookInstallation,
+} from './claude/hook-installation.js';
 
 export interface WatchdogProcessOptions {
   readonly stateDirectory?: string;
   readonly host?: string;
   readonly port?: number;
   readonly staticDirectory?: string;
+  readonly claudeSettingsPath?: string;
 }
 
 export interface WatchdogProcess {
   readonly server: WatchdogHttpServer;
   readonly pidFile: string;
+  readonly claudeHook: ClaudeHookInstallation;
   stop(): Promise<void>;
 }
 
@@ -32,7 +38,14 @@ export async function startWatchdogProcess(
   await mkdir(stateDirectory, { recursive: true });
   const configStore = new ConfigStore(join(stateDirectory, 'config.json'));
   const auditStore = new AuditStore(join(stateDirectory, 'audit.jsonl'));
-  const claudeLeaseStore = new ClaudeLeaseStore(join(stateDirectory, 'claude-leases.json'));
+  const claudeLeasePath = join(stateDirectory, 'claude-leases.json');
+  const claudeLeaseStore = new ClaudeLeaseStore(claudeLeasePath);
+  const claudeHook = new ClaudeHookInstallation({
+    settingsPath: options.claudeSettingsPath ?? defaultClaudeSettingsPath(),
+    stateDirectory,
+    hookCommand: buildClaudeHookCommand(claudeLeasePath),
+    commandTimeoutMs: async () => (await configStore.load()).tools.claude.stopHook.commandTimeoutMs,
+  });
   const installation = new WatchdogInstallation({
     stateDirectory,
     repositoryRoot: defaultRepositoryRoot(),
@@ -47,7 +60,7 @@ export async function startWatchdogProcess(
     configStore,
     auditStore,
     claudeLeaseStore,
-    claudeHookInstalled: () => false,
+    claudeHookInstalled: async () => (await claudeHook.status()).installed,
     publish: (event, data) => server?.publish(event, data),
   }));
   server = new WatchdogHttpServer({
@@ -59,7 +72,7 @@ export async function startWatchdogProcess(
     port: options.port ?? readPort(process.env.WATCHDOG_PORT),
     staticDirectory: options.staticDirectory ?? process.env.WATCHDOG_STATIC_DIR ?? defaultStaticDirectory(),
   });
-  let stopProcess: (() => Promise<void>) | null = null;
+  let uninstallProcess: (() => Promise<void>) | null = null;
   server.setLifecycle({
     ...(controller === null ? {} : {
       start: () => controller?.start(),
@@ -73,12 +86,23 @@ export async function startWatchdogProcess(
     },
     uninstallStartup: async () => { await installation.uninstallStartup(); },
     uninstall: async () => {
-      await installation.install();
-      await installation.uninstallStartup();
-      installation.scheduleUninstall(
-        async () => { await stopProcess?.(); },
-        () => process.exit(0),
-      );
+      await controller?.quiesce();
+      try {
+        await claudeLeaseStore.clearAll();
+        const hookStatus = await claudeHook.uninstall();
+        if (hookStatus.manualReviewRequired) {
+          throw new TypeError(hookStatus.lastError ?? 'Claude Hook uninstall requires manual review');
+        }
+        await installation.install();
+        await installation.uninstallStartup();
+        installation.scheduleUninstall(
+          async () => { await uninstallProcess?.(); },
+          () => process.exit(0),
+        );
+      } catch (error) {
+        if (controller !== null) void controller.start().catch(() => undefined);
+        throw error;
+      }
     },
   });
   await server.start();
@@ -115,8 +139,14 @@ export async function startWatchdogProcess(
     const { rm } = await import('node:fs/promises');
     await rm(pidFile, { force: true });
   };
-  stopProcess = stop;
-  return { server, pidFile, stop };
+  uninstallProcess = async () => {
+    if (stopped) return;
+    stopped = true;
+    await server.stop();
+    const { rm } = await import('node:fs/promises');
+    await rm(pidFile, { force: true });
+  };
+  return { server, pidFile, claudeHook, stop };
 }
 
 function defaultStateDirectory(): string {
@@ -125,6 +155,32 @@ function defaultStateDirectory(): string {
     return join(localAppData, 'ai-cli-bypass', 'continuation');
   }
   return join(process.env.XDG_STATE_HOME ?? join(homedir(), '.local', 'state'), 'ai-cli-bypass', 'continuation');
+}
+
+function defaultClaudeSettingsPath(): string {
+  const configured = process.env.WATCHDOG_CLAUDE_SETTINGS_PATH;
+  if (configured !== undefined && configured.trim().length > 0) return configured;
+  return join(homedir(), '.claude', 'settings.json');
+}
+
+function buildClaudeHookCommand(leaseFile: string): string {
+  const moduleDirectory = resolve(fileURLToPath(import.meta.url), '..');
+  const hookCli = resolve(moduleDirectory, 'claude', 'stop-hook-cli.js');
+  return [
+    quoteCommandArgument(resolve(process.execPath)),
+    quoteCommandArgument(hookCli),
+    '--lease-file',
+    quoteCommandArgument(resolve(leaseFile)),
+    '--owner',
+    CLAUDE_HOOK_OWNER,
+  ].join(' ');
+}
+
+function quoteCommandArgument(value: string): string {
+  if (value.length === 0 || /[\0\r\n"]/u.test(value)) {
+    throw new Error('Claude Hook command path contains unsupported characters');
+  }
+  return `"${value}"`;
 }
 
 function readPort(value: string | undefined): number {

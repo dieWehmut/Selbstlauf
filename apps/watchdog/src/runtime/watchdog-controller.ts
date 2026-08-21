@@ -150,6 +150,7 @@ export class WatchdogController {
 
   public async start(): Promise<void> {
     if (this.running) return;
+    await this.currentPoll;
     this.stopping = false;
     this.running = true;
     await this.poll();
@@ -157,15 +158,23 @@ export class WatchdogController {
   }
 
   public async stop(): Promise<void> {
-    this.running = false;
-    this.stopping = true;
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = null;
+    await this.quiesce();
     await this.currentPoll;
     await this.waitForClaudeLeaseWrites();
     await this.claudeLeaseStore?.clearAll();
     for (const session of this.sessions.values()) session.codexAdapter?.close();
     this.sessions.clear();
+  }
+
+  /** Stops new work and clears pending Claude actions without waiting for a slow read-only discovery poll. */
+  public async quiesce(): Promise<void> {
+    this.running = false;
+    this.stopping = true;
+    if (this.timer !== null) clearTimeout(this.timer);
+    this.timer = null;
+    this.provider.cancelPending?.();
+    await this.waitForClaudeLeaseWrites();
+    await this.claudeLeaseStore?.clearAll();
   }
 
   public poll(): Promise<void> {
@@ -185,11 +194,14 @@ export class WatchdogController {
   private async runPoll(): Promise<void> {
     try {
       this.currentConfig = await this.configStore.load();
+      if (this.stopping) return;
       const timestamp = this.now();
       const groups = await this.discover();
+      if (this.stopping) return;
       const claudeFiles = groups.some((group) => group.tool === 'claude')
         ? await this.scanClaudeFiles()
         : [];
+      if (this.stopping) return;
       const seen = new Set<string>();
 
       for (const group of groups) {
@@ -344,6 +356,7 @@ export class WatchdogController {
     try {
       records = await this.provider.listProcesses();
     } catch (error) {
+      if (this.stopping) return [];
       await this.auditGlobal('transport-error', { reason: `process-discovery: ${errorMessage(error)}` });
       return [];
     }

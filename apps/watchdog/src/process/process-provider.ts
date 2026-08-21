@@ -31,6 +31,7 @@ interface WindowsProcessJsonRecord {
 export type ProcessCommandRunner = (
   executable: string,
   args: readonly string[],
+  signal?: AbortSignal,
 ) => Promise<string>;
 
 export interface WindowsProcessProviderOptions {
@@ -42,6 +43,7 @@ export interface WindowsProcessProviderOptions {
 
 export interface ProcessProvider {
   listProcesses(): Promise<RawProcessRecord[]>;
+  cancelPending?(): void;
 }
 
 const execFileAsync = promisify(execFile);
@@ -49,12 +51,14 @@ const execFileAsync = promisify(execFile);
 async function runPowerShell(
   executable: string,
   args: readonly string[],
+  signal?: AbortSignal,
 ): Promise<string> {
   try {
     const result = await execFileAsync(executable, [...args], {
       windowsHide: true,
       maxBuffer: 16 * 1024 * 1024,
       encoding: 'utf8',
+      signal,
     });
     return result.stdout;
   } catch (error) {
@@ -177,6 +181,7 @@ export class WindowsProcessProvider implements ProcessProvider {
   private readonly scriptPath: string;
   private readonly includeExecutableNames: readonly string[];
   private readonly runCommand: ProcessCommandRunner;
+  private activeAbort: AbortController | null = null;
 
   constructor(options: WindowsProcessProviderOptions = {}) {
     this.powershellPath = options.powershellPath ?? 'powershell.exe';
@@ -200,7 +205,18 @@ export class WindowsProcessProvider implements ProcessProvider {
         args.push('-IncludeExecutableName', executableName);
       }
     }
-    const stdout = await this.runCommand(this.powershellPath, args);
-    return parseWindowsProcessJson(stdout);
+    const abort = new AbortController();
+    this.activeAbort?.abort();
+    this.activeAbort = abort;
+    try {
+      const stdout = await this.runCommand(this.powershellPath, args, abort.signal);
+      return parseWindowsProcessJson(stdout);
+    } finally {
+      if (this.activeAbort === abort) this.activeAbort = null;
+    }
+  }
+
+  cancelPending(): void {
+    this.activeAbort?.abort();
   }
 }

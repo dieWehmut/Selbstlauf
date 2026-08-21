@@ -25,6 +25,23 @@ class MutableFixtureProvider implements ProcessProvider {
   public async listProcesses(): Promise<RawProcessRecord[]> { return this.records; }
 }
 
+class BlockingFixtureProvider implements ProcessProvider {
+  private release!: () => void;
+  private markStarted!: () => void;
+  public readonly started = new Promise<void>((resolveStarted) => { this.markStarted = resolveStarted; });
+  private readonly released = new Promise<void>((resolveReleased) => { this.release = resolveReleased; });
+
+  public async listProcesses(): Promise<RawProcessRecord[]> {
+    this.markStarted();
+    await this.released;
+    return [];
+  }
+
+  public continue(): void {
+    this.release();
+  }
+}
+
 class FixtureTransport implements SessionTransport {
   public writes: string[] = [];
   public async probe(pid: number) { return { ok: true as const, kind: 'classic-console' as const, pid, consoleProcessIds: [pid] }; }
@@ -188,6 +205,34 @@ test('reports the timestamp of the most recently completed poll', async () => {
     await controller.poll();
     assert.deepEqual(controller.status(), { lastPollAtMs: 67_890 });
   } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('quiesce does not wait for a slow read-only process discovery poll', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-quiesce-'));
+  const provider = new BlockingFixtureProvider();
+  const leaseStore = new ClaudeLeaseStore(join(root, 'claude-leases.json'));
+  const controller = new WatchdogController({
+    configStore: new ConfigStore(join(root, 'config.json')),
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider,
+    platform: 'win32',
+    currentProcessId: 50,
+    claudeLeaseStore: leaseStore,
+  });
+  const poll = controller.poll();
+  try {
+    await provider.started;
+    await Promise.race([
+      controller.quiesce(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('quiesce waited for discovery')), 250)),
+    ]);
+    assert.deepEqual(await leaseStore.list(), []);
+  } finally {
+    provider.continue();
+    await poll;
     await controller.stop();
     await rm(root, { recursive: true, force: true });
   }
