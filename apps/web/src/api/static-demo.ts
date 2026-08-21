@@ -47,6 +47,7 @@ export function createStaticDemoApi(): WatchdogApi {
     pause: async (id) => { currentSessions = currentSessions.map((session) => session.id === id ? { ...session, paused: !session.paused } : session); },
     resume: async (id) => { currentSessions = currentSessions.map((session) => session.id === id ? { ...session, paused: false } : session); },
     inject: async () => undefined,
+    install: async () => undefined,
     start: async () => { currentHealth.running = true; },
     stop: async () => { currentHealth.running = false; },
     uninstall: async () => { currentHealth.running = false; },

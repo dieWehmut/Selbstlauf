@@ -19,6 +19,9 @@ describe('local service API client', () => {
       if (path === '/api/uninstall' && init?.method === 'POST') {
         return json({ ok: true });
       }
+      if (path === '/api/install' && init?.method === 'POST') {
+        return json({ ok: true });
+      }
       if (path === '/api/watchdog/start' && init?.method === 'POST') {
         return json({ ok: true, running: true });
       }
@@ -35,9 +38,11 @@ describe('local service API client', () => {
       version: 'fixture',
     });
     await expect(api.sessions()).resolves.toEqual([{ id: 'claude:10' }]);
+    await api.install();
     await api.start();
     await api.uninstall();
 
+    expect(fetchMock).toHaveBeenCalledWith('/api/install', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/watchdog/start', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/uninstall', expect.objectContaining({ method: 'POST' }));
   });

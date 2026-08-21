@@ -23,7 +23,7 @@ function api(): WatchdogApi {
     updateConfig: vi.fn(async (next) => next),
     sessions: vi.fn(async () => sessions),
     pause: vi.fn(async () => undefined), resume: vi.fn(async () => undefined), inject: vi.fn(async () => undefined),
-    start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined), uninstall: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined),
+    install: vi.fn(async () => undefined), start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined), uninstall: vi.fn(async () => undefined), subscribe: vi.fn(() => () => undefined),
   };
 }
 
@@ -105,6 +105,8 @@ describe('watchdog dashboard', () => {
     render(<App api={fake} />);
     fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
     expect((await screen.findAllByRole('button', { name: '启动 Watchdog' })).length).toBe(2);
+    fireEvent.click(screen.getByRole('button', { name: '安装 Watchdog' }));
+    await waitFor(() => expect(fake.install).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('button', { name: '卸载 Watchdog' })).toBeInTheDocument();
   });
 

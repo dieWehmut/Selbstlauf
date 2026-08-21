@@ -321,6 +321,7 @@ function SettingsPanel(props: {
   running: boolean;
   onSave: (config: WatchdogConfig) => Promise<void>;
   onToggle: () => Promise<void>;
+  onInstall: () => Promise<void>;
   onUninstall: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(() => structuredClone(props.config));
@@ -372,7 +373,7 @@ function SettingsPanel(props: {
         </div>
         <div className="switch-row"><div><strong>仅监控当前用户进程</strong><span>关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入</span></div><label className="switch"><input aria-label="仅监控当前用户进程" type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
       </section>
-      <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}保存配置</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? '停止 Watchdog' : '启动 Watchdog'}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />卸载 Watchdog</button></div>
+      <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}保存配置</button><button className="button button--secondary" type="button" onClick={() => void props.onInstall()} disabled={props.saving}><CirclePlay size={17} />安装 Watchdog</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? '停止 Watchdog' : '启动 Watchdog'}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />卸载 Watchdog</button></div>
     </form>
   );
 }
@@ -464,6 +465,14 @@ export default function App({ api: suppliedApi }: AppProps) {
     finally { setSaving(false); }
   };
 
+  const install = async () => {
+    setSaving(true);
+    setNotice(null);
+    try { await api.install(); setNotice('Watchdog 已安装'); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '安装失败'); }
+    finally { setSaving(false); }
+  };
+
   const emergencyStop = async () => {
     await stopWatchdog();
   };
@@ -514,7 +523,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{events.length} 条</span></div><Timeline events={events} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onUninstall={uninstall} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} onUninstall={uninstall} /></div>}
       </main>
     </div>
   );

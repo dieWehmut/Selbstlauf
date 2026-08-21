@@ -24,6 +24,7 @@ describe('static Pages demo API', () => {
 
   it('can recover the demo service after an emergency stop', async () => {
     const api = createStaticDemoApi();
+    await expect(api.install()).resolves.toBeUndefined();
     await api.stop();
     expect((await api.health()).running).toBe(false);
     await api.start();
