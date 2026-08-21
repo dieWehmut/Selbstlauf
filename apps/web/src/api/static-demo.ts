@@ -27,7 +27,13 @@ const events: AuditEvent[] = [
   { id: 'demo-3', timestampMs: now - 132000, type: 'skip', sessionId: 'codex:333616', tool: 'codex', details: { reason: 'monitor-only' } },
 ];
 
-const initialHealth: HealthView = { ok: true, running: true, dryRun: true, version: 'pages-demo' };
+const initialHealth: HealthView = {
+  ok: true,
+  running: true,
+  dryRun: true,
+  lastPollAtMs: now - 1_000,
+  version: 'pages-demo',
+};
 
 export function createStaticDemoApi(): WatchdogApi {
   let currentConfig = structuredClone(initialConfig);

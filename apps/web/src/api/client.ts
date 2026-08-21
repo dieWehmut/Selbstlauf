@@ -59,6 +59,7 @@ export interface HealthView {
   ok: boolean;
   running: boolean;
   dryRun: boolean;
+  lastPollAtMs: number | null;
   version?: string;
 }
 
@@ -67,6 +68,7 @@ interface ServiceHealthResponse {
   readonly running?: unknown;
   readonly watchdogRunning?: unknown;
   readonly dryRun?: unknown;
+  readonly lastPollAtMs?: unknown;
   readonly version?: unknown;
 }
 
@@ -104,6 +106,9 @@ export function createApi(): WatchdogApi {
         ok: response.ok === true,
         running: response.running === true || response.watchdogRunning === true,
         dryRun: response.dryRun === true,
+        lastPollAtMs: typeof response.lastPollAtMs === 'number' && Number.isFinite(response.lastPollAtMs)
+          ? response.lastPollAtMs
+          : null,
         ...(typeof response.version === 'string' ? { version: response.version } : {}),
       };
     },

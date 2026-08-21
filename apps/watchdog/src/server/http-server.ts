@@ -29,10 +29,15 @@ export interface WatchdogLifecycle {
   uninstall?(): Awaitable<void>;
 }
 
+export interface WatchdogStatus {
+  readonly lastPollAtMs: number | null;
+}
+
 export interface WatchdogHttpServerOptions {
   readonly configStore: ConfigStore;
   readonly auditStore: AuditStore;
   readonly sessions: SessionController;
+  readonly status?: () => Awaitable<WatchdogStatus>;
   readonly host?: string;
   readonly port?: number;
   readonly portAttempts?: number;
@@ -53,6 +58,7 @@ export class WatchdogHttpServer {
   private readonly configStore: ConfigStore;
   private readonly auditStore: AuditStore;
   private readonly sessions: SessionController;
+  private readonly status: () => Awaitable<WatchdogStatus>;
   private readonly host: string;
   private readonly requestedPort: number;
   private readonly portAttempts: number;
@@ -71,6 +77,7 @@ export class WatchdogHttpServer {
     this.configStore = options.configStore;
     this.auditStore = options.auditStore;
     this.sessions = options.sessions;
+    this.status = options.status ?? (() => ({ lastPollAtMs: null }));
     this.host = options.host ?? '127.0.0.1';
     if (!LOOPBACK_HOSTS.has(this.host.toLocaleLowerCase())) {
       throw new TypeError('watchdog HTTP server must bind to a loopback host');
@@ -168,6 +175,7 @@ export class WatchdogHttpServer {
 
     if (method === 'GET' && url.pathname === '/api/health') {
       const config = await this.configStore.load();
+      const status = await this.status();
       return this.json(response, 200, {
         ok: true,
         running: this.watchdogRunning,
@@ -175,6 +183,7 @@ export class WatchdogHttpServer {
         dryRun: config.dryRun,
         loopbackOnly: true,
         startedAtMs: this.startedAtMs,
+        lastPollAtMs: status.lastPollAtMs,
         nowMs: this.now(),
         url: base,
       });

@@ -84,6 +84,31 @@ async function createCodexState(
   return { statePath, goalPath };
 }
 
+test('reports the timestamp of the most recently completed poll', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-status-'));
+  let clock = 12_345;
+  const controller = new WatchdogController({
+    configStore: new ConfigStore(join(root, 'config.json')),
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider([]),
+    platform: 'win32',
+    currentProcessId: 50,
+    now: () => clock,
+  });
+  try {
+    assert.deepEqual(controller.status(), { lastPollAtMs: null });
+    await controller.poll();
+    assert.deepEqual(controller.status(), { lastPollAtMs: 12_345 });
+
+    clock = 67_890;
+    await controller.poll();
+    assert.deepEqual(controller.status(), { lastPollAtMs: 67_890 });
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('polls independent Claude processes and records a dry-run quiet-period decision', async () => {
   const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-'));
   const projects = join(root, 'projects');

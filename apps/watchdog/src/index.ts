@@ -50,6 +50,7 @@ export async function startWatchdogProcess(
     configStore,
     auditStore,
     sessions: sessionController,
+    status: () => controller?.status() ?? { lastPollAtMs: null },
     host: options.host ?? '127.0.0.1',
     port: options.port ?? readPort(process.env.WATCHDOG_PORT),
     staticDirectory: options.staticDirectory ?? process.env.WATCHDOG_STATIC_DIR ?? defaultStaticDirectory(),

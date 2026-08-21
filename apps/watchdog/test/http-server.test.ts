@@ -25,7 +25,10 @@ const session: SessionSnapshot = {
   lastActivityAtMs: 2,
 };
 
-async function makeServer(overrides: Partial<SessionController> = {}) {
+async function makeServer(
+  overrides: Partial<SessionController> = {},
+  status?: () => { readonly lastPollAtMs: number | null },
+) {
   const directory = await mkdtemp(join(tmpdir(), 'watchdog-http-'));
   const controller: SessionController = {
     list: () => [session],
@@ -38,6 +41,7 @@ async function makeServer(overrides: Partial<SessionController> = {}) {
     configStore: new ConfigStore(join(directory, 'config.json')),
     auditStore: new AuditStore(join(directory, 'audit.jsonl')),
     sessions: controller,
+    status,
     port: 0,
   });
   await service.start();
@@ -60,7 +64,7 @@ async function request(base: string, path: string, options: { method?: string; b
 }
 
 test('serves health, sessions, validated config, and controls on loopback', async (t) => {
-  const { service, controller } = await makeServer();
+  const { service, controller } = await makeServer({}, () => ({ lastPollAtMs: 12_345 }));
   t.after(() => service.stop());
   const base = service.url();
 
@@ -70,6 +74,7 @@ test('serves health, sessions, validated config, and controls on loopback', asyn
   assert.equal(health.json.running, true);
   assert.equal(health.json.dryRun, false);
   assert.equal(health.json.loopbackOnly, true);
+  assert.equal(health.json.lastPollAtMs, 12_345);
 
   const sessions = await request(base, '/api/sessions');
   assert.deepEqual(sessions.json.sessions.map((entry: SessionSnapshot) => entry.id), [session.id]);

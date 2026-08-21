@@ -84,6 +84,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .topbar h1 { margin: 5px 0 0; font-size: 22px; letter-spacing: 0; }
 .eyebrow { display: block; color: var(--faint); font: 10px var(--mono); letter-spacing: 0; text-transform: uppercase; }
 .topbar__actions { gap: 10px; }
+.poll-age { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; font: 11px var(--mono); }
 .mobile-menu { display: none; }
 .icon-button { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); color: var(--muted); background: transparent; }
 .icon-button:hover { border-color: var(--line-strong); color: var(--text); background: var(--panel-raised); }

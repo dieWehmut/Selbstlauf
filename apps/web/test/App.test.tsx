@@ -18,7 +18,7 @@ function api(): WatchdogApi {
     { id: 'limited', tool: 'codex' as const, rootPid: 12, childPids: [], conversationId: null, goal: null, transport: 'monitor-only' as const, transportError: 'no-cwd-match', alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 150_000, pendingPrompt: '继续', lastDecision: 'cannot-inject' },
   ];
   return {
-    health: vi.fn(async () => ({ ok: true, running: true, dryRun: true })),
+    health: vi.fn(async () => ({ ok: true, running: true, dryRun: true, lastPollAtMs: Date.now() - 2_000 })),
     config: vi.fn(async () => config),
     updateConfig: vi.fn(async (next) => next),
     sessions: vi.fn(async () => sessions),
@@ -29,7 +29,7 @@ function api(): WatchdogApi {
 
 function stoppedApi(): WatchdogApi {
   const fake = api();
-  fake.health = vi.fn(async () => ({ ok: true, running: false, dryRun: true }));
+  fake.health = vi.fn(async () => ({ ok: true, running: false, dryRun: true, lastPollAtMs: Date.now() - 2_000 }));
   return fake;
 }
 
@@ -44,6 +44,11 @@ describe('watchdog dashboard', () => {
     expect(screen.getAllByText('未找到同目录 Codex 线程').length).toBeGreaterThan(0);
     expect(screen.getAllByText('等待静默').length).toBeGreaterThan(0);
     expect(screen.getAllByText('输出活跃').length).toBeGreaterThan(0);
+  });
+
+  it('shows the age of the most recent watchdog poll', async () => {
+    render(<App api={api()} />);
+    expect(await screen.findByLabelText('Last watchdog poll')).toHaveTextContent('2s');
   });
 
   it('disables injection for monitor-only sessions and calls pause/inject controls', async () => {

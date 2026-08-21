@@ -64,6 +64,10 @@ export interface RuntimeSessionView extends SessionSnapshot {
   readonly transportError?: string;
 }
 
+export interface WatchdogRuntimeStatus {
+  readonly lastPollAtMs: number | null;
+}
+
 interface RuntimeSession {
   readonly id: string;
   readonly startedAtMs: number;
@@ -117,6 +121,7 @@ export class WatchdogController {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private currentPoll: Promise<void> | null = null;
+  private completedPollAtMs: number | null = null;
 
   public constructor(options: WatchdogControllerOptions) {
     this.configStore = options.configStore;
@@ -156,6 +161,10 @@ export class WatchdogController {
       if (this.currentPoll === operation) this.currentPoll = null;
     });
     return operation;
+  }
+
+  public status(): WatchdogRuntimeStatus {
+    return { lastPollAtMs: this.completedPollAtMs };
   }
 
   private async runPoll(): Promise<void> {
@@ -228,6 +237,7 @@ export class WatchdogController {
     } catch (error) {
       await this.auditGlobal('transport-error', { reason: errorMessage(error) });
     } finally {
+      this.completedPollAtMs = this.now();
       if (this.running) this.schedule(this.currentConfig.pollIntervalMs);
     }
   }

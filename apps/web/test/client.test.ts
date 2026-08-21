@@ -11,7 +11,7 @@ describe('local service API client', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === '/api/health') {
-        return json({ ok: true, watchdogRunning: true, dryRun: true, version: 'fixture' });
+        return json({ ok: true, watchdogRunning: true, dryRun: true, lastPollAtMs: 12_345, version: 'fixture' });
       }
       if (path === '/api/sessions') {
         return json({ sessions: [{ id: 'claude:10' }] });
@@ -27,7 +27,13 @@ describe('local service API client', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const api = createApi();
-    await expect(api.health()).resolves.toEqual({ ok: true, running: true, dryRun: true, version: 'fixture' });
+    await expect(api.health()).resolves.toEqual({
+      ok: true,
+      running: true,
+      dryRun: true,
+      lastPollAtMs: 12_345,
+      version: 'fixture',
+    });
     await expect(api.sessions()).resolves.toEqual([{ id: 'claude:10' }]);
     await api.start();
     await api.uninstall();
