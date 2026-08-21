@@ -25,6 +25,12 @@ export interface CodexContinuationContext extends CodexProcessContext {
   readonly threadRecords?: readonly CodexThreadRecord[];
 }
 
+export interface CodexPromptPolicy {
+  readonly normalPrompt: string;
+  readonly goalPrompt: string;
+  readonly goalStatuses: readonly ResumableGoalStatus[];
+}
+
 export type CodexContinuationDecision =
   | {
       readonly kind: 'inject';
@@ -54,9 +60,9 @@ const TERMINAL_STATUSES = new Set(['complete', 'blocked', 'usage_limited', 'budg
 export class CodexAdapter {
   private readonly reader: CodexStateReader;
   private readonly ownsReader: boolean;
-  private readonly normalPrompt: string;
-  private readonly goalPrompt: string;
-  private readonly goalStatuses: readonly ResumableGoalStatus[];
+  private normalPrompt: string;
+  private goalPrompt: string;
+  private goalStatuses: readonly ResumableGoalStatus[];
   private readonly appServer?: AppServerClient;
 
   public constructor(options: CodexAdapterOptions) {
@@ -73,6 +79,12 @@ export class CodexAdapter {
     this.goalPrompt = requirePrompt(options.goalPrompt ?? '/goal resume', 'goalPrompt');
     this.goalStatuses = Object.freeze([...(options.goalStatuses ?? ['active', 'paused'])]);
     this.appServer = options.appServer;
+  }
+
+  public configurePolicy(policy: CodexPromptPolicy): void {
+    this.normalPrompt = requirePrompt(policy.normalPrompt, 'normalPrompt');
+    this.goalPrompt = requirePrompt(policy.goalPrompt, 'goalPrompt');
+    this.goalStatuses = Object.freeze([...policy.goalStatuses]);
   }
 
   public async getContinuation(context: CodexContinuationContext): Promise<CodexContinuationDecision> {

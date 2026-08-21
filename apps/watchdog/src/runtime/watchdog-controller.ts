@@ -175,6 +175,9 @@ export class WatchdogController {
         session.group = group;
         session.alive = true;
         this.configureEngine(session, this.currentConfig, timestamp);
+        if (session.codexAdapter !== null) {
+          session.codexAdapter.configurePolicy(this.currentConfig.tools.codex);
+        }
         session.engine.observeSession(id, timestamp, {
           enabled: this.currentConfig.enabled && this.currentConfig.tools[group.tool].enabled,
           paused: session.userPaused,

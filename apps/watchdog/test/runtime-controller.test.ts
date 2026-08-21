@@ -337,3 +337,57 @@ test('manual Codex injection sends the requested prompt to its associated thread
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('existing Codex sessions use prompt changes saved by the WebUI on the next poll', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-codex-config-'));
+  const cwd = join(root, 'conversation');
+  const threadId = '01a01234-1234-7abc-8def-1123456789ab';
+  const paths = await createCodexState(root, threadId, cwd, 'active');
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+  });
+  const records: RawProcessRecord[] = [
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+    { pid: 100, parentPid: 1, name: 'codex.exe', commandLine: `codex resume ${threadId}`, executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test', workingDirectory: cwd },
+  ];
+  const calls: string[] = [];
+  const appServer = {
+    resumeThread: async (id: string) => { calls.push(`resume:${id}`); return {}; },
+    startTurn: async (id: string, prompt: string) => { calls.push(`turn:${id}:${prompt}`); return {}; },
+    close: () => undefined,
+  } as unknown as AppServerClient;
+  let clock = 1_000;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider(records),
+    platform: 'win32',
+    currentProcessId: 50,
+    codexStatePath: paths.statePath,
+    codexGoalPath: paths.goalPath,
+    codexAppServerFactory: () => appServer,
+    now: () => clock,
+  });
+  try {
+    await controller.poll();
+    await configStore.save({
+      ...defaultConfig,
+      defaultIdleTimeoutMs: 100,
+      defaultCooldownMs: 1_000,
+      tools: {
+        ...defaultConfig.tools,
+        codex: { ...defaultConfig.tools.codex, goalPrompt: '/goal resume updated' },
+      },
+    });
+    clock += 1_000;
+    await controller.poll();
+
+    assert.deepEqual(calls, [`resume:${threadId}`, `turn:${threadId}:/goal resume updated`]);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
