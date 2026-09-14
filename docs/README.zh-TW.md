@@ -210,9 +210,42 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchd
 工作階段或其他 `ai-cli-bypass` 狀態。WebUI 使用 `/api/watchdog/start`、
 `/api/watchdog/stop` 與 `/api/uninstall` 執行這些生命週期操作。
 
+### Claude Stop Hook
+
+Claude Stop Hook 預設關閉。開啟本機 WebUI 的設定頁，先確認 `dryRun` 狀態，
+再調整 Lease 有效期、命令逾時與一般 Claude 提示文字，按「安裝 Stop Hook」並
+儲存設定。安裝只會修改目前使用者的
+`%USERPROFILE%\.claude\settings.json`，並在 watchdog 自有狀態目錄保存受校驗的
+所有權 manifest。已開啟的 Claude 程序必須完全退出並重新啟動，才會載入新的 Hook。
+
+Hook 只有在工作階段、程序身分、工作目錄、transcript 路徑與活動指紋全部一致時，
+才會消費一次性 Lease。若已有新輸出、關聯不唯一、遞迴呼叫 Hook 或 Lease 已過期，
+會回傳空決策而不送出文字。「停用 Stop Hook」會清除待處理 Lease；「解除安裝
+Stop Hook」會依 manifest 從備份還原原始 settings 位元組。若檔案在安裝後被修改，
+介面會標示「需要人工檢查」並拒絕覆寫，保留檔案與備份供使用者審閱。
+
+Hook CLI 不會讀取 transcript 內容，也不使用全域鍵盤 API。Codex 仍透過 App Server
+或 PID 驗證的終端傳輸；無法安全寫入的程序會保持 `monitor-only`。需要時先停用
+Hook 再解除安裝 watchdog；CLI、認證與對話資料都不會被這些生命週期操作刪除。
+
 只有經 PID 驗證的 classic Console、服務擁有的 PTY 或 Codex App Server 才能
 寫入；不支援的 ConPTY 會保持 `monitor-only`，服務不使用全域鍵盤 API。WebUI
 可暫停程序、修改提示文字、查看已遮罩的事件時間線，以及移除 watchdog 自己擁有的狀態。
+
+## WebUI 展示站
+
+在本機啟動管理介面：
+
+```powershell
+npm install
+npm --workspace apps/web run dev
+```
+
+`.github/workflows/deploy-pages.yml` 會在推送 `main` 時建置靜態展示並透過
+GitHub Actions 發佈；請先在儲存庫 Settings 將 Pages 來源設為 **GitHub Actions**。
+公開網址是 [https://dieWehmut.github.io/Selbstlauf/](https://dieWehmut.github.io/Selbstlauf/)。
+Pages 使用記憶體內範例資料，不會安裝本機 Hook 或對程序輸入；這些操作只在
+`127.0.0.1` 的 watchdog 介面提供。
 
 ## 上游文件
 

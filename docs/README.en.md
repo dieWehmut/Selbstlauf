@@ -218,10 +218,50 @@ leaves npm packages, CLI wrappers, authentication, sessions, and other
 `/api/startup/install`, `/api/startup/uninstall`, and `/api/uninstall` for
 these lifecycle actions.
 
+### Claude Stop Hook
+
+The Claude Stop Hook is disabled by default. Open the local WebUI Settings page,
+review the `dryRun` status, adjust the lease lifetime, command timeout, and
+ordinary Claude prompt, then choose **Install Stop Hook** and save the
+configuration. Installation changes only the current user's
+`%USERPROFILE%\.claude\settings.json` and writes a checksum-protected ownership
+manifest under the watchdog state directory. Fully exit and restart every
+already-open Claude process so it loads the new Hook.
+
+The Hook consumes one lease only when the session, process identity, working
+directory, transcript path, and transcript activity fingerprint all match.
+Recent output, an ambiguous association, recursive Hook input, or an expired
+lease returns an empty decision and submits nothing. **Disable Stop Hook** clears
+pending leases; **Uninstall Stop Hook** restores the exact original settings
+bytes from the owned backup. If the settings file changed after installation,
+the UI reports manual review and refuses to overwrite the user's changes.
+
+The Hook CLI does not read transcript contents and does not use a global keyboard
+API. Codex continues to use the App Server or a PID-validated terminal
+transport; unsupported sessions remain `monitor-only`. Disable the Hook before
+uninstalling the watchdog when desired. CLI packages, authentication, and
+conversation data are not removed by these lifecycle operations.
+
 Writes require a PID-validated classic Console bridge, a service-owned PTY, or
 the Codex App Server. Unsupported ConPTY sessions remain `monitor-only`; the
 service never uses a global keyboard API. The WebUI can pause sessions, change
 prompts, inspect the redacted audit timeline, and remove watchdog-owned state.
+
+## WebUI demo site
+
+Run the management UI locally with:
+
+```powershell
+npm install
+npm --workspace apps/web run dev
+```
+
+The repository's `.github/workflows/deploy-pages.yml` builds the static demo on
+pushes to `main` and publishes it through GitHub Actions. Enable **GitHub
+Actions** as the Pages source once in repository Settings. The public project
+site is [https://dieWehmut.github.io/Selbstlauf/](https://dieWehmut.github.io/Selbstlauf/).
+Pages uses in-memory sample data and cannot install a local Hook or inject into
+processes; those actions are available only from the localhost watchdog.
 
 ## Upstream documentation
 

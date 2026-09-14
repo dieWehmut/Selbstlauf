@@ -215,6 +215,25 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchd
 `/api/watchdog/stop`、`/api/install`、`/api/startup`、
 `/api/startup/install`、`/api/startup/uninstall` 和 `/api/uninstall`。
 
+### Claude Stop Hook
+
+Claude 的 Stop Hook 默认关闭。打开本机 WebUI 的“设置”页，确认 `dryRun` 状态，
+在 Claude Stop Hook 区块调整 Lease 有效期、命令超时和自定义普通提示，然后按
+“安装 Stop Hook”并保存配置。安装只会修改当前用户的
+`%USERPROFILE%\.claude\settings.json`，并在 watchdog 自有状态目录保存校验清单；
+已经打开的 Claude 窗口必须完全退出并重新启动，才会加载新的 Hook。
+
+Hook 只会消费与进程、工作目录、会话和 transcript 活动指纹完全匹配的一次性
+Lease。Claude 有新输出、会话不唯一、Hook 被递归调用或 Lease 过期时会返回空决策，
+不会输入内容。页面上的“停用 Stop Hook”会清理待处理 Lease；“卸载 Stop Hook”会
+按校验清单恢复原始 settings 字节。若文件在安装后被用户修改，页面会标记“需人工检查”
+并拒绝覆盖，先保留文件和备份，再由用户审阅后处理。
+
+Stop Hook 命令通过受限的本地 CLI 运行，不读取 transcript 内容，也不使用全局键盘
+API。Codex 仍由 App Server 或经 PID 验证的终端传输负责；不支持安全写入的会话保持
+`monitor-only`。要恢复普通 watchdog 状态，可停用 Hook 后再卸载，或运行上面的
+`uninstall-watchdog.ps1`；这些操作不会删除 CLI、认证或会话。
+
 Input is accepted only through a PID-validated classic Console bridge or a
 service-owned PTY. Codex sessions use the local App Server when the thread can
 be associated safely; unsupported ConPTY sessions stay `monitor-only`. No
@@ -238,8 +257,11 @@ uses local sample data and never connects to or injects input into local CLI
 processes.
 
 The project-site URL is
-`https://diewehmut.github.io/Selbstlauf/`; use the deployment URL reported
-by the Actions run after Pages is enabled.
+`https://dieWehmut.github.io/Selbstlauf/`. The Pages demo uses in-memory sample
+data and never touches local CLI processes; local installation and Hook actions
+are available only from the watchdog served on `127.0.0.1`. Pushes to `main`
+run `.github/workflows/deploy-pages.yml`, build the static demo, and publish it
+through GitHub Actions.
 
 ## 上游文档
 
