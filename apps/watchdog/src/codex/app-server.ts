@@ -20,6 +20,8 @@ export interface AppServerChild {
 export interface AppServerSpawnOptions {
   readonly stdio: readonly ['pipe', 'pipe', 'pipe'];
   readonly windowsHide: boolean;
+  /** Required on Windows: the launch line already contains cmd quoting. */
+  readonly windowsVerbatimArguments?: boolean;
 }
 
 export type AppServerSpawn = (
@@ -290,20 +292,28 @@ function defaultSpawn(command: string, args: readonly string[], options: AppServ
   return nodeSpawn(launch.command, launch.args, {
     stdio: [...options.stdio],
     windowsHide: options.windowsHide,
+    // The Windows launch line is assembled from explicitly quoted tokens, so
+    // Node must pass it to cmd.exe unchanged instead of re-quoting it.
+    ...(launch.verbatim ? { windowsVerbatimArguments: true } : {}),
   }) as unknown as ChildProcessWithoutNullStreams;
 }
 
 function windowsLaunch(
   command: string,
   args: readonly string[],
-): { readonly command: string; readonly args: readonly string[] } {
+): { readonly command: string; readonly args: readonly string[]; readonly verbatim: boolean } {
   if (process.platform !== 'win32' || /\.(?:com|exe)$/i.test(command)) {
-    return { command, args: [...args] };
+    return { command, args: [...args], verbatim: false };
   }
-  const commandLine = ['call', command, ...args].map(quoteWindowsCommandToken).join(' ');
+  // `call` must stay unquoted: cmd.exe only treats it as its internal command
+  // when the token is bare, and only `call` makes a `.cmd`/`.bat` shim run
+  // without terminating the caller. The script path itself must be quoted so
+  // installs under a path containing spaces resolve correctly.
+  const commandLine = ['call', quoteWindowsCommandToken(command), ...args.map(quoteWindowsCommandToken)].join(' ');
   return {
     command: process.env.ComSpec ?? 'cmd.exe',
     args: ['/d', '/s', '/c', commandLine],
+    verbatim: true,
   };
 }
 

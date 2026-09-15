@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, stat, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, stat, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -381,6 +381,50 @@ async function waitForWrites(child: FakeChild, count: number): Promise<void> {
   }
   assert.ok(child.stdin.writes.length >= count, `expected ${count} App Server writes`);
 }
+
+test('App Server client starts a real Windows .cmd shim and completes initialize', {
+  skip: process.platform !== 'win32',
+  timeout: 60_000,
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ai-cli-bypass-app-server-'));
+  // The directory intentionally contains a space so quoting bugs surface here.
+  const shimDirectory = join(root, 'shim dir');
+  await mkdir(shimDirectory, { recursive: true });
+  const shim = join(shimDirectory, 'codex.cmd');
+  const responder = join(shimDirectory, 'responder.cjs');
+  await writeFile(
+    responder,
+    [
+      'process.stdin.setEncoding("utf8");',
+      'let buffer = "";',
+      'process.stdin.on("data", (chunk) => {',
+      '  buffer += chunk;',
+      '  let index = buffer.indexOf("\\n");',
+      '  while (index >= 0) {',
+      '    const line = buffer.slice(0, index);',
+      '    buffer = buffer.slice(index + 1);',
+      '    if (line.trim().length > 0) {',
+      '      const request = JSON.parse(line);',
+      '      process.stdout.write(JSON.stringify({ id: request.id, result: { ok: true } }) + "\\n");',
+      '    }',
+      '    index = buffer.indexOf("\\n");',
+      '  }',
+      '});',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  await writeFile(shim, `@echo off\r\n"${process.execPath}" "${responder}" %*\r\n`, 'utf8');
+
+  const client = new AppServerClient({ command: shim, requestTimeoutMs: 20_000 });
+  try {
+    const result = await client.initialize();
+    assert.deepEqual(result, { ok: true });
+  } finally {
+    client.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('App Server client performs lazy initialize, resumes and starts one turn', async () => {
   const child = new FakeChild();
