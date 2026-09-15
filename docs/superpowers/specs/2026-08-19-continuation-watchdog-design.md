@@ -90,10 +90,19 @@ reported as `monitor-only` unless a supported protocol is available.
 
 For Codex, the service first associates the OS process with a thread ID from
 the command line or the local thread index. It then uses a local Codex App
-Server connection for thread status and, when configured, `turn/start` with the
-same follow-up text. This is semantically the same conversation action but is
-not a simulated keystroke. If App Server association is ambiguous or fails,
-the service does not fall back to global input; it reports `cannot-inject`.
+Server connection for thread status and submits the follow-up text to that
+thread. This is semantically the same conversation action but is not a
+simulated keystroke.
+
+A running Codex CLI holds the exclusive writer for its own thread, so an
+unrelated App Server client cannot start a turn in a live session and is
+rejected with `already has an active writer`. The service therefore submits
+continuations through `thread/queue/add`, which the owning session drains as
+the next user message; `turn/start` remains the path for threads no live
+session owns. The queue methods are gated behind the App Server's
+`experimentalApi` capability, which the client negotiates during
+`initialize`. If App Server association is ambiguous or fails, the service
+does not fall back to global input; it reports `cannot-inject`.
 
 Claude ConPTY sessions that were not started by the service remain
 `monitor-only` unless a classic Console transport is available. The UI offers
