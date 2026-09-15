@@ -135,17 +135,37 @@ function matched(
   };
 }
 
+/**
+ * Normalize a Windows path for identity comparison.
+ *
+ * Codex stores `cwd` with the `\\?\` extended-length prefix (and the process
+ * provider returns a plain drive-letter path), so the prefix must be removed
+ * before the two can ever be considered equal. `resolve` is used only after
+ * the prefix is stripped because it would otherwise rewrite `\\?\D:\dir`
+ * into the unrelated relative path `D:\?\D:\dir`.
+ */
 function normalizePath(value: string): string {
-  let normalized = value.trim().replace(/[\\/]+/g, sep).toLowerCase();
+  const trimmed = value.trim();
+  let normalized: string;
+  // Strip the extended-length prefix before collapsing separators, because
+  // collapsing would merge the leading `\\` with the following backslash.
+  if (/^[\\/]{2}\?[\\/]UNC[\\/]/iu.test(trimmed)) {
+    normalized = '\\\\' + trimmed.slice(8);
+  } else if (/^[\\/]{2}\?[\\/]/u.test(trimmed)) {
+    normalized = trimmed.slice(4);
+  } else {
+    normalized = trimmed;
+  }
+  normalized = normalized.replace(/[\\/]+/g, sep);
   // `resolve` normalizes dot segments but may throw for malformed input; the
   // original normalized value is still a safe comparison fallback.
   try {
-    normalized = resolve(normalized).replace(/[\\/]+/g, sep).toLowerCase();
+    normalized = resolve(normalized).replace(/[\\/]+/g, sep);
   } catch {
     // Keep the best-effort normalized path.
   }
   while (normalized.length > 1 && normalized.endsWith(sep)) normalized = normalized.slice(0, -1);
-  return normalized;
+  return normalized.toLowerCase();
 }
 
 function timeDistance(processTimeMs: number, threadTimeMs: number | null): number {

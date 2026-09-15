@@ -194,6 +194,48 @@ test('returns an explicit unsupported-runtime error when node:sqlite is unavaila
   );
 });
 
+test('matches a Windows extended-length thread cwd to a plain process working directory', () => {
+  const records: CodexThreadRecord[] = [
+    {
+      id: 'thread-extended',
+      cwd: '\\\\?\\D:\\project\\ai-cli-bypass',
+      createdAtMs: 10_000,
+      updatedAtMs: 20_000,
+      rolloutPath: null,
+    },
+  ];
+  const result = associateCodexThread(
+    {
+      commandLine: 'node codex.js --dangerously-bypass-approvals-and-sandbox',
+      cwd: 'D:\\project\\ai-cli-bypass\\',
+      creationTimeMs: 10_500,
+    },
+    records,
+  );
+  assert.equal(result.kind, 'matched');
+});
+
+test('matches a forward-slash extended-length thread cwd to a drive-letter process cwd', () => {
+  const records: CodexThreadRecord[] = [
+    {
+      id: 'thread-extended-slash',
+      cwd: '//?/D:/project/Nexus',
+      createdAtMs: 10_000,
+      updatedAtMs: 20_000,
+      rolloutPath: null,
+    },
+  ];
+  const result = associateCodexThread(
+    {
+      commandLine: 'node codex.js',
+      cwd: 'D:\\project\\Nexus\\',
+      creationTimeMs: 10_500,
+    },
+    records,
+  );
+  assert.equal(result.kind, 'matched');
+});
+
 test('does not guess when two equally recent threads match an initial command', () => {
   const records: CodexThreadRecord[] = [
     {
