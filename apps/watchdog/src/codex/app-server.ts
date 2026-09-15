@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 export interface AppServerWritable {
   write(chunk: string): boolean;
@@ -110,7 +111,9 @@ export class AppServerClient {
     this.ensureChild();
     this.initializePromise = this.sendRequest('initialize', {
       clientInfo: { name: this.clientName, version: this.clientVersion },
-      capabilities: {},
+      // The queue methods used to continue a live session are gated behind the
+      // experimental capability, so it must be negotiated during initialize.
+      capabilities: { experimentalApi: true },
     }).then((result) => {
       // The server expects the notification after the initialize response.
       this.sendNotification('initialized', {});
@@ -129,6 +132,28 @@ export class AppServerClient {
   public resumeThread(threadId: string): Promise<JsonRpcResponse> {
     assertNonEmpty(threadId, 'threadId');
     return this.afterInitialize(() => this.sendRequest('thread/resume', { threadId }));
+  }
+
+  /**
+   * Queue one user message for a thread that another client already owns.
+   *
+   * A running Codex CLI holds the exclusive writer for its own thread, so
+   * `turn/start` fails with "already has an active writer" for exactly the
+   * live sessions the watchdog needs to continue. `thread/queue/add` accepts
+   * the message on the owning session's behalf and the running CLI drains it.
+   */
+  public queuePrompt(threadId: string, prompt: string): Promise<JsonRpcResponse> {
+    assertNonEmpty(threadId, 'threadId');
+    if (typeof prompt !== 'string' || prompt.length === 0) {
+      throw new TypeError('prompt must be a non-empty string');
+    }
+    return this.afterInitialize(() =>
+      this.sendRequest('thread/queue/add', {
+        threadId,
+        clientUserMessageId: randomUUID(),
+        input: [{ type: 'text', text: prompt }],
+      }),
+    );
   }
 
   /**

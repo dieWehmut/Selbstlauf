@@ -426,6 +426,35 @@ test('App Server client starts a real Windows .cmd shim and completes initialize
   }
 });
 
+test('App Server client negotiates the experimental capability needed by the queue', async () => {
+  const child = new FakeChild();
+  const client = new AppServerClient({ spawn: () => child, command: 'fake-codex' });
+  const initialize = client.initialize();
+  const request = JSON.parse(child.stdin.writes[0]);
+  assert.equal(request.method, 'initialize');
+  assert.deepEqual(request.params.capabilities, { experimentalApi: true });
+  child.stdout.push(JSON.stringify({ id: request.id, result: {} }) + '\n');
+  await initialize;
+  client.close();
+});
+
+test('App Server client queues a prompt for a thread owned by another client', async () => {
+  const child = new FakeChild();
+  const client = new AppServerClient({ spawn: () => child, command: 'fake-codex' });
+  const queued = client.queuePrompt('thread-live', '/goal resume');
+  const initializeRequest = JSON.parse(child.stdin.writes[0]);
+  child.stdout.push(JSON.stringify({ id: initializeRequest.id, result: {} }) + '\n');
+  await waitForWrites(child, 3);
+  const queueRequest = JSON.parse(child.stdin.writes[2]);
+  assert.equal(queueRequest.method, 'thread/queue/add');
+  assert.equal(queueRequest.params.threadId, 'thread-live');
+  assert.deepEqual(queueRequest.params.input, [{ type: 'text', text: '/goal resume' }]);
+  assert.equal(typeof queueRequest.params.clientUserMessageId, 'string');
+  assert.ok(queueRequest.params.clientUserMessageId.length > 0);
+  child.stdout.push(JSON.stringify({ id: queueRequest.id, result: { queuedSubmission: { id: 'q1' } } }) + '\n');
+  assert.deepEqual(await queued, { queuedSubmission: { id: 'q1' } });
+  client.close();
+});
 test('App Server client performs lazy initialize, resumes and starts one turn', async () => {
   const child = new FakeChild();
   const spawn: AppServerSpawn = () => child;
@@ -568,6 +597,128 @@ test('CodexAdapter routes paused, absent, terminal, and unknown goals safely', a
   adapter.close();
 });
 
+test('CodexAdapter queues a prompt when a live session holds the writer lock', async () => {
+  const calls: string[] = [];
+  const appServer = {
+    resumeThread: async (threadId: string) => {
+      calls.push(`resume:${threadId}`);
+      throw new Error(`thread ${threadId} already has an active writer`);
+    },
+    startTurn: async (threadId: string, prompt: string) => {
+      calls.push(`turn:${threadId}:${prompt}`);
+    },
+    queuePrompt: async (threadId: string, prompt: string) => {
+      calls.push(`queue:${threadId}:${prompt}`);
+      return {};
+    },
+    close: () => undefined,
+  } as unknown as AppServerClient;
+  const reader: CodexStateReader = {
+    getGoal: () => null,
+    listThreads: () => [],
+    close: () => undefined,
+  };
+  const adapter = new CodexAdapter({ stateReader: reader, appServer, normalPrompt: '继续' });
+  const context: CodexContinuationContext = {
+    commandLine: 'codex',
+    cwd: process.cwd(),
+    creationTimeMs: 1_000,
+    threadRecords: [{
+      id: 'thread-live',
+      cwd: process.cwd(),
+      createdAtMs: 1_000,
+      updatedAtMs: 2_000,
+      rolloutPath: null,
+    }],
+  };
+
+  const result = await adapter.injectContinuation(context);
+
+  assert.deepEqual(calls, ['resume:thread-live', 'queue:thread-live:继续']);
+  assert.equal(result.kind, 'inject');
+  assert.equal((result as { transport?: string }).transport, 'codex-app-server');
+  adapter.close();
+});
+
+test('CodexAdapter queues an explicit manual prompt for a live session', async () => {
+  const calls: string[] = [];
+  const appServer = {
+    resumeThread: async (threadId: string) => {
+      calls.push(`resume:${threadId}`);
+      throw new Error(`thread ${threadId} already has an active writer`);
+    },
+    startTurn: async (threadId: string, prompt: string) => {
+      calls.push(`turn:${threadId}:${prompt}`);
+    },
+    queuePrompt: async (threadId: string, prompt: string) => {
+      calls.push(`queue:${threadId}:${prompt}`);
+      return {};
+    },
+    close: () => undefined,
+  } as unknown as AppServerClient;
+  const reader: CodexStateReader = {
+    getGoal: () => ({ status: 'complete' }),
+    listThreads: () => [],
+    close: () => undefined,
+  };
+  const adapter = new CodexAdapter({ stateReader: reader, appServer });
+  const context: CodexContinuationContext = {
+    commandLine: 'codex',
+    cwd: process.cwd(),
+    creationTimeMs: 1_000,
+    threadRecords: [{
+      id: 'thread-live-manual',
+      cwd: process.cwd(),
+      createdAtMs: 1_000,
+      updatedAtMs: 2_000,
+      rolloutPath: null,
+    }],
+  };
+
+  const result = await adapter.injectPrompt(context, '检查最新输出');
+
+  assert.deepEqual(calls, ['resume:thread-live-manual', 'queue:thread-live-manual:检查最新输出']);
+  assert.equal(result.kind, 'inject');
+  adapter.close();
+});
+
+test('CodexAdapter still reports a real App Server failure instead of queueing', async () => {
+  const calls: string[] = [];
+  const appServer = {
+    resumeThread: async (threadId: string) => {
+      calls.push(`resume:${threadId}`);
+      throw new Error('Codex App Server is unreachable');
+    },
+    startTurn: async () => undefined,
+    queuePrompt: async (threadId: string, prompt: string) => {
+      calls.push(`queue:${threadId}:${prompt}`);
+      return {};
+    },
+    close: () => undefined,
+  } as unknown as AppServerClient;
+  const reader: CodexStateReader = {
+    getGoal: () => null,
+    listThreads: () => [],
+    close: () => undefined,
+  };
+  const adapter = new CodexAdapter({ stateReader: reader, appServer, normalPrompt: '继续' });
+  const context: CodexContinuationContext = {
+    commandLine: 'codex',
+    cwd: process.cwd(),
+    creationTimeMs: 1_000,
+    threadRecords: [{
+      id: 'thread-broken',
+      cwd: process.cwd(),
+      createdAtMs: 1_000,
+      updatedAtMs: 2_000,
+      rolloutPath: null,
+    }],
+  };
+
+  await assert.rejects(() => adapter.injectContinuation(context), /unreachable/);
+  assert.deepEqual(calls, ['resume:thread-broken']);
+  adapter.close();
+});
 test('CodexAdapter resumes the associated App Server thread before starting a turn', async () => {
   const calls: string[] = [];
   const appServer = {

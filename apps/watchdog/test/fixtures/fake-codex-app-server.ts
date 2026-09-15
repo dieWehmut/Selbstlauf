@@ -32,6 +32,14 @@ input.on('line', (line) => {
       respond(message.id, { turn: { id: 'turn-fixture' } });
       setImmediate(() => notify('turn/completed', { turn: { id: 'turn-fixture' } }));
       break;
+    case 'thread/queue/add':
+      respond(message.id, {
+        queuedSubmission: {
+          id: `queued-${String(message.params?.clientUserMessageId)}`,
+          input: message.params?.input,
+        },
+      });
+      break;
     default:
       process.stdout.write(`${JSON.stringify({ id: message.id, error: { message: 'unknown method' } })}\n`);
   }

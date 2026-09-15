@@ -129,8 +129,7 @@ export class CodexAdapter {
   public async injectContinuation(context: CodexContinuationContext): Promise<CodexInjectionResult> {
     const decision = await this.getContinuation(context);
     if (decision.kind === 'skip' || this.appServer === undefined) return decision;
-    await this.appServer.resumeThread(decision.threadId);
-    await this.appServer.startTurn(decision.threadId, decision.prompt);
+    await this.deliver(decision.threadId, decision.prompt);
     return Object.freeze({ ...decision, transport: 'codex-app-server' });
   }
 
@@ -158,9 +157,29 @@ export class CodexAdapter {
       goal: this.reader.getGoal(association.thread.id),
     });
     if (this.appServer === undefined) return decision;
-    await this.appServer.resumeThread(decision.threadId);
-    await this.appServer.startTurn(decision.threadId, decision.prompt);
+    await this.deliver(decision.threadId, decision.prompt);
     return Object.freeze({ ...decision, transport: 'codex-app-server' as const });
+  }
+
+  /**
+   * Hand one prompt to the owning Codex session.
+   *
+   * A running CLI holds the exclusive writer lock for its own thread, so an
+   * unrelated App Server client is rejected with `already has an active
+   * writer` for starting a turn. The queue accepts the message on the live
+   * session's behalf instead, which is the only path that reaches the
+   * conversation the watchdog is monitoring.
+   */
+  private async deliver(threadId: string, prompt: string): Promise<void> {
+    const appServer = this.appServer;
+    if (appServer === undefined) return;
+    try {
+      await appServer.resumeThread(threadId);
+      await appServer.startTurn(threadId, prompt);
+    } catch (error) {
+      if (!isActiveWriterError(error)) throw error;
+      await appServer.queuePrompt(threadId, prompt);
+    }
   }
 
   public associate(context: CodexContinuationContext): ThreadAssociationResult {
@@ -194,4 +213,16 @@ function toThreadRecord(thread: ReturnType<CodexStateReader['listThreads']>[numb
 function requirePrompt(value: string, name: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) throw new TypeError(`${name} must be non-empty`);
   return value;
+}
+
+/**
+ * Detect the App Server's exclusive-writer rejection.
+ *
+ * The server reports that a thread a live CLI owns cannot be written twice.
+ * Matching the message lets the adapter retry through the queue instead of
+ * treating a normal live session as a hard transport failure.
+ */
+function isActiveWriterError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /already has an active writer/i.test(message);
 }
