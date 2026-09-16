@@ -232,6 +232,24 @@ Hook 再解除安裝 watchdog；CLI、認證與對話資料都不會被這些生
 寫入；不支援的 ConPTY 會保持 `monitor-only`，服務不使用全域鍵盤 API。WebUI
 可暫停程序、修改提示文字、查看已遮罩的事件時間線，以及移除 watchdog 自己擁有的狀態。
 
+### Codex 端點切換
+
+本機 WebUI 的設定頁提供「端點配置」面板，用來在 `CODEX_HOME/config.toml` 中切換
+Codex 的接入端點。面板會列出目前生效的 `model`、`review_model`、
+`model_reasoning_effort`、`base_url` 與 `experimental_bearer_token`，並把
+`config.toml` 中以註解形式閒置的舊端點顯示為可點擊的備選膠囊；點擊膠囊即可
+切回對應端點，也可以在輸入框手寫新值後按「套用端點配置」。
+
+切換完全依照手工維護該檔案的方式改寫：命中的註解行會被啟用，原先生效的賦值會
+被改寫為註解保留，未知取值會取代目前行，缺少的鍵會追加到最後一個頂層賦值之後；
+`[section]` 之外的無關內容與專案段落按位元組原樣保留。每次寫入前都會先寫入一份
+`.bak` 備份與 `sha256` 校驗邊車檔案，寫入本身以暫存檔原子替換完成，因此中斷的
+切換可以人工復原。寫入會串行化，避免並發切換互相覆蓋。
+
+本機路由為 `GET /api/codex/profiles` 與 `PUT /api/codex/profiles`（請求體
+`{ "fields": [{ "key": "base_url", "value": "..." }] }`）；變更會記入審計日誌
+的 `user-override` 事件。此面板僅在本機 watchdog 介面提供，Pages 展示站使用
+記憶體內範例資料，不會修改任何本機檔案。
 ## WebUI 展示站
 
 在本機啟動管理介面：

@@ -247,6 +247,29 @@ the Codex App Server. Unsupported ConPTY sessions remain `monitor-only`; the
 service never uses a global keyboard API. The WebUI can pause sessions, change
 prompts, inspect the redacted audit timeline, and remove watchdog-owned state.
 
+### Codex endpoint switching
+
+The local WebUI Settings page includes an endpoint panel for switching the
+Codex endpoint inside `CODEX_HOME/config.toml`. It lists the active `model`,
+`review_model`, `model_reasoning_effort`, `base_url`, and
+`experimental_bearer_token` values, and shows every endpoint parked as a
+comment as a clickable chip; choose a chip to switch back, or edit a field and
+apply the panel to write a new value.
+
+Switching mirrors how the file is maintained by hand: a matching parked line
+is activated, the previously active assignment is parked as a comment, unknown
+values replace the active line, and missing keys are appended after the last
+top-level assignment. Unrelated content and `[section]` blocks are preserved
+byte for byte. Every write is preceded by a `.bak` copy plus a `sha256` sidecar
+and performed through an atomic temporary-file replace, so an interrupted
+switch is recoverable by hand; writes are serialized so concurrent switches
+cannot interleave.
+
+The local routes are `GET /api/codex/profiles` and `PUT /api/codex/profiles`
+(body `{ "fields": [{ "key": "base_url", "value": "..." }] }`), and every
+change is recorded as a `user-override` audit event. The panel is available
+only from the localhost watchdog; the Pages demo uses in-memory sample data
+and never touches local files.
 ## WebUI demo site
 
 Run the management UI locally with:

@@ -240,6 +240,24 @@ be associated safely; unsupported ConPTY sessions stay `monitor-only`. No
 global keyboard API is used. The WebUI can pause a process, change prompts,
 inspect the redacted audit timeline, or uninstall only watchdog-owned state.
 
+### Codex 端点切换
+
+本机 WebUI 的设置页提供“端点配置”面板，用来在 `CODEX_HOME/config.toml` 中切换
+Codex 的接入端点。面板会列出当前生效的 `model`、`review_model`、
+`model_reasoning_effort`、`base_url` 和 `experimental_bearer_token`，并把
+`config.toml` 里以注释形式闲置的旧端点显示为可点击的备选胶囊；点击胶囊即可
+切回对应端点，也可以在输入框里手写新值后按“应用端点配置”。
+
+切换完全按照手工维护该文件的方式改写：命中的注释行会被激活，原先生效的赋值会
+被改写为注释保留下来，未知取值会替换当前行，缺失的键会追加到最后一个顶层赋值
+之后；`[section]` 之外的无关内容与项目段落按字节原样保留。每次写入前都会先写入
+一份 `.bak` 备份和 `sha256` 校验边车文件，写入本身通过临时文件原子替换完成，
+因此中断的切换可以人工恢复。写入会串行化，避免并发切换互相覆盖。
+
+本机路由为 `GET /api/codex/profiles` 和 `PUT /api/codex/profiles`（请求体
+`{ "fields": [{ "key": "base_url", "value": "..." }] }`）；变更会记入审计日志
+的 `user-override` 事件。该面板只在本机 watchdog 界面可用，Pages 演示站使用
+内存样例数据，不会修改任何本地文件。
 ## WebUI demo site
 
 The management UI lives in `apps/web`. Run it locally with:
