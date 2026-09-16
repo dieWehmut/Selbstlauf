@@ -30,6 +30,8 @@ import {
   createApi,
   type AuditEvent,
   type ClaudeHookStatusView,
+  type CodexProfileFieldView,
+  type CodexProfilesView,
   type HealthView,
   type SessionView,
   type WatchdogApi,
@@ -333,9 +335,84 @@ function Timeline({ events }: { events: AuditEvent[] }) {
   );
 }
 
+function CodexEndpointsPanel(props: {
+  profiles: CodexProfilesView | null;
+  onApply: (fields: CodexProfileFieldView[]) => Promise<void>;
+  applying: boolean;
+}) {
+  const [draft, setDraft] = useState<CodexProfileFieldView[]>([]);
+  const profileSignature = JSON.stringify(props.profiles?.current?.fields ?? null);
+  useEffect(() => {
+    if (props.profiles !== null) setDraft(props.profiles.current?.fields ?? []);
+  }, [profileSignature]);
+  if (props.profiles === null) return null;
+  const profiles = props.profiles;
+  const activeByKey = profiles.active;
+  const update = (key: string, value: string) => {
+    setDraft((current) => {
+      const next = current.filter((field) => field.key !== key);
+      return [...next, { key, value }];
+    });
+  };
+  const valueOf = (key: string) => draft.find((field) => field.key === key)?.value ?? activeByKey[key] ?? '';
+  const apply = async () => {
+    const fields = draft.filter((field) => field.value.trim().length > 0);
+    if (fields.length === 0) return;
+    await props.onApply(fields);
+  };
+  const switchTo = async (key: string, value: string) => {
+    const fields = draft.filter((field) => field.value.trim().length > 0).map((field) => ({ ...field }));
+    const index = fields.findIndex((field) => field.key === key);
+    if (index === -1) fields.push({ key, value });
+    else fields[index] = { key, value };
+    setDraft(fields);
+    await props.onApply(fields);
+  };
+  return (
+    <section className="settings-section settings-section--wide codex-endpoints">
+      <div className="section-title"><div><span className="eyebrow">Codex</span><h2>端点配置</h2></div><Plug size={20} /></div>
+      <div className="codex-endpoints__body">
+        <p className="hook-disclosure"><CircleAlert size={17} /><span>切换会直接改写 <code>{profiles.path}</code>，并把旧值保留为注释；每次写入前都会生成 .bak 备份。</span></p>
+        <div className="field-grid codex-endpoints__fields">
+          {[
+            { key: 'model', label: '模型' },
+            { key: 'review_model', label: '评审模型' },
+            { key: 'model_reasoning_effort', label: '推理强度' },
+          ].map((entry) => (
+            <label key={entry.key}><span>{entry.label}</span><input aria-label={entry.label} value={valueOf(entry.key)} onChange={(event) => update(entry.key, event.target.value)} /></label>
+          ))}
+        </div>
+        {(['base_url', 'experimental_bearer_token'] as const).map((key) => {
+          const alternatives = profiles.alternatives[key] ?? [];
+          const current = valueOf(key);
+          return (
+            <div className="field-grid codex-endpoints__fields" key={key}>
+              <label><span>{key === 'base_url' ? '接口地址' : '访问令牌'}</span><input aria-label={key === 'base_url' ? '接口地址' : '访问令牌'} value={current} onChange={(event) => update(key, event.target.value)} /></label>
+              {alternatives.length > 0 && (
+                <div className="codex-endpoints__alternatives">
+                  <span>已注释的备选</span>
+                  <div className="codex-endpoints__chips">
+                    {[...new Set([...alternatives, activeByKey[key]].filter((entry): entry is string => typeof entry === 'string' && entry.length > 0))].map((alternative) => (
+                      <button key={alternative} className={alternative === current ? 'chip is-active' : 'chip'} type="button" onClick={() => void switchTo(key, alternative)}>{alternative}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <div className="settings-actions"><button className="button button--primary" type="button" disabled={props.applying} onClick={() => void apply()}>{props.applying ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}应用端点配置</button></div>
+      </div>
+    </section>
+  );
+}
+
 function SettingsPanel(props: {
   config: WatchdogConfig;
   hookStatus: ClaudeHookStatusView;
+  profiles: CodexProfilesView | null;
+  onApplyProfile: (fields: CodexProfileFieldView[]) => Promise<void>;
+  applyingProfile: boolean;
   saving: boolean;
   running: boolean;
   onSave: (config: WatchdogConfig) => Promise<void>;
@@ -432,6 +509,7 @@ function SettingsPanel(props: {
         </div>
         <div className="switch-row"><div><strong>仅监控当前用户进程</strong><span>关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入</span></div><label className="switch"><input aria-label="仅监控当前用户进程" type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
       </section>
+      <CodexEndpointsPanel profiles={props.profiles} onApply={props.onApplyProfile} applying={props.applyingProfile} />
       <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}保存配置</button><button className="button button--secondary" type="button" onClick={() => void props.onInstall()} disabled={props.saving}><CirclePlay size={17} />安装 Watchdog</button><button className="button button--secondary" type="button" onClick={() => void props.onToggleStartup()} disabled={props.saving}><Power size={17} />{props.startupInstalled ? '移除启动项' : '安装启动项'}</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? '停止 Watchdog' : '启动 Watchdog'}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />卸载 Watchdog</button></div>
     </form>
   );
@@ -449,6 +527,8 @@ export default function App({ api: suppliedApi }: AppProps) {
   const [health, setHealth] = useState<HealthView>({ ok: false, running: false, dryRun: true, lastPollAtMs: null });
   const [startupInstalled, setStartupInstalled] = useState(false);
   const [hookStatus, setHookStatus] = useState<ClaudeHookStatusView>(fallbackHookStatus);
+  const [codexProfiles, setCodexProfiles] = useState<CodexProfilesView | null>(null);
+  const [applyingProfile, setApplyingProfile] = useState(false);
   const [config, setConfig] = useState(fallbackConfig);
   const [sessions, setSessions] = useState<SessionView[]>(fallbackSessions);
   const [events, setEvents] = useState<AuditEvent[]>(fallbackEvents);
@@ -484,18 +564,20 @@ export default function App({ api: suppliedApi }: AppProps) {
 
   const refresh = async () => {
     try {
-      const [nextHealth, nextConfig, nextSessions, nextStartup, nextHookStatus] = await Promise.all([
+      const [nextHealth, nextConfig, nextSessions, nextStartup, nextHookStatus, nextCodexProfiles] = await Promise.all([
         api.health(),
         api.config(),
         api.sessions(),
         api.startup(),
         api.claudeHook(),
+        api.codexProfiles(),
       ]);
       setHealth(nextHealth);
       setConfig(nextConfig);
       setSessions(nextSessions);
       setStartupInstalled(nextStartup.installed);
       setHookStatus(nextHookStatus);
+      setCodexProfiles(nextCodexProfiles);
       setConnected(true);
     } catch {
       setConnected(false);
@@ -535,6 +617,17 @@ export default function App({ api: suppliedApi }: AppProps) {
     }
     catch (error) { setNotice(error instanceof Error ? error.message : '保存失败'); }
     finally { setSaving(false); }
+  };
+
+  const applyCodexProfile = async (fields: CodexProfileFieldView[]) => {
+    setApplyingProfile(true); setNotice(null);
+    try {
+      await api.applyCodexProfile(fields);
+      setCodexProfiles(await api.codexProfiles());
+      setNotice('Codex 端点已切换');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '切换失败');
+    } finally { setApplyingProfile(false); }
   };
 
   const updateClaudeHook = async (action: 'disable' | 'install' | 'uninstall') => {
@@ -658,7 +751,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{events.length} 条</span></div><Timeline events={events} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} hookStatus={hookStatus} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
       </main>
     </div>
   );

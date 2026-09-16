@@ -130,6 +130,50 @@ describe('watchdog dashboard', () => {
     await waitFor(() => expect(fake.uninstallClaudeHook).toHaveBeenCalledTimes(1));
   });
 
+  it('switches Codex endpoints through the profile API and refreshes the view', async () => {
+    const fake = api();
+    fake.codexProfiles = vi.fn(async () => ({
+      path: 'C:/demo/config.toml',
+      exists: true,
+      active: { base_url: 'https://first.example/v1', model: 'gpt-6-astra' },
+      alternatives: { base_url: ['https://second.example/v1'] },
+      current: { name: 'first.example', fields: [{ key: 'base_url', value: 'https://first.example/v1' }, { key: 'model', value: 'gpt-6-astra' }] },
+    }));
+    render(<App api={fake} />);
+    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+
+    expect(await screen.findByRole('heading', { name: '端点配置' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://first.example/v1')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('gpt-6-astra')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'https://second.example/v1' }));
+    await waitFor(() => expect(fake.applyCodexProfile).toHaveBeenCalledWith([
+      { key: 'base_url', value: 'https://second.example/v1' },
+      { key: 'model', value: 'gpt-6-astra' },
+    ]));
+    expect(await screen.findByText('Codex 端点已切换')).toBeInTheDocument();
+  });
+
+  it('applies edited endpoint fields from the settings panel', async () => {
+    const fake = api();
+    fake.codexProfiles = vi.fn(async () => ({
+      path: 'C:/demo/config.toml',
+      exists: true,
+      active: { base_url: 'https://first.example/v1' },
+      alternatives: {},
+      current: { name: 'first.example', fields: [{ key: 'base_url', value: 'https://first.example/v1' }] },
+    }));
+    render(<App api={fake} />);
+    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+
+    const url = await screen.findByLabelText('接口地址');
+    fireEvent.change(url, { target: { value: 'https://third.example/v1' } });
+    fireEvent.click(screen.getByRole('button', { name: '应用端点配置' }));
+    await waitFor(() => expect(fake.applyCodexProfile).toHaveBeenCalledWith([
+      { key: 'base_url', value: 'https://third.example/v1' },
+    ]));
+  });
+
   it('allows exact-session Stop Hook continuation while monitor-only remains disabled', async () => {
     const fake = api();
     const isolatedSessions: SessionView[] = [
