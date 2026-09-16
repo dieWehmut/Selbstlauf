@@ -211,6 +211,60 @@ test('startup installation owns and removes only its per-user scheduled task', {
   }
 });
 
+test('PowerShell uninstall tolerates an owned startup task that is already gone', {
+  skip: process.platform !== 'win32' ? 'Windows lifecycle only' : false,
+  timeout: 60_000,
+}, async () => {
+  const localAppData = await mkdtemp(join(tmpdir(), 'watchdog-startup-absent-'));
+  const continuationState = join(localAppData, 'ai-cli-bypass', 'continuation');
+  const scheduler = join(localAppData, 'fake-schtasks.cmd');
+  const schedulerLog = join(localAppData, 'schtasks.log');
+  const schedulerState = join(localAppData, 'schtasks.state');
+  const environment = {
+    ...process.env,
+    LOCALAPPDATA: localAppData,
+    USERPROFILE: localAppData,
+    WATCHDOG_CLAUDE_SETTINGS_PATH: join(localAppData, '.claude', 'settings.json'),
+    WATCHDOG_SCHTASKS_PATH: scheduler,
+    WATCHDOG_SCHTASKS_LOG: schedulerLog,
+    WATCHDOG_SCHTASKS_STATE: schedulerState,
+  };
+  let pid: number | undefined;
+
+  await writeFile(scheduler, [
+    '@echo off',
+    'echo %*>>"%WATCHDOG_SCHTASKS_LOG%"',
+    'if /I "%1"=="/Query" if exist "%WATCHDOG_SCHTASKS_STATE%" exit /b 0',
+    'if /I "%1"=="/Query" echo ERROR: The system cannot find the file specified. 1>&2',
+    'if /I "%1"=="/Query" exit /b 1',
+    'if /I "%1"=="/Create" type nul >"%WATCHDOG_SCHTASKS_STATE%"',
+    'if /I "%1"=="/Create" exit /b 0',
+    'if /I "%1"=="/Delete" del /q "%WATCHDOG_SCHTASKS_STATE%" 2>nul',
+    'if /I "%1"=="/Delete" exit /b 0',
+    'exit /b 2',
+    '',
+  ].join('\r\n'), 'utf8');
+
+  try {
+    const installed = await runPowerShell(installScript, ['-Port', '0', '-DryRun', '-NoBuild', '-Startup'], environment);
+    assert.match(installed.stdout, /watchdog installed/i);
+    const record = JSON.parse(await readFile(join(continuationState, 'watchdog.pid.json'), 'utf8')) as { pid: number };
+    pid = record.pid;
+    // Simulate the user deleting the scheduled task while the manifest still owns it.
+    await rm(schedulerState, { force: true });
+
+    const uninstalled = await runPowerShell(uninstallScript, [], environment);
+    pid = undefined;
+    assert.match(uninstalled.stdout, /watchdog uninstalled|preserved user files/i);
+    assert.equal(await pathExists(continuationState), false);
+  } finally {
+    if (pid !== undefined) {
+      try { process.kill(pid); } catch { /* already stopped */ }
+    }
+    await rm(localAppData, { recursive: true, force: true });
+  }
+});
+
 test('PowerShell uninstall preserves Claude settings and ownership state on checksum conflict', {
   skip: process.platform !== 'win32' ? 'Windows lifecycle only' : false,
   timeout: 20_000,

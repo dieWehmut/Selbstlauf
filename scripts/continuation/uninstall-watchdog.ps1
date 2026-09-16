@@ -10,6 +10,25 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $LASTEXITCODE = 0
+$taskTool = if ([string]::IsNullOrWhiteSpace($env:WATCHDOG_SCHTASKS_PATH)) { 'schtasks.exe' } else { $env:WATCHDOG_SCHTASKS_PATH }
+
+function Invoke-TaskTool {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+
+    # schtasks.exe writes "task not found" to stderr, and with the script-wide
+    # $ErrorActionPreference = 'Stop' that native output would become a
+    # terminating error before $LASTEXITCODE could be inspected.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $null = & $taskTool @Arguments 2>&1
+        return $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($StateRoot)) {
     $StateRoot = Join-Path $env:LOCALAPPDATA 'ai-cli-bypass\continuation'
 }
@@ -184,11 +203,10 @@ if ($null -ne $manifest.startupTask -and [bool]$manifest.startupTask.owned) {
     if ($taskName -ne 'Selbstlauf Continuation Watchdog') {
         throw "refusing to remove unexpected scheduled task '$taskName'"
     }
-    $taskTool = if ([string]::IsNullOrWhiteSpace($env:WATCHDOG_SCHTASKS_PATH)) { 'schtasks.exe' } else { $env:WATCHDOG_SCHTASKS_PATH }
-    & $taskTool /Query /TN $taskName *> $null
-    if ($LASTEXITCODE -eq 0) {
-        & $taskTool /Delete /TN $taskName /F *> $null
-        if ($LASTEXITCODE -ne 0) { throw "scheduled task removal failed with exit code $LASTEXITCODE" }
+    $taskExists = (Invoke-TaskTool /Query /TN $taskName) -eq 0
+    if ($taskExists) {
+        $deleteExitCode = Invoke-TaskTool /Delete /TN $taskName /F
+        if ($deleteExitCode -ne 0) { throw "scheduled task removal failed with exit code $deleteExitCode" }
     }
 }
 
