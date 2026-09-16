@@ -51,6 +51,14 @@ export function createStaticDemoApi(): WatchdogApi {
   let currentSessions = structuredClone(initialSessions);
   const currentHealth = structuredClone(initialHealth);
   let startupInstalled = false;
+  let codexProfileFields = [
+    { key: 'base_url', value: 'https://external-api-platform.hkgai.net/v1' },
+  ];
+  let codexAlternatives: Record<string, string[]> = {
+    base_url: ['https://www.sevnx.lol', 'https://agentrouter.org/v1'],
+    model: ['gpt-6-astra'],
+  };
+
   let hookInstallation: Omit<ClaudeHookStatusView, 'enabled'> = {
     installed: false,
     restartRequired: false,
@@ -72,6 +80,36 @@ export function createStaticDemoApi(): WatchdogApi {
     startup: async () => ({ installed: startupInstalled, name: 'Selbstlauf Continuation Watchdog' }),
     installStartup: async () => { startupInstalled = true; },
     uninstallStartup: async () => { startupInstalled = false; },
+    codexProfiles: async () => {
+      const active = Object.fromEntries(codexProfileFields.map((field) => [field.key, field.value]));
+      const baseUrl = active.base_url ?? '';
+      let name = 'current';
+      if (baseUrl.length > 0) {
+        try {
+          name = new URL(baseUrl).host;
+        } catch {
+          name = baseUrl;
+        }
+      }
+      return {
+        path: 'C:\\Users\\demo\\.codex\\config.toml',
+        exists: true,
+        active,
+        alternatives: structuredClone(codexAlternatives),
+        current: codexProfileFields.length === 0 ? null : { name, fields: structuredClone(codexProfileFields) },
+      };
+    },
+    applyCodexProfile: async (fields) => {
+      const changes = fields.map((field) => {
+        const previous = codexProfileFields.find((entry) => entry.key === field.key)?.value;
+        if (previous !== undefined && previous !== field.value) {
+          codexAlternatives[field.key] = [...new Set([...(codexAlternatives[field.key] ?? []), previous])];
+        }
+        return { key: field.key, action: 'uncommented', value: field.value };
+      });
+      codexProfileFields = fields.map((field) => ({ key: field.key, value: field.value }));
+      return { ok: true, changes };
+    },
     claudeHook: async () => hookStatus(),
     installClaudeHook: async () => {
       hookInstallation = { installed: true, restartRequired: true, manualReviewRequired: false };

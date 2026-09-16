@@ -85,6 +85,31 @@ export interface ClaudeHookStatusView {
   lastError?: string;
 }
 
+export interface CodexProfileFieldView {
+  key: string;
+  value: string;
+}
+
+export interface CodexProfilesView {
+  path: string;
+  exists: boolean;
+  active: Record<string, string>;
+  alternatives: Record<string, string[]>;
+  current: { name: string; fields: CodexProfileFieldView[] } | null;
+}
+
+export interface CodexProfileChangeView {
+  key: string;
+  action: string;
+  value: string;
+}
+
+export interface CodexProfileApplyView {
+  ok: boolean;
+  changes: CodexProfileChangeView[];
+}
+
+
 export type WatchdogEvent =
   | { readonly kind: 'audit'; readonly event: AuditEvent }
   | { readonly kind: 'health' | 'sessions' | 'config' | 'claude-hook' | 'ready'; readonly data: unknown };
@@ -110,6 +135,8 @@ export interface WatchdogApi {
   startup(): Promise<StartupTaskView>;
   installStartup(): Promise<void>;
   uninstallStartup(): Promise<void>;
+  codexProfiles(): Promise<CodexProfilesView>;
+  applyCodexProfile(fields: readonly CodexProfileFieldView[]): Promise<CodexProfileApplyView>;
   claudeHook(): Promise<ClaudeHookStatusView>;
   installClaudeHook(): Promise<ClaudeHookStatusView>;
   uninstallClaudeHook(): Promise<ClaudeHookStatusView>;
@@ -162,6 +189,11 @@ export function createApi(): WatchdogApi {
     startup: () => request<StartupTaskView>('/startup'),
     installStartup: () => request<void>('/startup/install', { method: 'POST' }),
     uninstallStartup: () => request<void>('/startup/uninstall', { method: 'POST' }),
+    codexProfiles: () => request<CodexProfilesView>('/codex/profiles'),
+    applyCodexProfile: (fields) => request<CodexProfileApplyView>('/codex/profiles', {
+      method: 'PUT',
+      body: JSON.stringify({ fields }),
+    }),
     claudeHook: () => request<ClaudeHookStatusView>('/claude-hook'),
     installClaudeHook: () => request<ClaudeHookStatusView>('/claude-hook/install', { method: 'POST' }),
     uninstallClaudeHook: () => request<ClaudeHookStatusView>('/claude-hook/uninstall', { method: 'POST' }),

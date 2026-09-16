@@ -31,6 +31,12 @@ describe('local service API client', () => {
       if (path === '/api/startup/uninstall' && init?.method === 'POST') {
         return json({ ok: true });
       }
+      if (path === '/api/codex/profiles' && init?.method === 'PUT') {
+        return json({ ok: true, changes: [{ key: 'base_url', action: 'uncommented', value: 'https://second.example/v1' }] });
+      }
+      if (path === '/api/codex/profiles') {
+        return json({ path: 'C:/demo/config.toml', exists: true, active: { base_url: 'https://first.example/v1' }, alternatives: {}, current: null });
+      }
       if (path === '/api/claude-hook') {
         return json({
           installed: false,
@@ -77,6 +83,8 @@ describe('local service API client', () => {
     await api.installClaudeHook();
     await api.uninstallClaudeHook();
     await api.disableClaudeHook();
+    await expect(api.codexProfiles()).resolves.toEqual({ path: 'C:/demo/config.toml', exists: true, active: { base_url: 'https://first.example/v1' }, alternatives: {}, current: null });
+    await expect(api.applyCodexProfile([{ key: 'base_url', value: 'https://second.example/v1' }])).resolves.toEqual({ ok: true, changes: [{ key: 'base_url', action: 'uncommented', value: 'https://second.example/v1' }] });
     await api.start();
     await api.uninstall();
 
@@ -88,6 +96,8 @@ describe('local service API client', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/claude-hook/install', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/claude-hook/uninstall', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/claude-hook/disable', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/codex/profiles', expect.objectContaining({ headers: expect.any(Object) }));
+    expect(fetchMock).toHaveBeenCalledWith('/api/codex/profiles', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ fields: [{ key: 'base_url', value: 'https://second.example/v1' }] }) }));
     expect(fetchMock).toHaveBeenCalledWith('/api/watchdog/start', expect.objectContaining({ method: 'POST' }));
     expect(fetchMock).toHaveBeenCalledWith('/api/uninstall', expect.objectContaining({ method: 'POST' }));
   });

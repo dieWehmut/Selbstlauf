@@ -42,6 +42,19 @@ describe('static Pages demo API', () => {
     expect((await first.startup()).installed).toBe(false);
   });
 
+  it('switches Codex endpoints and parks the replaced base_url in memory', async () => {
+    const api = createStaticDemoApi();
+    const before = await api.codexProfiles();
+    expect(before.active.base_url).toBe('https://external-api-platform.hkgai.net/v1');
+    expect(before.current?.name).toBe('external-api-platform.hkgai.net');
+
+    await api.applyCodexProfile([{ key: 'base_url', value: 'https://www.sevnx.lol' }]);
+    const after = await api.codexProfiles();
+    expect(after.active.base_url).toBe('https://www.sevnx.lol');
+    expect(after.current?.name).toBe('www.sevnx.lol');
+    expect(after.alternatives.base_url).toContain('https://external-api-platform.hkgai.net/v1');
+  });
+
   it('models explicit Claude Hook installation, disable, and uninstall in memory', async () => {
     const api = createStaticDemoApi();
     expect(await api.claudeHook()).toEqual({
