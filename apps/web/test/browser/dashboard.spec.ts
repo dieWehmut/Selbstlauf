@@ -70,6 +70,37 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.screenshot({ path: testInfo.outputPath('hook-settings-desktop-1280x900.png'), fullPage: true });
   });
 
+  test('switches Codex endpoints from the settings page', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/');
+    await page.getByRole('button', { name: '设置' }).click();
+
+    const section = page.locator('.codex-endpoints');
+    await expect(section.getByRole('heading', { name: '端点配置' })).toBeVisible();
+    await expect(section.getByLabel('接口地址')).toHaveValue('https://external-api-platform.hkgai.net/v1');
+    await section.getByRole('button', { name: 'https://www.sevnx.lol' }).click();
+    await expect(page.getByRole('status').getByText('Codex 端点已切换')).toBeVisible();
+    await expect(section.getByLabel('接口地址')).toHaveValue('https://www.sevnx.lol');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath('codex-endpoints-desktop-1280x900.png'), fullPage: true });
+  });
+
+  test('keeps Codex endpoint controls bounded on a narrow mobile viewport', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 360, height: 780 });
+    await page.goto('/');
+    await page.getByRole('button', { name: '打开菜单' }).click();
+    await page.getByRole('button', { name: '设置' }).click();
+
+    const section = page.locator('.codex-endpoints');
+    await expect(section).toBeVisible();
+    const sectionBox = await section.boundingBox();
+    expect(sectionBox).not.toBeNull();
+    expect(sectionBox!.x).toBeGreaterThanOrEqual(0);
+    expect(sectionBox!.x + sectionBox!.width).toBeLessThanOrEqual(360);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath('codex-endpoints-mobile-360x780.png'), fullPage: true });
+  });
+
   test('keeps Claude Hook controls readable on a narrow mobile viewport', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/');
