@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -154,6 +154,76 @@ test('watchdog uninstall refuses a changed Claude settings file and keeps owners
     assert.equal((await fetch(`${origin}/api/health`)).status, 200);
   } finally {
     await processHandle.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('composes the Codex profile store and applies endpoint switches end to end', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-index-codex-'));
+  const stateDirectory = join(root, 'ai-cli-bypass', 'continuation');
+  const configPath = join(root, '.codex', 'config.toml');
+  const original = [
+    'model = "deepseek-v4.1-flash"',
+    'base_url = "https://external-api-platform.hkgai.net/v1"',
+    '# base_url = "https://www.sevnx.lol"',
+    '',
+  ].join('\n');
+  await mkdir(join(root, '.codex'), { recursive: true });
+  await writeFile(configPath, original, 'utf8');
+  const processHandle = await startWatchdogProcess({
+    stateDirectory,
+    codexConfigPath: configPath,
+    host: '127.0.0.1',
+    port: 0,
+  }, emptySessions);
+  try {
+    const origin = processHandle.server.url();
+    const describedResponse = await fetch(`${origin}/api/codex/profiles`);
+    assert.equal(describedResponse.status, 200);
+    const described = await describedResponse.json() as Record<string, any>;
+    assert.equal(described.active.base_url, 'https://external-api-platform.hkgai.net/v1');
+    assert.deepEqual(described.alternatives.base_url, ['https://www.sevnx.lol']);
+    assert.equal(described.current.name, 'external-api-platform.hkgai.net');
+
+    const appliedResponse = await fetch(`${origin}/api/codex/profiles`, {
+      method: 'PUT',
+      headers: { origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ fields: [
+        { key: 'base_url', value: 'https://www.sevnx.lol' },
+        { key: 'model', value: 'deepseek-v4.1-flash' },
+      ] }),
+    });
+    assert.equal(appliedResponse.status, 200);
+    const applied = await appliedResponse.json() as Record<string, any>;
+    assert.equal(applied.ok, true);
+    assert.deepEqual(applied.changes.find((change: any) => change.key === 'base_url'), {
+      key: 'base_url', action: 'uncommented', value: 'https://www.sevnx.lol',
+    });
+
+    const written = await readFile(configPath, 'utf8');
+    assert.equal(written.includes('base_url = "https://www.sevnx.lol"'), true);
+    assert.equal(written.includes('# base_url = "https://external-api-platform.hkgai.net/v1"'), true);
+    assert.equal(written.includes('model = "deepseek-v4.1-flash"'), true);
+
+    const writtenFiles = await readdir(join(root, '.codex'));
+    assert.equal(writtenFiles.some((name) => name.endsWith('.bak')), true);
+    const backupName = writtenFiles.find((name) => name.endsWith('.bak'))!;
+    assert.equal(await readFile(join(root, '.codex', backupName), 'utf8'), original);
+
+    const auditLines = (await readFile(join(stateDirectory, 'audit.jsonl'), 'utf8')).trim().split('\n');
+    const override = auditLines.map((line) => JSON.parse(line)).find((event) => event.details?.action === 'codex-profile-apply');
+    assert.equal(override?.type, 'user-override');
+    assert.equal(override?.details?.keys, 'base_url,model');
+
+    const rejected = await fetch(`${origin}/api/codex/profiles`, {
+      method: 'PUT',
+      headers: { origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ fields: [] }),
+    });
+    assert.equal(rejected.status, 400);
+  } finally {
+    await processHandle.stop();
+    assert.equal(await pathExists(processHandle.pidFile), false);
     await rm(root, { recursive: true, force: true });
   }
 });
