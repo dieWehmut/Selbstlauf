@@ -22,7 +22,7 @@ if (-not $process) {
     exit 0
 }
 
-if ($process.CommandLine -notmatch 'apps[\\/]watchdog[\\/]dist[\\/]src[\\/]index\.js') {
+if ($process.CommandLine -notmatch 'apps[\\/]cli[\\/]dist[\\/]src[\\/]index\.js') {
     throw "refusing to stop PID $watchdogPid because it is not the ai-cli-bypass watchdog"
 }
 

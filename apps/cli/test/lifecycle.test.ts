@@ -41,7 +41,7 @@ test('PowerShell lifecycle starts a loopback dry-run service and stops only its 
       entryPath: string;
     };
     pid = record.pid;
-    assert.equal(resolve(record.entryPath), join(repositoryRoot, 'apps', 'watchdog', 'dist', 'src', 'index.js'));
+    assert.equal(resolve(record.entryPath), join(repositoryRoot, 'apps', 'cli', 'dist', 'src', 'index.js'));
     assert.equal(resolve(record.executablePath), resolve(process.execPath));
     assert.ok(Number.isFinite(record.processStartedAtMs));
     const health = await fetch(`http://127.0.0.1:${record.port}/api/health`).then((response) => response.json()) as { ok: boolean; loopbackOnly: boolean };

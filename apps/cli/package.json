@@ -1,5 +1,5 @@
 {
-  "name": "@ai-cli-bypass/watchdog",
+  "name": "@ai-cli-bypass/cli",
   "private": true,
   "type": "module",
   "scripts": {

@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$packageRoot = Join-Path $repoRoot 'apps\watchdog'
+$packageRoot = Join-Path $repoRoot 'apps\cli'
 $entryPoint = Join-Path $packageRoot 'dist\src\index.js'
 $launcher = Join-Path $PSScriptRoot 'launch-watchdog.mjs'
 $stateRoot = Join-Path $env:LOCALAPPDATA 'ai-cli-bypass\continuation'
@@ -19,7 +19,7 @@ $launcherPidFile = Join-Path $stateRoot 'watchdog.launch.pid'
 New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
 
 if (-not $NoBuild -and -not (Test-Path -LiteralPath $entryPoint)) {
-    & npm --prefix $repoRoot --workspace apps/watchdog run build
+    & npm --prefix $repoRoot --workspace apps/cli run build
     if ($LASTEXITCODE -ne 0) { throw "watchdog build failed with exit code $LASTEXITCODE" }
 }
 if (-not (Test-Path -LiteralPath $entryPoint)) {
@@ -31,7 +31,7 @@ if (Test-Path -LiteralPath $pidFile) {
         $existing = Get-Content -LiteralPath $pidFile -Raw | ConvertFrom-Json
         $existingProcess = Get-Process -Id ([int]$existing.pid) -ErrorAction Stop
         $existingCim = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$existing.pid)"
-        if ($existingCim -and $existingCim.CommandLine -match 'apps[\\/]watchdog[\\/]dist[\\/]src[\\/]index\.js') {
+        if ($existingCim -and $existingCim.CommandLine -match 'apps[\\/]cli[\\/]dist[\\/]src[\\/]index\.js') {
             Write-Output "watchdog already running (PID $($existing.pid), port $($existing.port))"
             exit 0
         }

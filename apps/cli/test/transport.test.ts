@@ -379,7 +379,7 @@ test('production transports do not contain a global keyboard fallback', async ()
     join(
       repositoryRoot,
       'apps',
-      'watchdog',
+      'cli',
       'src',
       'transport',
       'console-bridge.ts',
@@ -387,7 +387,7 @@ test('production transports do not contain a global keyboard fallback', async ()
     join(
       repositoryRoot,
       'apps',
-      'watchdog',
+      'cli',
       'src',
       'transport',
       'pty-transport.ts',

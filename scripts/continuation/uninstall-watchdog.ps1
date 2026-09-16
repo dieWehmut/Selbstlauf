@@ -139,7 +139,7 @@ if (Test-Path -LiteralPath $pidFile -PathType Leaf) {
     }
     $watchdogProcess = Get-Process -Id $watchdogPid -ErrorAction SilentlyContinue
     if ($watchdogProcess) {
-        $entryPoint = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot 'apps\watchdog\dist\src\index.js'))
+        $entryPoint = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot 'apps\cli\dist\src\index.js'))
         if ($null -eq $record.entryPath -or [System.IO.Path]::GetFullPath([string]$record.entryPath) -ine $entryPoint) {
             throw "refusing to stop PID $watchdogPid because its entry path is not owned"
         }
