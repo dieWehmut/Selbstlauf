@@ -106,8 +106,8 @@ export function applyProfile(text: string, fields: readonly CodexProfileField[])
       if (!parkedElsewhere) {
         lines.splice(active + 1, 0, formatComment(activeAssignment, '  '));
       }
-      const activeIndex = active + (parkedElsewhere ? 0 : 1);
-      lines[activeIndex] = formatAssignment(field.key, field.value);
+      lines[active] = formatAssignment(field.key, field.value);
+
       changes.push({ key: field.key, action: 'set', value: field.value });
       continue;
     }
