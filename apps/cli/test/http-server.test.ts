@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createServer as createHttpClient } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigStore } from '../src/store/config-store.js';
 import { AuditStore } from '../src/store/audit-store.js';
+import { CodexConfigProfiles } from '../src/codex/profile-store.js';
 import {
   WatchdogHttpServer,
   type SessionController,
@@ -343,4 +344,59 @@ test('returns 501 when Claude Hook lifecycle actions are not configured', async 
     request(base, '/api/claude-hook/disable', { method: 'POST', origin: base }),
   ]);
   assert.deepEqual(responses.map(({ response }) => response.status), [501, 501, 501, 501]);
+});
+
+test('exposes Codex endpoint profiles and applies a switch through the API', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchdog-profiles-'));
+  const configPath = join(directory, 'config.toml');
+  const { writeFile } = await import('node:fs/promises');
+  await writeFile(configPath, [
+    'model = "deepseek-v4.1-flash"',
+    'base_url = "https://external-api-platform.hkgai.net/v1"',
+    '# base_url = "https://www.sevnx.lol"',
+    '',
+  ].join('\n'), 'utf8');
+  const directory2 = await mkdtemp(join(tmpdir(), 'watchdog-profiles-http-'));
+  const controller: SessionController = {
+    list: () => [session],
+    pause: async () => true,
+    resume: async () => true,
+    inject: async () => ({ ok: true }),
+  };
+  const configStore = new ConfigStore(join(directory2, 'config.json'));
+  const auditStore = new AuditStore(join(directory2, 'audit.jsonl'));
+  const codexProfiles = new CodexConfigProfiles({ configPath });
+  const service = new WatchdogHttpServer({
+    configStore,
+    auditStore,
+    codexProfiles,
+    sessions: controller,
+    port: 0,
+  });
+  await service.start();
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const described = await request(base, '/api/codex/profiles');
+  assert.equal(described.response.status, 200);
+  assert.equal(described.json.active.base_url, 'https://external-api-platform.hkgai.net/v1');
+  assert.deepEqual(described.json.alternatives.base_url, ['https://www.sevnx.lol']);
+
+  const applied = await request(base, '/api/codex/profiles', {
+    method: 'PUT',
+    origin: base,
+    body: { fields: [{ key: 'base_url', value: 'https://www.sevnx.lol' }] },
+  });
+  assert.equal(applied.response.status, 200);
+  assert.deepEqual(applied.json.changes, [
+    { key: 'base_url', action: 'uncommented', value: 'https://www.sevnx.lol' },
+  ]);
+  assert.equal(await readFile(configPath, 'utf8').then((text) => text.includes('base_url = "https://www.sevnx.lol"')), true);
+
+  const rejected = await request(base, '/api/codex/profiles', {
+    method: 'PUT',
+    origin: base,
+    body: { fields: [] },
+  });
+  assert.equal(rejected.response.status, 400);
 });

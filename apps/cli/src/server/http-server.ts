@@ -5,7 +5,7 @@ import { chooseCodexPrompt } from '../domain/policy.js';
 import type { AuditEvent, SessionSnapshot, WatchdogConfig } from '../domain/types.js';
 import type { AuditStore } from '../store/audit-store.js';
 import type { ConfigStore } from '../store/config-store.js';
-
+import type { CodexConfigProfiles } from '../codex/profile-store.js';
 type Awaitable<T> = T | Promise<T>;
 
 export interface InjectionResult {
@@ -60,6 +60,7 @@ export interface WatchdogStatus {
 export interface WatchdogHttpServerOptions {
   readonly configStore: ConfigStore;
   readonly auditStore: AuditStore;
+  readonly codexProfiles?: CodexConfigProfiles;
   readonly sessions: SessionController;
   readonly status?: () => Awaitable<WatchdogStatus>;
   readonly host?: string;
@@ -81,6 +82,7 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 export class WatchdogHttpServer {
   private readonly configStore: ConfigStore;
   private readonly auditStore: AuditStore;
+  private readonly codexProfiles?: CodexConfigProfiles;
   private readonly sessions: SessionController;
   private readonly status: () => Awaitable<WatchdogStatus>;
   private readonly host: string;
@@ -100,6 +102,7 @@ export class WatchdogHttpServer {
   public constructor(options: WatchdogHttpServerOptions) {
     this.configStore = options.configStore;
     this.auditStore = options.auditStore;
+    this.codexProfiles = options.codexProfiles;
     this.sessions = options.sessions;
     this.status = options.status ?? (() => ({ lastPollAtMs: null }));
     this.host = options.host ?? '127.0.0.1';
@@ -300,6 +303,29 @@ export class WatchdogHttpServer {
       this.publish('claude-hook', status);
       return this.json(response, 200, status);
     }
+    if (method === 'GET' && url.pathname === '/api/codex/profiles') {
+      if (this.codexProfiles === undefined) throw new HttpError(501, 'Codex profile store is not configured');
+      return this.json(response, 200, await this.codexProfiles.describe());
+    }
+    if (method === 'PUT' && url.pathname === '/api/codex/profiles') {
+      if (this.codexProfiles === undefined) throw new HttpError(501, 'Codex profile store is not configured');
+      const body = await readJson(request, this.maxJsonBytes, false) as { fields?: unknown };
+      if (!Array.isArray(body.fields) || body.fields.length === 0) {
+        throw new HttpError(400, 'fields must be a non-empty array');
+      }
+      const fields = body.fields.map((entry) => {
+        if (typeof entry !== 'object' || entry === null) throw new HttpError(400, 'invalid profile field');
+        const record = entry as { key?: unknown; value?: unknown };
+        if (typeof record.key !== 'string') throw new HttpError(400, 'profile field key must be a string');
+        if (typeof record.value !== 'string') throw new HttpError(400, 'profile field value must be a string');
+        return { key: record.key, value: record.value };
+      });
+      const outcome = await this.codexProfiles.apply(fields);
+      await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'codex-profile-apply', keys: fields.map((field) => field.key).join(',') } });
+      this.publish('config', { codexProfile: outcome.changes });
+      return this.json(response, 200, { ok: true, changes: outcome.changes });
+    }
+
     if (method === 'POST' && url.pathname === '/api/startup/install') {
       if (this.lifecycle.installStartup === undefined) throw new HttpError(501, 'startup task installer is not configured');
       await this.lifecycle.installStartup();

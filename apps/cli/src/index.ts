@@ -9,6 +9,7 @@ import { WatchdogHttpServer, type SessionController } from './server/http-server
 import { WatchdogController } from './runtime/watchdog-controller.js';
 import { WatchdogInstallation } from './lifecycle/installation.js';
 import { ClaudeLeaseStore } from './claude/lease-store.js';
+import { CodexConfigProfiles } from './codex/profile-store.js';
 import {
   CLAUDE_HOOK_OWNER,
   ClaudeHookInstallation,
@@ -20,6 +21,7 @@ export interface WatchdogProcessOptions {
   readonly port?: number;
   readonly staticDirectory?: string;
   readonly claudeSettingsPath?: string;
+  readonly codexConfigPath?: string;
 }
 
 export interface WatchdogProcess {
@@ -46,6 +48,10 @@ export async function startWatchdogProcess(
     hookCommand: buildClaudeHookCommand(claudeLeasePath),
     commandTimeoutMs: async () => (await configStore.load()).tools.claude.stopHook.commandTimeoutMs,
   });
+  const codexProfiles = new CodexConfigProfiles({
+    configPath: options.codexConfigPath ?? defaultCodexConfigPath(),
+  });
+
   const installation = new WatchdogInstallation({
     stateDirectory,
     repositoryRoot: defaultRepositoryRoot(),
@@ -71,6 +77,7 @@ export async function startWatchdogProcess(
     host: options.host ?? '127.0.0.1',
     port: options.port ?? readPort(process.env.WATCHDOG_PORT),
     staticDirectory: options.staticDirectory ?? process.env.WATCHDOG_STATIC_DIR ?? defaultStaticDirectory(),
+    codexProfiles,
   });
   let uninstallProcess: (() => Promise<void>) | null = null;
   server.setLifecycle({
@@ -168,6 +175,15 @@ function defaultStateDirectory(): string {
     return join(localAppData, 'ai-cli-bypass', 'continuation');
   }
   return join(process.env.XDG_STATE_HOME ?? join(homedir(), '.local', 'state'), 'ai-cli-bypass', 'continuation');
+}
+
+function defaultCodexConfigPath(): string {
+  const codexHome = readText(process.env.CODEX_HOME) ?? join(homedir(), '.codex');
+  return join(codexHome, 'config.toml');
+}
+
+function readText(value: string | undefined): string | null {
+  return value === undefined || value.trim().length === 0 ? null : value;
 }
 
 function defaultClaudeSettingsPath(): string {
