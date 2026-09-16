@@ -17,6 +17,23 @@ $manifestPath = Join-Path $stateRoot 'install-manifest.json'
 $taskName = 'Selbstlauf Continuation Watchdog'
 $taskTool = if ([string]::IsNullOrWhiteSpace($env:WATCHDOG_SCHTASKS_PATH)) { 'schtasks.exe' } else { $env:WATCHDOG_SCHTASKS_PATH }
 
+function Invoke-TaskTool {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+
+    # schtasks.exe writes "task not found" to stderr, and with the script-wide
+    # $ErrorActionPreference = 'Stop' that native output would become a
+    # terminating error before $LASTEXITCODE could be inspected.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $null = & $taskTool @Arguments 2>&1
+        return $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 $startParameters = @{
     Port = $Port
     DryRun = [bool]$DryRun
@@ -38,16 +55,15 @@ if ($Startup) {
         [bool]$manifest.startupTask.owned -and
         [string]$manifest.startupTask.name -eq $taskName
 
-    & $taskTool /Query /TN $taskName *> $null
-    $taskExists = $LASTEXITCODE -eq 0
+    $taskExists = (Invoke-TaskTool /Query /TN $taskName) -eq 0
     if ($taskExists -and -not $ownsExistingTask) {
         throw "refusing to replace unowned scheduled task '$taskName'"
     }
 
     $taskAction = "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$startScript`" -Port $Port -NoBuild"
     if ($DryRun) { $taskAction += ' -DryRun' }
-    & $taskTool /Create /TN $taskName /SC ONLOGON /RL LIMITED /TR $taskAction /F *> $null
-    if ($LASTEXITCODE -ne 0) { throw "scheduled task registration failed with exit code $LASTEXITCODE" }
+    $createExitCode = Invoke-TaskTool /Create /TN $taskName /SC ONLOGON /RL LIMITED /TR $taskAction /F
+    if ($createExitCode -ne 0) { throw "scheduled task registration failed with exit code $createExitCode" }
 
     try {
         $manifest.startupTask = [ordered]@{ name = $taskName; owned = $true }
@@ -58,7 +74,7 @@ if ($Startup) {
         Move-Item -LiteralPath $temporaryManifest -Destination $manifestPath -Force
     }
     catch {
-        if (-not $ownsExistingTask) { & $taskTool /Delete /TN $taskName /F *> $null }
+        if (-not $ownsExistingTask) { $null = Invoke-TaskTool /Delete /TN $taskName /F }
         throw
     }
 }

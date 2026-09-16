@@ -164,6 +164,7 @@ test('startup installation owns and removes only its per-user scheduled task', {
     '@echo off',
     'echo %*>>"%WATCHDOG_SCHTASKS_LOG%"',
     'if /I "%1"=="/Query" if exist "%WATCHDOG_SCHTASKS_STATE%" exit /b 0',
+    'if /I "%1"=="/Query" echo ERROR: The system cannot find the file specified. 1>&2',
     'if /I "%1"=="/Query" exit /b 1',
     'if /I "%1"=="/Create" type nul >"%WATCHDOG_SCHTASKS_STATE%"',
     'if /I "%1"=="/Create" exit /b 0',
