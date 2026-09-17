@@ -218,6 +218,37 @@ leaves npm packages, CLI wrappers, authentication, sessions, and other
 `/api/startup/install`, `/api/startup/uninstall`, and `/api/uninstall` for
 these lifecycle actions.
 
+## Desktop App and Installer
+
+The Electron desktop shell hosts the watchdog service and the WebUI in one
+window, so no separate `start-watchdog.ps1` step is required. Download the
+`Selbstlauf-Setup-<version>-<arch>.exe` asset from the
+[GitHub releases](https://github.com/dieWehmut/Selbstlauf/releases) and run it.
+The assisted installer writes into `%LOCALAPPDATA%\Programs\Selbstlauf`, creates
+desktop and start menu shortcuts, and registers an uninstaller; it targets the
+current user only and needs no elevation.
+
+Release builds are produced by `.github/workflows/release-desktop.yml`, which
+runs on a `v*` tag or on demand. It builds and tests every workspace, smoke tests
+the desktop shell, packages the x64 and arm64 setups, verifies the x64 setup with
+`scripts/desktop/verify-installer.ps1` (complete install, shortcuts, uninstall
+entry, bundled service health, served WebUI, clean uninstall), and then publishes
+the installers to the GitHub release for a tagged run or keeps them as a workflow
+artifact otherwise.
+
+```powershell
+npm install
+npm run build
+npm --workspace apps/desktop run package:win   # writes tmp\desktop-dist
+npm --workspace apps/desktop run smoke         # headless packaged-service check
+```
+
+Once installed, **安装启动项** on the WebUI settings page registers the per-user
+logon task from the installed app, and **移除启动项** removes it. The task runs
+`resources\scripts\continuation\start-watchdog.ps1` inside the install root and
+falls back to the bundled `service-dist` entry, so it works without a repository
+checkout.
+
 ### Claude Stop Hook
 
 The Claude Stop Hook is disabled by default. Open the local WebUI Settings page,

@@ -215,6 +215,32 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchd
 `/api/watchdog/stop`、`/api/install`、`/api/startup`、
 `/api/startup/install`、`/api/startup/uninstall` 和 `/api/uninstall`。
 
+## 桌面应用与安装程序
+
+Electron 桌面版把 watchdog 服务与 WebUI 放进同一个窗口，无需再单独运行
+`start-watchdog.ps1`。在 [GitHub Releases](https://github.com/dieWehmut/Selbstlauf/releases)
+下载 `Selbstlauf-Setup-<version>-<arch>.exe` 后直接运行：安装程序写入
+`%LOCALAPPDATA%\Programs\Selbstlauf`，创建桌面和开始菜单快捷方式，并注册卸载器；
+它只作用于当前用户，不需要管理员权限。
+
+发布流程由 `.github/workflows/release-desktop.yml` 负责，可用 `v*` tag 触发或手动运行：
+它会构建并测试所有 workspace、对桌面 shell 做 smoke 测试、打包 x64 与 arm64 安装程序，
+并用 `scripts/desktop/verify-installer.ps1` 验收 x64 安装程序（安装完整性、快捷方式、
+卸载注册表项、内置服务健康检查、WebUI 可访问、卸载干净）；tag 触发时把安装程序发布到
+GitHub Release，否则保留为 workflow artifact。
+
+```powershell
+npm install
+npm run build
+npm --workspace apps/desktop run package:win   # 输出到 tmp\desktop-dist
+npm --workspace apps/desktop run smoke         # 无界面校验内置服务
+```
+
+安装完成后，WebUI 设置页的“安装启动项”会从安装目录注册当前用户的登录任务，
+“移除启动项”会删除该任务。该任务运行安装目录内的
+`resources\scripts\continuation\start-watchdog.ps1`，并回退到随包提供的
+`service-dist` 入口，因此不依赖仓库源码。
+
 ### Claude Stop Hook
 
 Claude 的 Stop Hook 默认关闭。打开本机 WebUI 的“设置”页，确认 `dryRun` 状态，
