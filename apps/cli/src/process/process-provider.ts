@@ -38,6 +38,13 @@ export interface WindowsProcessProviderOptions {
   readonly powershellPath?: string;
   readonly scriptPath?: string;
   readonly includeExecutableNames?: readonly string[];
+  /**
+   * Process ids that must be reported even when their image name is not a
+   * supported CLI. The packaged app hosts the watchdog inside Selbstlauf.exe,
+   * so without this its own owner SID is unavailable and same-user grouping
+   * fails closed on every poll.
+   */
+  readonly includeProcessIds?: readonly number[];
   readonly runCommand?: ProcessCommandRunner;
 }
 
@@ -180,6 +187,7 @@ export class WindowsProcessProvider implements ProcessProvider {
   private readonly powershellPath: string;
   private readonly scriptPath: string;
   private readonly includeExecutableNames: readonly string[];
+  private readonly includeProcessIds: readonly number[];
   private readonly runCommand: ProcessCommandRunner;
   private activeAbort: AbortController | null = null;
 
@@ -187,6 +195,7 @@ export class WindowsProcessProvider implements ProcessProvider {
     this.powershellPath = options.powershellPath ?? 'powershell.exe';
     this.scriptPath = options.scriptPath ?? defaultScriptPath();
     this.includeExecutableNames = options.includeExecutableNames ?? [];
+    this.includeProcessIds = options.includeProcessIds ?? [];
     this.runCommand = options.runCommand ?? runPowerShell;
   }
 
@@ -203,6 +212,11 @@ export class WindowsProcessProvider implements ProcessProvider {
     for (const executableName of this.includeExecutableNames) {
       if (executableName.trim().length > 0) {
         args.push('-IncludeExecutableName', executableName);
+      }
+    }
+    for (const processId of this.includeProcessIds) {
+      if (Number.isSafeInteger(processId) && processId > 0) {
+        args.push('-IncludeProcessId', String(processId));
       }
     }
     const abort = new AbortController();

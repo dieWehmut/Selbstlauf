@@ -223,6 +223,22 @@ test('WindowsProcessProvider forwards configured executable names to the provide
   assert.deepEqual(receivedArgs.slice(-2), ['-IncludeExecutableName', 'team-agent.exe']);
 });
 
+test('WindowsProcessProvider forwards the watchdog PID so its owner SID is always reported', async () => {
+  let receivedArgs: readonly string[] = [];
+  const provider = new WindowsProcessProvider({
+    scriptPath: 'C:\\watchdog\\windows-processes.ps1',
+    includeProcessIds: [4242, 0, -1],
+    runCommand: async (_executable, args) => {
+      receivedArgs = [...args];
+      return '[]';
+    },
+  });
+
+  await provider.listProcesses();
+
+  assert.deepEqual(receivedArgs.slice(-2), ['-IncludeProcessId', '4242']);
+});
+
 test('WindowsProcessProvider cancels an in-flight PowerShell discovery', async () => {
   let started!: () => void;
   const commandStarted = new Promise<void>((resolveStarted) => { started = resolveStarted; });
