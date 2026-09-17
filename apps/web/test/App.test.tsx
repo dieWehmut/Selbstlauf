@@ -14,12 +14,14 @@ function api(): WatchdogApi {
         stopHook: { enabled: false, leaseTtlMs: 15_000, commandTimeoutMs: 1_500 },
       },
       codex: { enabled: true, normalPrompt: '继续', goalPrompt: '/goal resume', goalStatuses: ['active', 'paused'] },
+      dsh: { enabled: true, normalPrompt: '继续', sessionWindowMs: 3_600_000 },
     }, processFilters: { sameUserOnly: true, include: [], exclude: [] },
   } as const;
   const sessions = [
     { id: 'goal', tool: 'codex' as const, rootPid: 10, childPids: [], conversationId: 'goal-1', goal: { status: 'paused' }, transport: 'codex-app-server' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 120_000, pendingPrompt: '/goal resume', lastDecision: 'awaiting-quiet-period' },
     { id: 'normal', tool: 'claude' as const, rootPid: 11, childPids: [], conversationId: null, goal: null, transport: 'classic-console' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 4_000, pendingPrompt: '请继续', lastDecision: 'output-observed' },
     { id: 'limited', tool: 'codex' as const, rootPid: 12, childPids: [], conversationId: null, goal: null, transport: 'monitor-only' as const, transportError: 'no-cwd-match', alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 150_000, pendingPrompt: '继续', lastDecision: 'cannot-inject' },
+    { id: 'dsh:hosted', tool: 'dsh' as const, rootPid: 13, childPids: [14], conversationId: 'session-hosted', goal: null, transport: 'monitor-only' as const, transportError: 'DeepSeek Harness exposes no local input transport', alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 42_000, pendingPrompt: '继续', lastDecision: 'awaiting-quiet-period', sessionCwd: 'D:\\project\\ai-cli-bypass', runningTurn: true },
   ];
   return {
     health: vi.fn(async () => ({ ok: true, running: true, dryRun: true, lastPollAtMs: Date.now() - 2_000 })),
@@ -60,6 +62,16 @@ describe('watchdog dashboard', () => {
   it('shows the age of the most recent watchdog poll', async () => {
     render(<App api={api()} />);
     expect(await screen.findByLabelText('Last watchdog poll')).toHaveTextContent('2s');
+  });
+
+  it('renders a monitored DeepSeek Harness session with its workspace and live step', async () => {
+    render(<App api={api()} />);
+    expect((await screen.findAllByText('DeepSeek Harness')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('session-hosted').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('步骤执行中').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('DeepSeek Harness 暂无本机写入通道').length).toBeGreaterThan(0);
+    const harnessInject = (await screen.findAllByRole('button', { name: '立即续写 PID 13' }))[0];
+    expect(harnessInject).toBeDisabled();
   });
 
   it('disables injection for monitor-only sessions and calls pause/inject controls', async () => {
