@@ -210,6 +210,44 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchd
 工作階段或其他 `ai-cli-bypass` 狀態。WebUI 使用 `/api/watchdog/start`、
 `/api/watchdog/stop` 與 `/api/uninstall` 執行這些生命週期操作。
 
+### 本機工具探索與 DeepSeek Harness
+
+每個輪詢週期只讀列舉同一使用者的程序，並把同一工具的程序樹根與子程序合併成一個
+邏輯工作階段：
+
+| 工具 | 程序簽章 | 工作階段關聯 | 寫入通道 |
+|---|---|---|---|
+| Claude Code | `claude.ps1`、`claude-code` | `~/.claude/projects` 的 JSONL | Console / PTY / Stop Hook |
+| Codex CLI | `codex.exe`、`@openai/codex`、`codex.js` | `~/.codex` 的執行緒與 goal 狀態庫 | Codex App Server |
+| DeepSeek Harness | `dsh.exe` / `dsh.cmd`、`@deepseek-ai/dsh`、`deepseek-harness` 下的 `apps/cli/lib/bin.js` 與 `subprocess-local/runner.js` | `$DSH_HOME/sessions` 的工作階段目錄與 `storages/session_projcache` 投影 | 僅監控 |
+
+DeepSeek Harness 的 `web` 宿主機是一個程序服務多個工作區，因此宿主機本身不是 agent：
+watchdog 會把每個仍活躍的 harness 工作階段展開成獨立的一列，工作階段 ID 取自 harness
+自己的 `session-…` 識別，工作區取自工作階段投影的 `cwd`，靜默時間取自工作階段日誌與
+投影的最新寫入時間。投影中的 `turnBoundary.lastStepBoundary.kind` 直接說明該工作階段
+是否還有未結束的步驟，介面因此能區分「步驟執行中」與「等待輸入」。從未收到提示的空
+工作階段，以及活動視窗之外的歷史工作階段不會出現在清單中。
+
+harness 的工作階段日誌是 zstd 壓縮的追加日誌，watchdog 只讀取第一行工作階段標頭以補齊
+`cwd`，絕不寫入。由於 harness 目前沒有本機寫入通道，該工具整體維持 `monitor-only`：
+只記錄活動與決策，不注入任何內容。`tools.dsh.sessionWindowMs`（預設 1 小時）決定多久
+沒有活動的工作階段會被視為歷史。
+
+程序探索需要 `powershell.exe`（Windows PowerShell 5.1 或更高版本）。擁有者 SID 透過
+程序權杖讀取，而非逐程序呼叫 WMI 的 `GetOwnerSid()`；後者在程序較多的桌面上每次輪詢
+要花掉近一分鐘，改寫後「探索 → 關聯 → 決策」的完整鏈路才能在預設 2 秒輪詢間隔內跑完。
+
+要在這台機器上驗證監控確實生效，而不是只看健康檢查：
+
+```powershell
+npm run build
+node .\scripts\verify\live-monitoring.mjs
+```
+
+指令碼會獨立列舉本機程序與 harness 工作階段，再要求執行中的服務為每一個都給出對應的
+一列、正確的工具、工作區與 `monitor-only` 傳輸，並確認已寫入活動／決策事件且沒有任何
+注入。一次真機執行記錄見 [verification/2026-09-17-live-monitoring.md](verification/2026-09-17-live-monitoring.md)。
+
 ## 桌面應用與安裝程式
 
 Electron 桌面版把 watchdog 服務與 WebUI 放在同一個視窗，不需要再單獨執行
@@ -223,6 +261,12 @@ Electron 桌面版把 watchdog 服務與 WebUI 放在同一個視窗，不需要
 並以 `scripts/desktop/verify-installer.ps1` 驗收 x64 安裝程式（安裝完整性、捷徑、
 卸載登錄項目、內建服務健康檢查、WebUI 可存取、卸載乾淨）；tag 觸發時把安裝程式發佈到
 GitHub Release，否則保留為 workflow artifact。
+
+驗收腳本還會啟動一個帶有受支援簽章的探針程序，要求**已安裝**的應用把它探索出來、
+標記為存活、並寫入 per-session 決策，之後才移除探針。只檢查健康檢查與 WebUI 並不足夠：
+`tsc` 不會產出 PowerShell 資源，服務又把它當作自己的同級檔案解析，若安裝程式漏帶該資源，
+應用會正常啟動、正常提供 WebUI，卻一個程序都探索不到。
+`resources/service-dist/src/process/windows-processes.ps1` 因此同時是封裝清單與驗收清單的一部分。
 
 ```powershell
 npm install

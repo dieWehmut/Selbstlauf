@@ -159,6 +159,9 @@ Linux 脚本使用工具专用 wrapper；Claude Code 额外通过 `LD_PRELOAD` �
 |-- scripts/uninstall/linux/*   # Linux 重置脚本
 |-- scripts/windows/AiCliBypass.ps1
 |-- scripts/continuation/*      # watchdog 生命周期
+|-- scripts/desktop/*           # 安装程序验收
+|-- apps/cli/src/process/*      # 进程发现与 PowerShell provider
+|-- apps/cli/src/association/*  # Claude / DeepSeek Harness 会话关联
 |-- tests/Test-WindowsScripts.ps1
 |-- tests/Test-Documentation.ps1
 |-- docs/README.zh-TW.md
@@ -215,6 +218,42 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchd
 `/api/watchdog/stop`、`/api/install`、`/api/startup`、
 `/api/startup/install`、`/api/startup/uninstall` 和 `/api/uninstall`。
 
+### 本机工具发现与 DeepSeek Harness
+
+每个轮询周期只读地枚举当前用户的进程，并把同一工具进程树的根与子进程合并成一个逻辑会话：
+
+| 工具 | 进程签名 | 会话关联 | 写入通道 |
+|---|---|---|---|
+| Claude Code | `claude.ps1`、`claude-code` | `~/.claude/projects` 的 JSONL | Console / PTY / Stop Hook |
+| Codex CLI | `codex.exe`、`@openai/codex`、`codex.js` | `~/.codex` 的线程与 goal 状态库 | Codex App Server |
+| DeepSeek Harness | `dsh.exe` / `dsh.cmd`、`@deepseek-ai/dsh`、`deepseek-harness` 下的 `apps/cli/lib/bin.js` 与 `subprocess-local/runner.js` | `$DSH_HOME/sessions` 的会话目录与 `storages/session_projcache` 投影 | 仅监控 |
+
+DeepSeek Harness 的 `web` 宿主机是一个进程服务多个工作区，所以宿主机本身不是一个 agent：
+watchdog 会把每个仍然活跃的 harness 会话展开成独立的一行，会话 ID 取自 harness 自己的
+`session-…` 标识，工作区取自会话投影里的 `cwd`，静默时间取自会话日志与投影的最新写入时间。
+投影中的 `turnBoundary.lastStepBoundary.kind` 直接说明该会话是否还有未结束的步骤，界面因此能
+区分“步骤执行中”和“等待输入”。从未收到过提示的空会话、以及在活动窗口之外的历史会话不会
+出现在列表里。
+
+harness 的会话日志是 zstd 压缩的追加日志，watchdog 只读取第一行会话头用于补齐 `cwd`，绝不写入；
+由于 harness 目前没有本机写入通道，该工具整体保持 `monitor-only`：只记录活动与决策，不注入
+任何内容。`tools.dsh.sessionWindowMs`（默认 1 小时）决定多久没有活动的会话会被当作历史。
+
+进程发现需要 `powershell.exe`（Windows PowerShell 5.1 或更高版本）。拥有者 SID 通过进程令牌
+读取，而不是逐进程调用 WMI 的 `GetOwnerSid()`，因为后者在进程较多的桌面上每次轮询要花掉近
+一分钟；这也让“发现 → 关联 → 决策”的完整链路能在默认 2 秒轮询间隔下真正跑完。
+
+要在这台机器上验证监控确实生效，而不是只看健康检查：
+
+```powershell
+npm run build
+node .\scripts\verify\live-monitoring.mjs
+```
+
+脚本会独立枚举本机进程与 harness 会话，再要求正在运行的服务为每一个都给出对应的一行、
+正确的工具、工作区与 `monitor-only` 传输，并确认已经写入活动/决策事件且没有任何注入。
+一次真机运行记录见 [docs/verification/2026-09-17-live-monitoring.md](docs/verification/2026-09-17-live-monitoring.md)。
+
 ## 桌面应用与安装程序
 
 Electron 桌面版把 watchdog 服务与 WebUI 放进同一个窗口，无需再单独运行
@@ -228,6 +267,12 @@ Electron 桌面版把 watchdog 服务与 WebUI 放进同一个窗口，无需再
 并用 `scripts/desktop/verify-installer.ps1` 验收 x64 安装程序（安装完整性、快捷方式、
 卸载注册表项、内置服务健康检查、WebUI 可访问、卸载干净）；tag 触发时把安装程序发布到
 GitHub Release，否则保留为 workflow artifact。
+
+该验收脚本还会启动一个带有受支持签名的探针进程，并要求**已安装**的应用把它发现出来、
+标记为存活、并写入 per-session 决策，然后才删除探针。只检查健康检查和 WebUI 是不够的：
+`tsc` 不会产出 PowerShell 资源，服务又把它当作自己的同级文件解析，如果安装程序漏带该资源，
+应用会正常启动、正常提供 WebUI，却一个进程都发现不了。`resources/service-dist/src/process/windows-processes.ps1`
+因此同时是打包清单和验收清单的一部分。
 
 ```powershell
 npm install

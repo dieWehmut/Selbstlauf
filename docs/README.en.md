@@ -218,6 +218,52 @@ leaves npm packages, CLI wrappers, authentication, sessions, and other
 `/api/startup/install`, `/api/startup/uninstall`, and `/api/uninstall` for
 these lifecycle actions.
 
+### Local tool discovery and DeepSeek Harness
+
+Every poll enumerates same-user processes read-only and merges each tool's root
+and child processes into one logical session:
+
+| Tool | Process signature | Session association | Input transport |
+|---|---|---|---|
+| Claude Code | `claude.ps1`, `claude-code` | JSONL under `~/.claude/projects` | Console / PTY / Stop Hook |
+| Codex CLI | `codex.exe`, `@openai/codex`, `codex.js` | thread and goal databases under `~/.codex` | Codex App Server |
+| DeepSeek Harness | `dsh.exe` / `dsh.cmd`, `@deepseek-ai/dsh`, `apps/cli/lib/bin.js` and `subprocess-local/runner.js` under `deepseek-harness` | session directories under `$DSH_HOME/sessions` plus the `storages/session_projcache` projection | monitor-only |
+
+One DeepSeek Harness `web` host serves many workspaces, so the host process is
+not itself an agent: the watchdog expands every live harness session into its
+own row. The row keeps the harness `session-…` identity, takes its workspace
+from the session projection `cwd`, and measures quiet time from the newest write
+to the session log or projection. `turnBoundary.lastStepBoundary.kind` states
+whether a step is still running, so the UI separates "running a step" from
+"waiting for input". Sessions that never received a prompt, and sessions outside
+the activity window, are not listed.
+
+The harness session log is a zstd-compressed append-only log. The watchdog reads
+only its first line to recover `cwd` and never writes to it. Because the harness
+exposes no local input transport, the tool stays `monitor-only`: it records
+activity and decisions but injects nothing. `tools.dsh.sessionWindowMs`
+(default one hour) decides when an inactive session becomes history.
+
+Process discovery needs `powershell.exe` (Windows PowerShell 5.1 or later). The
+owner SID comes from the process token instead of a per-process WMI
+`GetOwnerSid()` call, which cost nearly a minute per poll on a busy desktop; the
+full discover → associate → decide chain now completes within the default
+two-second poll interval.
+
+To verify that monitoring really works on this machine instead of checking health
+alone:
+
+```powershell
+npm run build
+node .\scripts\verify\live-monitoring.mjs
+```
+
+The script enumerates this machine's processes and harness sessions
+independently, then requires the running service to report a matching row for
+each one with the right tool, workspace and `monitor-only` transport, and
+requires recorded activity/decision events with no injection. A real run is
+recorded in [verification/2026-09-17-live-monitoring.md](verification/2026-09-17-live-monitoring.md).
+
 ## Desktop App and Installer
 
 The Electron desktop shell hosts the watchdog service and the WebUI in one
@@ -235,6 +281,15 @@ the desktop shell, packages the x64 and arm64 setups, verifies the x64 setup wit
 entry, bundled service health, served WebUI, clean uninstall), and then publishes
 the installers to the GitHub release for a tagged run or keeps them as a workflow
 artifact otherwise.
+
+That verification also starts one process carrying a supported CLI signature and
+requires the *installed* app to discover it, mark it alive, and record a
+per-session decision before the probe is removed. Health and WebUI checks alone
+are not enough: `tsc` never emits the PowerShell resource, the service resolves
+it beside its own module, and an installer that omits it still starts, still
+serves its WebUI, and discovers nothing.
+`resources/service-dist/src/process/windows-processes.ps1` is therefore both a
+packaging and an acceptance entry.
 
 ```powershell
 npm install
