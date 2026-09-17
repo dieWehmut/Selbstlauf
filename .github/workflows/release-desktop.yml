@@ -1,0 +1,87 @@
+name: Release desktop installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build workspaces
+        run: npm run build
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Smoke test the desktop shell
+        run: npm --workspace apps/desktop run smoke
+        env:
+          SELBSTLAUF_SMOKE_PORT: '48921'
+
+  package:
+    needs: test
+    runs-on: windows-latest
+    env:
+      # The release ships unsigned installers; do not look for a certificate.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build workspaces
+        run: npm run build
+
+      - name: Package the Windows installers
+        run: npm --workspace apps/desktop run package:win
+
+      - name: Verify the x64 installer installs a complete app
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath tmp/desktop-dist -Filter 'Selbstlauf-Setup-*-x64.exe' | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $installer) { throw 'no x64 installer was produced' }
+          scripts/desktop/verify-installer.ps1 -Installer $installer
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: selbstlauf-desktop-installers
+          path: tmp/desktop-dist/Selbstlauf-Setup-*.exe
+          if-no-files-found: error
+
+      - name: Publish the GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tmp/desktop-dist/Selbstlauf-Setup-*.exe
+          generate_release_notes: true
