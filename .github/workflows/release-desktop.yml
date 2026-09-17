@@ -67,6 +67,14 @@ jobs:
       - name: Package the Windows installers
         run: npm --workspace apps/desktop run package:win
 
+      - name: Assert both architectures were packaged
+        shell: pwsh
+        run: |
+          foreach ($arch in 'x64', 'arm64') {
+            $installer = Get-ChildItem -LiteralPath tmp/desktop-dist -Filter "Selbstlauf-Setup-*-$arch.exe"
+            if (-not $installer) { throw "no $arch installer was produced" }
+          }
+
       - name: Verify the x64 installer installs a complete, self-owned app
         shell: pwsh
         run: |
@@ -87,3 +95,4 @@ jobs:
         with:
           files: tmp/desktop-dist/Selbstlauf-Setup-*.exe
           generate_release_notes: true
+          fail_on_unmatched_files: true

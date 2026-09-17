@@ -10,7 +10,7 @@
     "test": "npm run build --silent && node --test --test-concurrency=1 dist/test/*.test.js",
     "smoke": "node scripts/smoke.mjs",
     "package:dir": "electron-builder --dir --config electron-builder.config.mjs",
-    "package:win": "electron-builder --win nsis --config electron-builder.config.mjs"
+    "package:win": "electron-builder --win --config electron-builder.config.mjs"
   },
   "devDependencies": {
     "electron": "44.4.1",
