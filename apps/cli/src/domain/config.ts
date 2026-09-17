@@ -2,6 +2,7 @@ import {
   GOAL_STATUSES,
   TOOL_NAMES,
   type CodexToolConfig,
+  type DshToolConfig,
   type GoalStatus,
   type ResumableGoalStatus,
   type WatchdogConfig,
@@ -43,6 +44,11 @@ const defaults: WatchdogConfig = {
       normalPrompt: '继续',
       goalPrompt: '/goal resume',
       goalStatuses: ['active', 'paused'],
+    },
+    dsh: {
+      enabled: true,
+      normalPrompt: '继续',
+      sessionWindowMs: 3_600_000,
     },
   },
   processFilters: {
@@ -121,6 +127,22 @@ function parseCodexConfig(value: unknown): CodexToolConfig {
   };
 }
 
+/**
+ * The DeepSeek Harness tool block is optional so an installation written by an
+ * earlier release keeps loading with the documented defaults.
+ */
+function parseDshConfig(value: unknown): DshToolConfig {
+  if (value === undefined) return defaultConfig.tools.dsh;
+  const config = requireRecord(value, 'tools.dsh');
+  return {
+    enabled: requireBoolean(config.enabled, 'tools.dsh.enabled'),
+    normalPrompt: requirePrompt(config.normalPrompt, 'tools.dsh.normalPrompt'),
+    sessionWindowMs: config.sessionWindowMs === undefined
+      ? defaultConfig.tools.dsh.sessionWindowMs
+      : requirePositiveInteger(config.sessionWindowMs, 'tools.dsh.sessionWindowMs'),
+  };
+}
+
 export function parseConfig(value: unknown): WatchdogConfig {
   const config = requireRecord(value, 'config');
   const tools = requireRecord(config.tools, 'tools');
@@ -172,6 +194,7 @@ export function parseConfig(value: unknown): WatchdogConfig {
         },
       },
       codex: parseCodexConfig(tools.codex),
+      dsh: parseDshConfig(tools.dsh),
     },
     processFilters: {
       sameUserOnly: requireBoolean(processFilters.sameUserOnly, 'processFilters.sameUserOnly'),

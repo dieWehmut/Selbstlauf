@@ -110,3 +110,44 @@ test('rejects unknown tool names', () => {
 
   assert.throws(() => parseConfig(input), /unknown tool.*opencode/i);
 });
+
+test('freezes the DeepSeek Harness tool defaults', () => {
+  assert.equal(Object.isFrozen(defaultConfig.tools.dsh), true);
+  assert.deepEqual(defaultConfig.tools.dsh, {
+    enabled: true,
+    normalPrompt: '继续',
+    sessionWindowMs: 3_600_000,
+  });
+});
+
+test('defaults a legacy config without a DeepSeek Harness block', () => {
+  const legacy = structuredClone(defaultConfig) as unknown as {
+    tools: Record<string, unknown>;
+  };
+  delete legacy.tools.dsh;
+
+  const parsed = parseConfig(legacy);
+
+  assert.deepEqual(parsed.tools.dsh, defaultConfig.tools.dsh);
+  assert.equal(Object.isFrozen(parsed.tools.dsh), true);
+});
+
+test('parses an explicit DeepSeek Harness window and rejects an invalid one', () => {
+  const withDsh = (dsh: unknown) => ({
+    ...defaultConfig,
+    tools: { ...defaultConfig.tools, dsh },
+  });
+
+  assert.deepEqual(
+    parseConfig(withDsh({ enabled: false, normalPrompt: 'go on', sessionWindowMs: 60_000 })).tools.dsh,
+    { enabled: false, normalPrompt: 'go on', sessionWindowMs: 60_000 },
+  );
+  assert.throws(
+    () => parseConfig(withDsh({ enabled: true, normalPrompt: '继续', sessionWindowMs: 0 })),
+    /tools\.dsh\.sessionWindowMs/,
+  );
+  assert.throws(
+    () => parseConfig(withDsh({ enabled: true, normalPrompt: '', sessionWindowMs: 1_000 })),
+    /tools\.dsh\.normalPrompt/,
+  );
+});

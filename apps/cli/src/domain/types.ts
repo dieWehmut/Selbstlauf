@@ -1,4 +1,4 @@
-export const TOOL_NAMES = ['claude', 'codex'] as const;
+export const TOOL_NAMES = ['claude', 'codex', 'dsh'] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
 export const GOAL_STATUSES = [
@@ -64,6 +64,14 @@ export interface CodexToolConfig extends ToolConfig {
   readonly goalStatuses: readonly ResumableGoalStatus[];
 }
 
+export interface DshToolConfig extends ToolConfig {
+  /**
+   * DeepSeek Harness sessions whose newest recorded activity is older than
+   * this window are treated as history rather than live agents.
+   */
+  readonly sessionWindowMs: number;
+}
+
 export interface WatchdogConfig {
   readonly enabled: boolean;
   readonly dryRun: boolean;
@@ -74,6 +82,7 @@ export interface WatchdogConfig {
   readonly tools: {
     readonly claude: ClaudeToolConfig;
     readonly codex: CodexToolConfig;
+    readonly dsh: DshToolConfig;
   };
   readonly processFilters: {
     readonly sameUserOnly: boolean;
