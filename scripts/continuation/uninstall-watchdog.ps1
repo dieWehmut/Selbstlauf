@@ -10,18 +10,29 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 $LASTEXITCODE = 0
-$taskTool = if ([string]::IsNullOrWhiteSpace($env:WATCHDOG_SCHTASKS_PATH)) { 'schtasks.exe' } else { $env:WATCHDOG_SCHTASKS_PATH }
+# See install-watchdog.ps1: the per-user logon task is registered and removed
+# through the sibling helper unless a test override supplies its own tool.
+$startupHelper = Join-Path $PSScriptRoot 'startup-task.ps1'
+if (-not [string]::IsNullOrWhiteSpace($env:WATCHDOG_SCHTASKS_PATH)) {
+    $taskTool = @($env:WATCHDOG_SCHTASKS_PATH)
+}
+elseif (Test-Path -LiteralPath $startupHelper -PathType Leaf) {
+    $taskTool = @('powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $startupHelper)
+}
+else {
+    $taskTool = @('schtasks.exe')
+}
 
 function Invoke-TaskTool {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
 
-    # schtasks.exe writes "task not found" to stderr, and with the script-wide
+    # The task tool writes "task not found" to stderr, and with the script-wide
     # $ErrorActionPreference = 'Stop' that native output would become a
     # terminating error before $LASTEXITCODE could be inspected.
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $null = & $taskTool @Arguments 2>&1
+        $null = & $taskTool[0] @($taskTool | Select-Object -Skip 1) @Arguments 2>&1
         return $LASTEXITCODE
     }
     finally {
@@ -139,8 +150,12 @@ if (Test-Path -LiteralPath $pidFile -PathType Leaf) {
     }
     $watchdogProcess = Get-Process -Id $watchdogPid -ErrorAction SilentlyContinue
     if ($watchdogProcess) {
-        $entryPoint = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot 'apps\cli\dist\src\index.js'))
-        if ($null -eq $record.entryPath -or [System.IO.Path]::GetFullPath([string]$record.entryPath) -ine $entryPoint) {
+        $ownedEntryPoints = @(
+            (Join-Path $repositoryRoot 'apps\cli\dist\src\index.js'),
+            (Join-Path $repositoryRoot 'service-dist\src\index.js')
+        ) | ForEach-Object { [System.IO.Path]::GetFullPath($_) }
+        if ($null -eq $record.entryPath -or
+            $ownedEntryPoints -notcontains [System.IO.Path]::GetFullPath([string]$record.entryPath)) {
             throw "refusing to stop PID $watchdogPid because its entry path is not owned"
         }
         if ($null -eq $record.executablePath -or

@@ -39,7 +39,8 @@ $script:OrganizedScriptPaths = @(
     'scripts\continuation\start-watchdog.ps1',
     'scripts\continuation\stop-watchdog.ps1',
     'scripts\continuation\install-watchdog.ps1',
-    'scripts\continuation\uninstall-watchdog.ps1'
+    'scripts\continuation\uninstall-watchdog.ps1',
+    'scripts\continuation\startup-task.ps1'
 )
 
 function Assert-Documentation {

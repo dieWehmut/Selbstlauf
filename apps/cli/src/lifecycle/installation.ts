@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -9,6 +11,24 @@ const execFileAsync = promisify(execFile);
 export const INSTALL_MANIFEST_NAME = 'install-manifest.json';
 export const WATCHDOG_PRODUCT_NAME = 'Selbstlauf Continuation Watchdog';
 export const STARTUP_TASK_NAME = WATCHDOG_PRODUCT_NAME;
+export const START_SCRIPT_ENVIRONMENT_VARIABLE = 'WATCHDOG_START_SCRIPT';
+/**
+ * Candidates for the logon-task script, relative to the compiled module
+ * directory (apps/cli/dist/src/lifecycle in the repository,
+ * resources/service-dist/src/lifecycle in a packaged install). Both layouts keep
+ * a root above the script that also contains the launcher next to it, so the
+ * script can locate its own dependencies.
+ */
+export const START_SCRIPT_CANDIDATES = Object.freeze([
+  ['..', '..', '..', '..', '..', 'scripts', 'continuation', 'start-watchdog.ps1'],
+  ['..', '..', '..', 'scripts', 'continuation', 'start-watchdog.ps1'],
+]);
+/**
+ * Per-user logon-task helper shipped next to the start script. schtasks.exe
+ * refuses "/SC ONLOGON" for a non-elevated account, so the helper registers the
+ * same task through the ScheduledTasks cmdlets, which need no elevation.
+ */
+export const STARTUP_TASK_HELPER_NAME = 'startup-task.ps1';
 
 export interface StartupTaskOwnership {
   readonly name: string;
@@ -30,6 +50,12 @@ export interface WatchdogInstallManifest {
 export interface WatchdogInstallationOptions {
   readonly stateDirectory: string;
   readonly repositoryRoot: string;
+  /**
+   * Absolute path of the PowerShell script the logon task runs. When omitted,
+   * the first candidate next to this module that exists is used, so a packaged
+   * install never registers a developer-tree path.
+   */
+  readonly startScriptPath?: string;
   readonly platform?: NodeJS.Platform;
   readonly now?: () => number;
   readonly uninstallDelayMs?: number;
@@ -71,6 +97,7 @@ const OWNED_PATHS = Object.freeze([
 export class WatchdogInstallation {
   private readonly stateDirectory: string;
   private readonly repositoryRoot: string;
+  private readonly startScriptPath: string;
   private readonly platform: NodeJS.Platform;
   private readonly now: () => number;
   private readonly uninstallDelayMs: number;
@@ -80,6 +107,7 @@ export class WatchdogInstallation {
   public constructor(options: WatchdogInstallationOptions) {
     this.stateDirectory = assertOwnedStateDirectory(options.stateDirectory);
     this.repositoryRoot = resolve(options.repositoryRoot);
+    this.startScriptPath = resolveStartScriptPath(options.startScriptPath);
     this.platform = options.platform ?? process.platform;
     this.now = options.now ?? Date.now;
     this.uninstallDelayMs = options.uninstallDelayMs ?? 1_000;
@@ -231,9 +259,32 @@ export class WatchdogInstallation {
   }
 
   private startupAction(port: number, dryRun: boolean): string {
-    const startScript = join(this.repositoryRoot, 'scripts', 'continuation', 'start-watchdog.ps1');
-    return `powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "${startScript}" -Port ${port} -NoBuild${dryRun ? ' -DryRun' : ''}`;
+    return `powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "${this.startScriptPath}" -Port ${port} -NoBuild${dryRun ? ' -DryRun' : ''}`;
   }
+}
+
+/**
+ * Locate the logon-task start script.
+ *
+ * The repository keeps it in scripts/continuation, and the packaged desktop app
+ * ships the same folder under resources/scripts/continuation. Both are reachable
+ * from the compiled module directory, so the search never depends on a working
+ * directory or on the (dev-only) repository root recorded in the manifest.
+ */
+export function resolveStartScriptPath(
+  configured: string | undefined = process.env[START_SCRIPT_ENVIRONMENT_VARIABLE],
+  moduleUrl: string = import.meta.url,
+): string {
+  const trimmed = configured?.trim() ?? '';
+  if (trimmed.length > 0) return resolve(trimmed);
+  const moduleDirectory = resolve(fileURLToPath(moduleUrl), '..');
+  const candidates = START_SCRIPT_CANDIDATES
+    .map((segments) => resolve(moduleDirectory, ...segments))
+    .filter((candidate) => existsSync(candidate));
+  if (candidates.length > 0) return candidates[0] as string;
+  // Nothing was found: report the repository-layout path so the failure names a
+  // concrete location instead of an arbitrary one.
+  return resolve(moduleDirectory, ...(START_SCRIPT_CANDIDATES[0] as string[]));
 }
 
 function withStartupTask(
@@ -245,11 +296,24 @@ function withStartupTask(
 }
 
 function createSystemStartupTaskScheduler(): StartupTaskScheduler {
-  const tool = process.env.WATCHDOG_SCHTASKS_PATH?.trim() || 'schtasks.exe';
+  const configuredTool = process.env.WATCHDOG_SCHTASKS_PATH?.trim() ?? '';
+  // schtasks.exe denies "/SC ONLOGON" to a non-elevated account, so the default
+  // scheduler drives the helper shipped next to the start script, which registers
+  // the same per-user task through the ScheduledTasks cmdlets. A configured
+  // WATCHDOG_SCHTASKS_PATH still replaces it for tests and overrides.
+  const command = configuredTool.length > 0
+    ? { file: configuredTool, prefix: [] as string[] }
+    : {
+        file: 'powershell.exe',
+        prefix: [
+          '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+          '-File', resolve(join(dirname(resolveStartScriptPath()), STARTUP_TASK_HELPER_NAME)),
+        ],
+      };
   return {
     query: async (name) => {
       try {
-        await execFileAsync(tool, ['/Query', '/TN', name], { windowsHide: true, encoding: 'utf8' });
+        await execFileAsync(command.file, [...command.prefix, '/Query', '/TN', name], { windowsHide: true, encoding: 'utf8' });
         return true;
       } catch (error) {
         const code = typeof error === 'object' && error !== null && 'code' in error
@@ -260,13 +324,14 @@ function createSystemStartupTaskScheduler(): StartupTaskScheduler {
       }
     },
     create: async (name, action) => {
-      await execFileAsync(tool, ['/Create', '/TN', name, '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TR', action, '/F'], {
-        windowsHide: true,
-        encoding: 'utf8',
-      });
+      await execFileAsync(
+        command.file,
+        [...command.prefix, '/Create', '/TN', name, '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TR', action, '/F'],
+        { windowsHide: true, encoding: 'utf8' },
+      );
     },
     remove: async (name) => {
-      await execFileAsync(tool, ['/Delete', '/TN', name, '/F'], { windowsHide: true, encoding: 'utf8' });
+      await execFileAsync(command.file, [...command.prefix, '/Delete', '/TN', name, '/F'], { windowsHide: true, encoding: 'utf8' });
     },
   };
 }

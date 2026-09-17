@@ -15,18 +15,30 @@ $stateRoot = Join-Path $env:LOCALAPPDATA 'ai-cli-bypass\continuation'
 $pidFile = Join-Path $stateRoot 'watchdog.pid.json'
 $manifestPath = Join-Path $stateRoot 'install-manifest.json'
 $taskName = 'Selbstlauf Continuation Watchdog'
-$taskTool = if ([string]::IsNullOrWhiteSpace($env:WATCHDOG_SCHTASKS_PATH)) { 'schtasks.exe' } else { $env:WATCHDOG_SCHTASKS_PATH }
+# schtasks.exe denies "/SC ONLOGON" to a non-elevated account, so the per-user
+# logon task goes through the sibling helper, which uses the ScheduledTasks
+# cmdlets. WATCHDOG_SCHTASKS_PATH still overrides both for tests.
+$startupHelper = Join-Path $PSScriptRoot 'startup-task.ps1'
+if (-not [string]::IsNullOrWhiteSpace($env:WATCHDOG_SCHTASKS_PATH)) {
+    $taskTool = @($env:WATCHDOG_SCHTASKS_PATH)
+}
+elseif (Test-Path -LiteralPath $startupHelper -PathType Leaf) {
+    $taskTool = @('powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $startupHelper)
+}
+else {
+    $taskTool = @('schtasks.exe')
+}
 
 function Invoke-TaskTool {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
 
-    # schtasks.exe writes "task not found" to stderr, and with the script-wide
+    # The task tool writes "task not found" to stderr, and with the script-wide
     # $ErrorActionPreference = 'Stop' that native output would become a
     # terminating error before $LASTEXITCODE could be inspected.
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $null = & $taskTool @Arguments 2>&1
+        $null = & $taskTool[0] @($taskTool | Select-Object -Skip 1) @Arguments 2>&1
         return $LASTEXITCODE
     }
     finally {

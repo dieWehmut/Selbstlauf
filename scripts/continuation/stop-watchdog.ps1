@@ -22,7 +22,9 @@ if (-not $process) {
     exit 0
 }
 
-if ($process.CommandLine -notmatch 'apps[\\/]cli[\\/]dist[\\/]src[\\/]index\.js') {
+# The service entry lives under apps/cli/dist in a checkout and under
+# service-dist in the packaged desktop app.
+if ($process.CommandLine -notmatch '(?:apps[\\/]cli[\\/]dist|service-dist)[\\/]src[\\/]index\.js') {
     throw "refusing to stop PID $watchdogPid because it is not the ai-cli-bypass watchdog"
 }
 

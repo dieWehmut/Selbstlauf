@@ -7,23 +7,32 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+# The repository keeps the compiled service in apps/cli/dist; the packaged
+# desktop app ships the same tree as resources/service-dist next to this script.
 $packageRoot = Join-Path $repoRoot 'apps\cli'
-$entryPoint = Join-Path $packageRoot 'dist\src\index.js'
 $launcher = Join-Path $PSScriptRoot 'launch-watchdog.mjs'
 $stateRoot = Join-Path $env:LOCALAPPDATA 'ai-cli-bypass\continuation'
 $pidFile = Join-Path $stateRoot 'watchdog.pid.json'
 $logFile = Join-Path $stateRoot 'watchdog.log'
 $errorLogFile = Join-Path $stateRoot 'watchdog-error.log'
 $launcherPidFile = Join-Path $stateRoot 'watchdog.launch.pid'
+$serviceEntryCandidates = @(
+    (Join-Path $packageRoot 'dist\src\index.js'),
+    (Join-Path $repoRoot 'service-dist\src\index.js')
+)
 
 New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
 
-if (-not $NoBuild -and -not (Test-Path -LiteralPath $entryPoint)) {
+$entryPoint = $serviceEntryCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if ($null -eq $entryPoint -and -not $NoBuild -and (Test-Path -LiteralPath $packageRoot)) {
+    # Only a repository checkout can build the entry point; a packaged install
+    # ships it, so a missing dist there instead fails with the paths it probed.
     & npm --prefix $repoRoot --workspace apps/cli run build
     if ($LASTEXITCODE -ne 0) { throw "watchdog build failed with exit code $LASTEXITCODE" }
+    $entryPoint = $serviceEntryCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 }
-if (-not (Test-Path -LiteralPath $entryPoint)) {
-    throw "watchdog entry point not found: $entryPoint"
+if ($null -eq $entryPoint) {
+    throw "watchdog entry point not found: $($serviceEntryCandidates -join '; ')"
 }
 
 if (Test-Path -LiteralPath $pidFile) {
@@ -31,7 +40,7 @@ if (Test-Path -LiteralPath $pidFile) {
         $existing = Get-Content -LiteralPath $pidFile -Raw | ConvertFrom-Json
         $existingProcess = Get-Process -Id ([int]$existing.pid) -ErrorAction Stop
         $existingCim = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$existing.pid)"
-        if ($existingCim -and $existingCim.CommandLine -match 'apps[\\/]cli[\\/]dist[\\/]src[\\/]index\.js') {
+        if ($existingCim -and $existingCim.CommandLine -match '(?:apps[\\/]cli[\\/]dist|service-dist)[\\/]src[\\/]index\.js') {
             Write-Output "watchdog already running (PID $($existing.pid), port $($existing.port))"
             exit 0
         }

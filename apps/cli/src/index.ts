@@ -228,13 +228,24 @@ async function runCli(): Promise<void> {
 
 function defaultStaticDirectory(): string | undefined {
   const moduleDirectory = resolve(fileURLToPath(import.meta.url), '..');
-  const candidate = resolve(moduleDirectory, '../../../web/dist');
-  return existsSync(candidate) ? candidate : undefined;
+  return [
+    // Repository layout: apps/cli/dist/src -> apps/web/dist
+    resolve(moduleDirectory, '../../../web/dist'),
+    // Packaged desktop layout: resources/service-dist/src -> resources/web-dist
+    resolve(moduleDirectory, '../../web-dist'),
+  ].find((candidate) => existsSync(candidate));
 }
 
 function defaultRepositoryRoot(): string {
   const moduleDirectory = resolve(fileURLToPath(import.meta.url), '..');
-  return resolve(moduleDirectory, '../../../..');
+  // A repository checkout keeps this module in apps/cli/dist/src, four levels
+  // below the root. A packaged install ships it as resources/service-dist/src,
+  // where the root that also holds web-dist and scripts/continuation is only
+  // two levels up, so the recorded root always matches the scripts that read it.
+  const repositoryRoot = resolve(moduleDirectory, '../../../..');
+  return existsSync(join(repositoryRoot, 'apps', 'cli', 'dist', 'src', 'index.js'))
+    ? repositoryRoot
+    : resolve(moduleDirectory, '../..');
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
