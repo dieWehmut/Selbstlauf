@@ -269,9 +269,10 @@ $includeProcessIds = @(
     }
 )
 
-# The signature that marks a process as a supported CLI. The node image name
-# alone is far too broad, so the command line has to carry a known token.
-$cliSignaturePattern = '(?i)(?:claude-code|claude\.ps1|@openai[\\/]codex|codex\.js|codex\.exe)'
+# The signature that marks a process as a supported CLI. It is used both to keep
+# the record (the node image name alone is far too broad) and to describe why an
+# otherwise unrelated process is being reported.
+$workingDirectoryPattern = '(?i)(?:claude-code|claude\.ps1|@openai[\\/]codex|codex\.js|codex\.exe|@deepseek-ai[\\/]dsh|deepseek-harness[\\/]apps[\\/]cli[\\/]lib[\\/]bin\.js|deepseek-harness[\\/]packages[\\/]subprocess|dsh\.(?:cmd|ps1|exe))'
 
 function ConvertTo-NullableString {
     param([AllowNull()][object]$Value)
@@ -345,9 +346,9 @@ $records = @(
             $processName.Trim().ToLowerInvariant()
         }
         $candidate =
-            ($processBaseName -match '^(?:node|codex|claude)(?:[-.]|$)') -or
+            ($processBaseName -match '^(?:node|codex|claude|dsh)(?:[-.]|$)') -or
             ($null -ne $processBaseName -and $includeNames -contains $processBaseName) -or
-            ($processCommandLine -match $cliSignaturePattern) -or
+            ($processCommandLine -match $workingDirectoryPattern) -or
             # The watchdog's own process must always be reported so the caller
             # can derive the current user's SID even when its image name is not
             # a supported CLI (the packaged app runs it inside Selbstlauf.exe).

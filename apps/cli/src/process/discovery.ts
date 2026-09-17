@@ -1,10 +1,11 @@
 import type { RawProcessRecord } from './process-provider.js';
 
-export type DiscoveredTool = 'claude' | 'codex';
+export type DiscoveredTool = 'claude' | 'codex' | 'dsh';
 
 export interface ProcessNameOptions {
   readonly claudeExecutableNames?: readonly string[];
   readonly codexExecutableNames?: readonly string[];
+  readonly dshExecutableNames?: readonly string[];
 }
 
 export interface GroupProcessesOptions extends ProcessNameOptions {
@@ -25,11 +26,30 @@ export interface DiscoveredProcessSession {
   readonly userSid: string | null;
   readonly workingDirectory?: string | null;
   readonly threadId?: string;
+  /**
+   * Stable logical identity when one process hosts several sessions, as the
+   * DeepSeek Harness `web` host does. Watchdog session ids use this value
+   * instead of the root PID so each hosted session stays a distinct row.
+   */
+  readonly logicalId?: string;
   readonly transportHint: 'unknown';
 }
 
 const DEFAULT_CLAUDE_EXECUTABLE_NAMES = ['claude.ps1'];
 const DEFAULT_CODEX_EXECUTABLE_NAMES = ['codex.exe'];
+const DEFAULT_DSH_EXECUTABLE_NAMES = ['dsh.exe', 'dsh.cmd', 'dsh.ps1'];
+
+/**
+ * Entry points that only the DeepSeek Harness launches. Matching on the entry
+ * point rather than on any occurrence of the repository name keeps an
+ * unrelated shell that merely mentions the checkout from becoming a session.
+ */
+const DSH_ENTRY_TOKENS = [
+  'deepseek-harness\\apps\\cli\\lib\\bin.js',
+  'deepseek-harness\\packages\\subprocess\\subprocess-local\\lib\\runner.js',
+  '@deepseek-ai\\dsh\\lib\\bin.js',
+  '@deepseek-ai\\dsh\\bin\\dsh.js',
+] as const;
 
 function lower(value: string): string {
   return value.replaceAll('/', '\\').toLowerCase();
@@ -65,6 +85,10 @@ function containsScriptToken(commandLine: string, scriptName: string): boolean {
   return new RegExp(`(?:^|[\\\\/\\s"'])${token}(?:$|[\\\\/\\s"'])`, 'u').test(command);
 }
 
+function containsEntryToken(commandLine: string, token: string): boolean {
+  return lower(commandLine).includes(lower(token));
+}
+
 /** Return a tool only when the process has one unambiguous known signature. */
 export function detectProcessTool(
   record: RawProcessRecord,
@@ -75,6 +99,7 @@ export function detectProcessTool(
   const executableName = basename(record.executablePath);
   const claudeNames = options.claudeExecutableNames ?? DEFAULT_CLAUDE_EXECUTABLE_NAMES;
   const codexNames = options.codexExecutableNames ?? DEFAULT_CODEX_EXECUTABLE_NAMES;
+  const dshNames = options.dshExecutableNames ?? DEFAULT_DSH_EXECUTABLE_NAMES;
 
   const isClaude =
     configuredNameMatches(record, claudeNames) ||
@@ -86,11 +111,19 @@ export function detectProcessTool(
     containsScriptToken(commandLine, 'codex.js') ||
     processName === 'codex.exe' ||
     executableName === 'codex.exe';
+  const isDsh =
+    configuredNameMatches(record, dshNames) ||
+    containsScriptToken(commandLine, 'dsh.cmd') ||
+    containsScriptToken(commandLine, 'dsh.ps1') ||
+    DSH_ENTRY_TOKENS.some((token) => containsEntryToken(commandLine, token)) ||
+    (processName === 'dsh.exe' && executableName === 'dsh.exe');
 
-  if (isClaude === isCodex) {
-    return null;
-  }
-  return isClaude ? 'claude' : 'codex';
+  const matched = [
+    ...(isClaude ? (['claude'] as const) : []),
+    ...(isCodex ? (['codex'] as const) : []),
+    ...(isDsh ? (['dsh'] as const) : []),
+  ];
+  return matched.length === 1 ? matched[0] : null;
 }
 
 function sidEquals(left: string | null, right: string): boolean {
