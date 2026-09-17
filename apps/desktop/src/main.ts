@@ -2,6 +2,12 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  applyNavigationPolicy,
+  createWindowOptions,
+  type DesktopWindowOptions,
+  type NavigationPolicyTarget,
+} from './navigation.js';
+import {
   readWatchdogRecord,
   resolveStateDirectory,
   waitForHealth,
@@ -15,16 +21,12 @@ import {
   type StartBundledServiceOptions,
 } from './service-host.js';
 
-export interface DesktopWindowOptions {
-  readonly width?: number;
-  readonly height?: number;
-  readonly title?: string;
-}
+export type { DesktopWindowOptions } from './navigation.js';
 
-export const DEFAULT_WINDOW: Required<DesktopWindowOptions> = Object.freeze({
+export const DEFAULT_WINDOW = Object.freeze({
+  title: 'Selbstlauf Console',
   width: 1440,
   height: 900,
-  title: 'Selbstlauf Console',
 });
 
 export interface ResolvedTarget {
@@ -53,8 +55,11 @@ export function placeholderUrl(): string {
 }
 
 export interface ElectronWindow {
+  readonly webContents: NavigationPolicyTarget;
   loadURL(url: string): Promise<void>;
   on(event: 'closed', listener: () => void): void;
+  once(event: 'ready-to-show', listener: () => void): void;
+  show(): void;
 }
 
 export interface ElectronShell {
@@ -64,14 +69,29 @@ export interface ElectronShell {
     quit(): void;
     isPackaged?: boolean;
   };
-  readonly BrowserWindow: new (options: {
-    width: number;
-    height: number;
-    title: string;
-    autoHideMenuBar: boolean;
-    backgroundColor: string;
-    webPreferences: { contextIsolation: boolean; nodeIntegration: boolean; sandbox: boolean };
-  }) => ElectronWindow;
+  readonly BrowserWindow: new (options: DesktopWindowOptions) => ElectronWindow;
+  readonly shell: { openExternal(url: string): Promise<void> };
+}
+
+export interface DesktopWindowRequest {
+  readonly serviceOrigin: string;
+  readonly preloadPath?: string;
+}
+
+function openWindow(shell: ElectronShell, request: DesktopWindowRequest): ElectronWindow {
+  const window = new shell.BrowserWindow({
+    ...createWindowOptions({ serviceOrigin: request.serviceOrigin }),
+    ...(request.preloadPath === undefined ? {} : { preload: request.preloadPath }),
+  } as DesktopWindowOptions);
+  applyNavigationPolicy({
+    webContents: window.webContents,
+    serviceOrigin: request.serviceOrigin,
+    openExternal: (url) => {
+      void shell.shell.openExternal(url);
+    },
+  });
+  window.once('ready-to-show', () => window.show());
+  return window;
 }
 
 export async function launchDesktop(
@@ -80,14 +100,7 @@ export async function launchDesktop(
 ): Promise<ResolvedTarget> {
   await shell.app.whenReady();
   const target = await resolveDesktopTarget(environment);
-  const window = new shell.BrowserWindow({
-    width: DEFAULT_WINDOW.width,
-    height: DEFAULT_WINDOW.height,
-    title: DEFAULT_WINDOW.title,
-    autoHideMenuBar: true,
-    backgroundColor: '#0b1120',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-  });
+  const window = openWindow(shell, { serviceOrigin: target.url });
   await window.loadURL(target.url);
   window.on('closed', () => undefined);
   return target;
@@ -97,6 +110,7 @@ export interface DesktopHostOptions {
   readonly appRoot: string;
   readonly resourcesPath?: string;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly preloadPath?: string;
   /** Test seam: replace the bundled service launcher. */
   readonly startService?: (options: StartBundledServiceOptions) => Promise<BundledServiceHost>;
 }
@@ -121,13 +135,9 @@ export async function hostAndLaunch(
   const startService = options.startService ?? startBundledService;
   const host = await startService({ appRoot: options.appRoot, resourcesPath: options.resourcesPath, environment });
   const target: ResolvedTarget = { kind: 'service', url: host.origin, pid: host.pid };
-  const window = new shell.BrowserWindow({
-    width: DEFAULT_WINDOW.width,
-    height: DEFAULT_WINDOW.height,
-    title: DEFAULT_WINDOW.title,
-    autoHideMenuBar: true,
-    backgroundColor: '#0b1120',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  const window = openWindow(shell, {
+    serviceOrigin: target.url,
+    ...(options.preloadPath === undefined ? {} : { preloadPath: options.preloadPath }),
   });
   await window.loadURL(target.url);
   window.on('closed', () => undefined);
@@ -135,14 +145,17 @@ export async function hostAndLaunch(
 }
 
 export async function main(): Promise<void> {
-  const { app, BrowserWindow } = (await import('electron' as string)) as unknown as ElectronShell;
+  const shell = (await import('electron' as string)) as unknown as ElectronShell;
+  const { app } = shell;
   // dist/src/main.js -> dist -> apps/desktop
   const appRoot = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
   const resourcesPath = (process as unknown as { resourcesPath?: string }).resourcesPath;
+  const preloadPath = resolve(appRoot, 'src', 'preload.mjs');
   let hosted: HostedDesktop;
   try {
-    hosted = await hostAndLaunch({ app, BrowserWindow }, {
+    hosted = await hostAndLaunch(shell, {
       appRoot,
+      preloadPath,
       ...(app.isPackaged === true && typeof resourcesPath === 'string' ? { resourcesPath } : {}),
     });
   } catch (error) {
@@ -152,14 +165,7 @@ export async function main(): Promise<void> {
     const fallback = await resolveDesktopTarget().catch(() => null);
     if (fallback === null || fallback.kind !== 'service') throw error;
     process.stderr.write(`${message}\nfalling back to the recorded watchdog service\n`);
-    const window = new BrowserWindow({
-      width: DEFAULT_WINDOW.width,
-      height: DEFAULT_WINDOW.height,
-      title: DEFAULT_WINDOW.title,
-      autoHideMenuBar: true,
-      backgroundColor: '#0b1120',
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-    });
+    const window = openWindow(shell, { serviceOrigin: fallback.url, preloadPath });
     await window.loadURL(fallback.url);
     window.on('closed', () => undefined);
     hosted = { target: fallback, host: null };
@@ -212,3 +218,4 @@ export function isMainModule(argv: readonly string[] = process.argv, moduleUrl: 
   // "electron ." passes the app directory; the entry module lives in its dist tree.
   return resolve(candidate, 'dist', 'src', 'main.js') === self;
 }
+

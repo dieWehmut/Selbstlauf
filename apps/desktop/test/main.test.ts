@@ -14,7 +14,73 @@ import {
   placeholderUrl,
   resolveDesktopTarget,
   type ElectronShell,
+  type ElectronWindow,
 } from '../src/main.js';
+
+interface StubWindow {
+  readonly loaded: string[];
+  readonly navigations: Array<{ url: string; prevented: number }>;
+  readonly opened: string[];
+}
+
+interface ShellStub extends StubWindow {
+  readonly shell: ElectronShell;
+  readonly windows: Array<Record<string, unknown>>;
+}
+
+/** Minimal Electron stand-in that records what the app asks the window layer to do. */
+function buildShell(options: { isPackaged?: boolean } = {}): ShellStub {
+  const loaded: string[] = [];
+  const navigations: Array<{ url: string; prevented: number }> = [];
+  const opened: string[] = [];
+  const windows: Array<Record<string, unknown>> = [];
+  let openHandler: ((details: { url: string }) => { action: 'deny' }) | null = null;
+
+  const webContents = {
+    setWindowOpenHandler: (handler: (details: { url: string }) => { action: 'deny' }) => {
+      openHandler = handler;
+    },
+    on: (event: string, listener: (detail: { preventDefault(): void }, url: string) => void) => {
+      if (event === 'will-navigate') {
+        navigations.push({ url: listener as unknown as string, prevented: 0 });
+      }
+    },
+  };
+
+  const shell = {
+    app: {
+      whenReady: async () => undefined,
+      on: () => undefined,
+      quit: () => undefined,
+      isPackaged: options.isPackaged ?? false,
+    },
+    shell: {
+      openExternal: async (url: string) => {
+        opened.push(url);
+      },
+    },
+    BrowserWindow: class {
+      public readonly webContents = webContents;
+      public constructor(windowOptions: Record<string, unknown>) {
+        windows.push(windowOptions);
+      }
+      public async loadURL(url: string): Promise<void> {
+        loaded.push(url);
+      }
+      public on(): void {
+        /* no-op */
+      }
+      public once(): void {
+        /* no-op */
+      }
+      public show(): void {
+        /* no-op */
+      }
+    } as unknown as ElectronShell['BrowserWindow'],
+  } as unknown as ElectronShell;
+
+  return { shell, windows, loaded, navigations, opened };
+}
 
 test('falls back to the placeholder page when no watchdog is recorded', async () => {
   const localAppData = await mkdtemp(join(tmpdir(), 'desktop-target-'));
@@ -41,10 +107,9 @@ test('opens a hardened window pointed at a healthy watchdog service', async () =
     response.writeHead(404);
     response.end();
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve_) => server.listen(0, '127.0.0.1', resolve_));
   const address = server.address();
   assert.ok(address !== null && typeof address === 'object');
-  const { mkdir } = await import('node:fs/promises');
   await mkdir(stateDirectory, { recursive: true });
   await writeFile(join(stateDirectory, 'watchdog.pid.json'), JSON.stringify({
     pid: 4321,
@@ -52,40 +117,22 @@ test('opens a hardened window pointed at a healthy watchdog service', async () =
     entryPath: 'X',
   }), 'utf8');
 
-  const capturedOptions: Array<{ width?: number; webPreferences?: Record<string, unknown> }> = [];
-  let loadedUrl = '';
-  const shell: ElectronShell = {
-    app: {
-      whenReady: async () => undefined,
-      on: () => undefined,
-      quit: () => undefined,
-    },
-    BrowserWindow: class {
-      public constructor(options: Record<string, unknown>) {
-        capturedOptions.push(options as { width?: number; webPreferences?: Record<string, unknown> });
-      }
-      public async loadURL(url: string): Promise<void> { loadedUrl = url; }
-      public on(): void { /* no-op */ }
-    } as unknown as ElectronShell['BrowserWindow'],
-  };
-
+  const stub = buildShell();
   try {
-    const target = await launchDesktop(shell, { LOCALAPPDATA: localAppData, PATH: '' } as NodeJS.ProcessEnv);
+    const target = await launchDesktop(stub.shell, { LOCALAPPDATA: localAppData } as NodeJS.ProcessEnv);
     assert.equal(target.kind, 'service');
     assert.equal(target.pid, 4321);
-    assert.equal(loadedUrl, watchdogOriginOf(address.port));
-    assert.equal(capturedOptions[0]?.width, DEFAULT_WINDOW.width);
-    const webPreferences = capturedOptions[0]?.webPreferences;
-    assert.deepEqual(webPreferences, { contextIsolation: true, nodeIntegration: false, sandbox: true });
+    assert.equal(stub.loaded[0], `http://127.0.0.1:${address.port}`);
+    assert.equal(stub.windows[0]?.width, DEFAULT_WINDOW.width);
+    assert.equal(stub.windows[0]?.contextIsolation, true);
+    assert.equal(stub.windows[0]?.nodeIntegration, false);
+    assert.equal(stub.windows[0]?.sandbox, true);
+    assert.equal(stub.windows[0]?.show, false);
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await new Promise<void>((resolve_) => server.close(() => resolve_()));
     await rm(localAppData, { recursive: true, force: true });
   }
 });
-
-function watchdogOriginOf(port: number): string {
-  return `http://127.0.0.1:${port}`;
-}
 
 test('detects the CLI entry for both "electron ." and direct script launches', () => {
   const moduleUrl = pathToFileURL(resolve('apps', 'desktop', 'dist', 'src', 'main.js')).href;
@@ -102,31 +149,10 @@ test('opens the window on a freshly started bundled service', async () => {
   await mkdir(join(root, 'web-dist'), { recursive: true });
   await writeFile(join(root, 'service-dist', 'src', 'index.js'), '', 'utf8');
 
-  const loaded: string[] = [];
-  const windows: Array<{ webPreferences?: Record<string, unknown> }> = [];
-  const shell: ElectronShell = {
-    app: {
-      whenReady: async () => undefined,
-      on: () => undefined,
-      quit: () => undefined,
-      isPackaged: false,
-    },
-    BrowserWindow: class {
-      public constructor(options: { webPreferences?: Record<string, unknown> }) {
-        windows.push(options);
-      }
-      public async loadURL(url: string): Promise<void> {
-        loaded.push(url);
-      }
-      public on(): void {
-        /* no-op */
-      }
-    } as unknown as ElectronShell['BrowserWindow'],
-  };
-
+  const stub = buildShell();
   let stopped = 0;
   try {
-    const hosted = await hostAndLaunch(shell, {
+    const hosted = await hostAndLaunch(stub.shell, {
       appRoot: root,
       resourcesPath: root,
       environment: { LOCALAPPDATA: root } as NodeJS.ProcessEnv,
@@ -142,8 +168,8 @@ test('opens the window on a freshly started bundled service', async () => {
     assert.equal(hosted.target.kind, 'service');
     assert.equal(hosted.target.url, 'http://127.0.0.1:48500');
     assert.equal(hosted.target.pid, 4242);
-    assert.equal(loaded.at(0), 'http://127.0.0.1:48500');
-    assert.deepEqual(windows[0]?.webPreferences, { contextIsolation: true, nodeIntegration: false, sandbox: true });
+    assert.equal(stub.loaded[0], 'http://127.0.0.1:48500');
+    assert.equal(stub.windows[0]?.sandbox, true);
     await hosted.host?.stop();
     assert.equal(stopped, 1);
   } finally {
@@ -153,32 +179,14 @@ test('opens the window on a freshly started bundled service', async () => {
 
 test('refuses to open a window when the bundled distribution is missing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-missing-'));
-  const loaded: string[] = [];
-  const shell: ElectronShell = {
-    app: {
-      whenReady: async () => undefined,
-      on: () => undefined,
-      quit: () => undefined,
-      isPackaged: false,
-    },
-    BrowserWindow: class {
-      public constructor() {
-        /* no-op */
-      }
-      public async loadURL(url: string): Promise<void> {
-        loaded.push(url);
-      }
-      public on(): void {
-        /* no-op */
-      }
-    } as unknown as ElectronShell['BrowserWindow'],
-  };
+  const stub = buildShell();
   try {
     await assert.rejects(
-      hostAndLaunch(shell, { appRoot: root, resourcesPath: root }),
+      hostAndLaunch(stub.shell, { appRoot: root, resourcesPath: root }),
       /bundled watchdog service not found/u,
     );
-    assert.deepEqual(loaded, []);
+    assert.deepEqual(stub.loaded, []);
+    assert.deepEqual(stub.windows, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
