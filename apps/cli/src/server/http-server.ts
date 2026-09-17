@@ -553,9 +553,13 @@ function parsePrompt(value: unknown, session: SessionSnapshot, config: WatchdogC
     }
     return value;
   }
-  return session.tool === 'codex'
-    ? chooseCodexPrompt(session.goal, config.tools.codex)
-    : config.tools.claude.normalPrompt;
+  if (session.tool === 'codex') {
+    return chooseCodexPrompt(session.goal, config.tools.codex);
+  }
+  if (session.tool === 'dsh') {
+    return config.tools.dsh.normalPrompt;
+  }
+  return config.tools.claude.normalPrompt;
 }
 
 function parseLimit(value: string | null): number {

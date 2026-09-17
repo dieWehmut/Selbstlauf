@@ -11,6 +11,14 @@ import {
   scanClaudeSessionFiles,
   type ClaudeSessionFile,
 } from '../association/claude.js';
+import {
+  dshSessionActivity,
+  hasDshSessionActivity,
+  isLiveDshSession,
+  scanDshSessions,
+  type DshSessionActivity,
+  type DshSessionFile,
+} from '../association/dsh.js';
 import { defaultConfig } from '../domain/config.js';
 import type {
   GoalSnapshot,
@@ -52,6 +60,7 @@ export interface WatchdogControllerOptions {
   readonly currentProcessId?: number;
   readonly platform?: NodeJS.Platform;
   readonly claudeProjectsDirectory?: string;
+  readonly dshHomeDirectory?: string;
   readonly codexStatePath?: string;
   readonly codexGoalPath?: string;
   readonly codexAppServerFactory?: () => AppServerClient;
@@ -65,6 +74,10 @@ export interface RuntimeSessionView extends SessionSnapshot {
   readonly pendingPrompt: string | null;
   readonly lastDecision: string;
   readonly transportError?: string;
+  /** The workspace a hosted DeepSeek Harness session is attached to. */
+  readonly sessionCwd?: string | null;
+  /** True while the hosted DeepSeek Harness session has an unfinished step. */
+  readonly runningTurn?: boolean;
 }
 
 export interface WatchdogRuntimeStatus {
@@ -92,6 +105,8 @@ interface RuntimeSession {
   codexAdapter: CodexAdapter | null;
   codexContext: CodexContinuationContext | null;
   codexActivity: { snapshot(): Promise<{ readonly changed: boolean }> } | null;
+  dshSession: DshSessionFile | null;
+  dshActivity: DshSessionActivity | null;
   goal: GoalSnapshot | null;
   conversationId: string | null;
   pendingPrompt: string | null;
@@ -100,7 +115,9 @@ interface RuntimeSession {
 
 const DEFAULT_CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 const DEFAULT_CODEX_HOME = join(homedir(), '.codex');
+const DEFAULT_DSH_HOME = join(homedir(), '.dsh');
 const SHARED_CONSOLE_ERROR = 'shared classic Console contains multiple discovered CLI sessions';
+const DSH_MONITOR_ONLY_REASON = 'DeepSeek Harness exposes no local input transport';
 
 /**
  * Owns one polling loop and one state machine per discovered process group.
@@ -115,6 +132,7 @@ export class WatchdogController {
   private readonly currentProcessId: number;
   private readonly platform: NodeJS.Platform;
   private readonly claudeProjectsDirectory: string;
+  private readonly dshHomeDirectory: string;
   private readonly codexStatePath?: string;
   private readonly codexGoalPath?: string;
   private readonly codexAppServerFactory: () => AppServerClient;
@@ -123,6 +141,7 @@ export class WatchdogController {
   private readonly claudeHookInstalled: () => boolean | Promise<boolean>;
   private readonly activeClaudeLeaseWrites = new Set<Promise<WriteResultLike>>();
   private readonly sessions = new Map<string, RuntimeSession>();
+  private dshSessions = new Map<string, DshSessionFile>();
   private codexPathsPromise: Promise<CodexPaths | null> | null = null;
   private currentConfig: WatchdogConfig = defaultConfig;
   private timer: NodeJS.Timeout | null = null;
@@ -134,12 +153,14 @@ export class WatchdogController {
   public constructor(options: WatchdogControllerOptions) {
     this.configStore = options.configStore;
     this.auditStore = options.auditStore;
-    this.provider = options.provider ?? new WindowsProcessProvider();
+    this.currentProcessId = options.currentProcessId ?? process.pid;
+    this.provider = options.provider ??
+      new WindowsProcessProvider({ includeProcessIds: [this.currentProcessId] });
     this.publish = options.publish;
     this.now = options.now ?? Date.now;
-    this.currentProcessId = options.currentProcessId ?? process.pid;
     this.platform = options.platform ?? process.platform;
     this.claudeProjectsDirectory = options.claudeProjectsDirectory ?? DEFAULT_CLAUDE_PROJECTS;
+    this.dshHomeDirectory = options.dshHomeDirectory ?? defaultDshHome();
     this.codexStatePath = options.codexStatePath;
     this.codexGoalPath = options.codexGoalPath;
     this.codexAppServerFactory = options.codexAppServerFactory ?? (() => new AppServerClient());
@@ -196,7 +217,9 @@ export class WatchdogController {
       this.currentConfig = await this.configStore.load();
       if (this.stopping) return;
       const timestamp = this.now();
-      const groups = await this.discover();
+      const processGroups = await this.discover();
+      if (this.stopping) return;
+      const groups = await this.expandDshSessions(processGroups, timestamp);
       if (this.stopping) return;
       const claudeFiles = groups.some((group) => group.tool === 'claude')
         ? await this.scanClaudeFiles()
@@ -205,7 +228,7 @@ export class WatchdogController {
       const seen = new Set<string>();
 
       for (const group of groups) {
-        const id = `${group.tool}:${group.rootPid}`;
+        const id = sessionIdFor(group);
         seen.add(id);
         let session = this.sessions.get(id);
         if (session !== undefined && processIdentityChanged(session.group, group)) {
@@ -428,14 +451,106 @@ export class WatchdogController {
       codexAdapter: null,
       codexContext: null,
       codexActivity: null,
+      dshSession: null,
+      dshActivity: null,
       goal: null,
       conversationId: null,
       pendingPrompt: null,
       lastAuditedDecision: null,
     };
     if (group.tool === 'codex') await this.prepareCodex(session, config);
+    if (group.tool === 'dsh') this.prepareDsh(session, group);
     this.sessions.set(id, session);
     return session;
+  }
+
+  /**
+   * The DeepSeek Harness `web` host serves every workspace from one process, so
+   * a host PID is not an agent. Each materialized session that is still live
+   * becomes its own monitored row keyed by the harness session id, while a
+   * host without live sessions stays visible as a single host row.
+   */
+  private async expandDshSessions(
+    groups: readonly DiscoveredProcessSession[],
+    timestamp: number,
+  ): Promise<readonly DiscoveredProcessSession[]> {
+    const hosts = groups.filter((group) => group.tool === 'dsh');
+    if (hosts.length === 0) {
+      this.dshSessions.clear();
+      return groups;
+    }
+
+    const sessions = await this.scanDshSessions();
+    if (this.stopping) return groups;
+    const hostStartedAtMs = hosts.reduce<number | null>((oldest, host) => {
+      if (host.creationTimeMs === null) return oldest;
+      return oldest === null ? host.creationTimeMs : Math.min(oldest, host.creationTimeMs);
+    }, null);
+    const windowMs = this.currentConfig.tools.dsh.sessionWindowMs;
+    const live = sessions.filter((session) => isLiveDshSession(session, {
+      nowMs: timestamp,
+      windowMs,
+      hostStartedAtMs,
+    }));
+
+    this.dshSessions = new Map(live.map((session) => [`dsh:${session.sessionId}`, session]));
+
+    const owners = new Map<number, DshSessionFile[]>();
+    for (const host of hosts) owners.set(host.rootPid, []);
+    for (const session of live) {
+      const host = assignDshHost(session, hosts, timestamp);
+      owners.get(host.rootPid)?.push(session);
+    }
+
+    const expanded: DiscoveredProcessSession[] = [];
+    for (const group of groups) {
+      if (group.tool !== 'dsh') {
+        expanded.push(group);
+        continue;
+      }
+      const hosted = owners.get(group.rootPid) ?? [];
+      if (hosted.length === 0) {
+        expanded.push(group);
+        continue;
+      }
+      for (const session of hosted) {
+        expanded.push(Object.freeze({
+          ...group,
+          logicalId: `dsh:${session.sessionId}`,
+          creationTimeMs: session.createdAtMs ?? group.creationTimeMs,
+        }));
+      }
+    }
+    return expanded;
+  }
+
+  private async scanDshSessions(): Promise<readonly DshSessionFile[]> {
+    try {
+      return await scanDshSessions({ homeDirectory: this.dshHomeDirectory });
+    } catch (error) {
+      await this.auditGlobal('skip', { reason: `dsh-index: ${errorMessage(error)}` });
+      return [];
+    }
+  }
+
+  private prepareDsh(session: RuntimeSession, group: DiscoveredProcessSession): void {
+    const logicalId = group.logicalId;
+    if (logicalId === undefined) {
+      session.transportKind = 'monitor-only';
+      session.transportError = 'DeepSeek Harness host has no live session';
+      return;
+    }
+    const found = this.dshSessions.get(logicalId) ?? null;
+    session.dshSession = found;
+    if (found === null) {
+      session.transportKind = 'monitor-only';
+      session.transportError = 'DeepSeek Harness session disappeared during discovery';
+      return;
+    }
+    session.conversationId = found.sessionId;
+    session.dshActivity = dshSessionActivity(found);
+    session.transportKind = 'monitor-only';
+    session.transportError = DSH_MONITOR_ONLY_REASON;
   }
 
   private configureEngine(session: RuntimeSession, config: WatchdogConfig, timestamp: number): void {
@@ -517,6 +632,23 @@ export class WatchdogController {
       return;
     }
 
+    if (session.group.tool === 'dsh') {
+      const current = session.group.logicalId === undefined
+        ? null
+        : this.dshSessions.get(session.group.logicalId) ?? null;
+      session.dshSession = current;
+      if (current === null) {
+        session.conversationId = null;
+        session.transportKind = 'monitor-only';
+        session.transportError = 'DeepSeek Harness session is no longer live';
+      } else {
+        session.conversationId = current.sessionId;
+        session.transportKind = 'monitor-only';
+        session.transportError = DSH_MONITOR_ONLY_REASON;
+      }
+      return;
+    }
+
     if (session.codexAdapter === null) return;
     const context = this.codexContextFor(session, timestamp);
     session.codexContext = context;
@@ -547,6 +679,17 @@ export class WatchdogController {
         await this.record(session, 'activity', { source: 'claude-jsonl' });
       }
       session.claudeActivity = current;
+    } else if (session.group.tool === 'dsh') {
+      const current = session.dshSession === null ? null : dshSessionActivity(session.dshSession);
+      if (
+        current !== null &&
+        session.dshActivity !== null &&
+        hasDshSessionActivity(session.dshActivity, current)
+      ) {
+        session.engine.observeOutput(session.id, timestamp);
+        await this.record(session, 'activity', { source: 'dsh-session' });
+      }
+      session.dshActivity = current;
     } else if (session.codexActivity !== null) {
       try {
         const snapshot = await session.codexActivity.snapshot();
@@ -621,6 +764,8 @@ export class WatchdogController {
       prompt = decision.prompt;
       session.goal = decision.goal;
       session.conversationId = decision.threadId;
+    } else if (session.group.tool === 'dsh') {
+      prompt = this.currentConfig.tools.dsh.normalPrompt;
     } else {
       prompt = this.currentConfig.tools.claude.normalPrompt;
     }
@@ -663,6 +808,9 @@ export class WatchdogController {
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
       }
+    }
+    if (session.group.tool === 'dsh') {
+      return { ok: false, error: DSH_MONITOR_ONLY_REASON };
     }
     if (session.transportKind === 'claude-stop-hook') {
       return this.armClaudeLease(session, prompt);
@@ -793,6 +941,10 @@ export class WatchdogController {
       quietForMs: lastActivityAtMs === null ? null : Math.max(0, this.now() - lastActivityAtMs),
       pendingPrompt: session.pendingPrompt,
       lastDecision: state?.lastDecision ?? 'new',
+      ...(session.group.tool === 'dsh' ? {
+        sessionCwd: session.dshSession?.cwd ?? null,
+        runningTurn: session.dshSession?.turnOpen ?? false,
+      } : {}),
       ...(session.transportError === undefined ? {} : { transportError: session.transportError }),
     });
   }
@@ -850,6 +1002,39 @@ interface WriteResultLike {
 
 function engineKey(config: WatchdogConfig): string {
   return [config.defaultIdleTimeoutMs, config.defaultCooldownMs, config.maxAttemptsPerQuietPeriod].join(':');
+}
+
+/** A hosted session keeps its harness identity; a process keeps its root PID. */
+function sessionIdFor(group: DiscoveredProcessSession): string {
+  return group.logicalId ?? `${group.tool}:${group.rootPid}`;
+}
+
+/**
+ * Attribute a hosted session to the newest host that was already running when
+ * the harness last recorded activity for it, falling back to the newest host.
+ */
+function assignDshHost(
+  session: DshSessionFile,
+  hosts: readonly DiscoveredProcessSession[],
+  timestamp: number,
+): DiscoveredProcessSession {
+  const recorded = [session.transcriptMtimeMs, session.projectionMtimeMs]
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  const activityMs = recorded.length === 0 ? timestamp : Math.max(...recorded);
+  let candidate: DiscoveredProcessSession | null = null;
+  for (const host of hosts) {
+    const startedAtMs = host.creationTimeMs ?? timestamp;
+    if (startedAtMs > activityMs) continue;
+    if (candidate === null || startedAtMs > (candidate.creationTimeMs ?? timestamp)) candidate = host;
+  }
+  return candidate ?? (hosts[hosts.length - 1] as DiscoveredProcessSession);
+}
+
+function defaultDshHome(): string {
+  const configured = process.env.DSH_HOME;
+  return configured !== undefined && configured.trim().length > 0
+    ? configured
+    : DEFAULT_DSH_HOME;
 }
 
 function processIdentityChanged(
