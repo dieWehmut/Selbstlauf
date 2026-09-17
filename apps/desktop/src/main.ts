@@ -1,7 +1,19 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readWatchdogRecord, resolveStateDirectory, waitForHealth, watchdogOrigin } from './service.js';
+import {
+  readWatchdogRecord,
+  resolveStateDirectory,
+  waitForHealth,
+  watchdogOrigin,
+} from './service.js';
+import {
+  assertBundledDistribution,
+  resolveBundledDistribution,
+  startBundledService,
+  type BundledServiceHost,
+  type StartBundledServiceOptions,
+} from './service-host.js';
 
 export interface DesktopWindowOptions {
   readonly width?: number;
@@ -40,11 +52,17 @@ export function placeholderUrl(): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(PLACEHOLDER_HTML)}`;
 }
 
+export interface ElectronWindow {
+  loadURL(url: string): Promise<void>;
+  on(event: 'closed', listener: () => void): void;
+}
+
 export interface ElectronShell {
   readonly app: {
     whenReady(): Promise<void>;
     on(event: 'window-all-closed', listener: () => void): void;
     quit(): void;
+    isPackaged?: boolean;
   };
   readonly BrowserWindow: new (options: {
     width: number;
@@ -53,13 +71,13 @@ export interface ElectronShell {
     autoHideMenuBar: boolean;
     backgroundColor: string;
     webPreferences: { contextIsolation: boolean; nodeIntegration: boolean; sandbox: boolean };
-  }) => {
-    loadURL(url: string): Promise<void>;
-    on(event: 'closed', listener: () => void): void;
-  };
+  }) => ElectronWindow;
 }
 
-export async function launchDesktop(shell: ElectronShell, environment: NodeJS.ProcessEnv = process.env): Promise<ResolvedTarget> {
+export async function launchDesktop(
+  shell: ElectronShell,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<ResolvedTarget> {
   await shell.app.whenReady();
   const target = await resolveDesktopTarget(environment);
   const window = new shell.BrowserWindow({
@@ -75,11 +93,84 @@ export async function launchDesktop(shell: ElectronShell, environment: NodeJS.Pr
   return target;
 }
 
+export interface DesktopHostOptions {
+  readonly appRoot: string;
+  readonly resourcesPath?: string;
+  readonly environment?: NodeJS.ProcessEnv;
+  /** Test seam: replace the bundled service launcher. */
+  readonly startService?: (options: StartBundledServiceOptions) => Promise<BundledServiceHost>;
+}
+
+export interface HostedDesktop {
+  readonly target: ResolvedTarget;
+  readonly host: BundledServiceHost | null;
+}
+
+/** Start the bundled service (when its artifacts exist) and open the window on it. */
+export async function hostAndLaunch(
+  shell: ElectronShell,
+  options: DesktopHostOptions,
+): Promise<HostedDesktop> {
+  const environment = options.environment ?? process.env;
+  const distribution = resolveBundledDistribution({
+    appRoot: options.appRoot,
+    resourcesPath: options.resourcesPath,
+  });
+  assertBundledDistribution(distribution);
+  await shell.app.whenReady();
+  const startService = options.startService ?? startBundledService;
+  const host = await startService({ appRoot: options.appRoot, resourcesPath: options.resourcesPath, environment });
+  const target: ResolvedTarget = { kind: 'service', url: host.origin, pid: host.pid };
+  const window = new shell.BrowserWindow({
+    width: DEFAULT_WINDOW.width,
+    height: DEFAULT_WINDOW.height,
+    title: DEFAULT_WINDOW.title,
+    autoHideMenuBar: true,
+    backgroundColor: '#0b1120',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  await window.loadURL(target.url);
+  window.on('closed', () => undefined);
+  return { target, host };
+}
+
 export async function main(): Promise<void> {
-  const electron = (await import('electron' as string)) as unknown as ElectronShell;
-  const target = await launchDesktop(electron);
-  electron.app.on('window-all-closed', () => electron.app.quit());
-  process.stdout.write(`desktop target: ${target.kind} ${target.url}\n`);
+  const { app, BrowserWindow } = (await import('electron' as string)) as unknown as ElectronShell;
+  // dist/src/main.js -> dist -> apps/desktop
+  const appRoot = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
+  const resourcesPath = (process as unknown as { resourcesPath?: string }).resourcesPath;
+  let hosted: HostedDesktop;
+  try {
+    hosted = await hostAndLaunch({ app, BrowserWindow }, {
+      appRoot,
+      ...(app.isPackaged === true && typeof resourcesPath === 'string' ? { resourcesPath } : {}),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Packaged installs must stay usable when the service is already running or the
+    // bundled artifacts are missing; the recorded service is the fallback target.
+    const fallback = await resolveDesktopTarget().catch(() => null);
+    if (fallback === null || fallback.kind !== 'service') throw error;
+    process.stderr.write(`${message}\nfalling back to the recorded watchdog service\n`);
+    const window = new BrowserWindow({
+      width: DEFAULT_WINDOW.width,
+      height: DEFAULT_WINDOW.height,
+      title: DEFAULT_WINDOW.title,
+      autoHideMenuBar: true,
+      backgroundColor: '#0b1120',
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    await window.loadURL(fallback.url);
+    window.on('closed', () => undefined);
+    hosted = { target: fallback, host: null };
+  }
+  app.on('window-all-closed', () => {
+    void (async () => {
+      await hosted.host?.stop().catch(() => undefined);
+      app.quit();
+    })();
+  });
+  process.stdout.write(`desktop target: ${hosted.target.kind} ${hosted.target.url}\n`);
 }
 
 const PLACEHOLDER_HTML = `<!doctype html>
@@ -103,9 +194,21 @@ const PLACEHOLDER_HTML = `<!doctype html>
   </body>
 </html>`;
 
-if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+// Electron sets process.argv[1] to the app directory (".") or the script path while the
+// module is imported, so compare against both forms before running the CLI entry.
+if (isMainModule()) {
   void main().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   });
+}
+
+export function isMainModule(argv: readonly string[] = process.argv, moduleUrl: string = import.meta.url): boolean {
+  const entry = argv[1];
+  if (entry === undefined || entry.length === 0) return false;
+  const self = fileURLToPath(moduleUrl);
+  const candidate = resolve(entry);
+  if (candidate === self) return true;
+  // "electron ." passes the app directory; the entry module lives in its dist tree.
+  return resolve(candidate, 'dist', 'src', 'main.js') === self;
 }
