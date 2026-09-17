@@ -143,6 +143,24 @@ test('detects the CLI entry for both "electron ." and direct script launches', (
   assert.equal(isMainModule([process.execPath, resolve('apps', 'desktop', 'dist', 'test', 'main.test.js')], moduleUrl), false);
 });
 
+test('treats a packaged launch as the entry point even without a script argument', () => {
+  const moduleUrl = pathToFileURL(resolve('apps', 'desktop', 'dist', 'src', 'main.js')).href;
+  // A packaged app starts from its executable, so Electron leaves argv[1] undefined.
+  assert.equal(isMainModule([process.execPath], moduleUrl), false, "an unpackaged process without a script is not the entry");
+  assert.equal(isMainModule([process.execPath], moduleUrl, { isPackaged: true }), true);
+  assert.equal(
+    isMainModule([process.execPath, '--some-switch'], moduleUrl, { isPackaged: true }),
+    true,
+    "flags do not displace the packaged entry",
+  );
+  const otherModule = pathToFileURL(resolve('apps', 'desktop', 'dist', 'src', 'navigation.js')).href;
+  assert.equal(
+    isMainModule([process.execPath], otherModule, { isPackaged: true }),
+    false,
+    "only the packaged main script claims the entry point",
+  );
+});
+
 test('opens the window on a freshly started bundled service', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-hosted-'));
   await mkdir(join(root, 'service-dist', 'src'), { recursive: true });

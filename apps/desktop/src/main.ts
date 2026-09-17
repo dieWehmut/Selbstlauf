@@ -150,7 +150,10 @@ export async function main(): Promise<void> {
   // dist/src/main.js -> dist -> apps/desktop
   const appRoot = resolve(fileURLToPath(import.meta.url), '..', '..', '..');
   const resourcesPath = (process as unknown as { resourcesPath?: string }).resourcesPath;
-  const preloadPath = resolve(appRoot, 'src', 'preload.mjs');
+  const preloadPath = resolvePreloadPath({
+    appRoot,
+    ...(app.isPackaged === true && typeof resourcesPath === 'string' ? { resourcesPath } : {}),
+  });
   let hosted: HostedDesktop;
   try {
     hosted = await hostAndLaunch(shell, {
@@ -179,6 +182,20 @@ export async function main(): Promise<void> {
   process.stdout.write(`desktop target: ${hosted.target.kind} ${hosted.target.url}\n`);
 }
 
+
+export interface PreloadPathOptions {
+  readonly appRoot: string;
+  readonly resourcesPath?: string;
+}
+
+/** The packaged build copies the preload next to the asar; the dev tree keeps it in src. */
+export function resolvePreloadPath(options: PreloadPathOptions): string {
+  if (options.resourcesPath !== undefined && options.resourcesPath.trim().length > 0) {
+    return resolve(options.resourcesPath, 'preload.mjs');
+  }
+  return resolve(options.appRoot, 'src', 'preload.mjs');
+}
+
 const PLACEHOLDER_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -201,21 +218,46 @@ const PLACEHOLDER_HTML = `<!doctype html>
 </html>`;
 
 // Electron sets process.argv[1] to the app directory (".") or the script path while the
-// module is imported, so compare against both forms before running the CLI entry.
-if (isMainModule()) {
+// module is imported, and omits it entirely for a packaged launch.
+if (isMainModule(process.argv, import.meta.url, { isPackaged: isPackagedProcess() })) {
   void main().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   });
 }
 
-export function isMainModule(argv: readonly string[] = process.argv, moduleUrl: string = import.meta.url): boolean {
+/** Electron defines resourcesPath only in a packaged build. */
+function isPackagedProcess(): boolean {
+  const resourcesPath = (process as unknown as { resourcesPath?: string }).resourcesPath;
+  return typeof resourcesPath === 'string' && resourcesPath.length > 0;
+}
+
+/**
+ * True when this module is the process entry point.
+ *
+ * Electron passes the script path or the app directory in argv[1] for unpackaged
+ * launches ("electron ." / "electron dist/src/main.js"), but a packaged app is
+ * started from its executable with no script argument at all. A packaged process
+ * therefore counts as the entry whenever resourcesPath is set, which Electron only
+ * defines for packaged builds.
+ */
+export function isMainModule(
+  argv: readonly string[] = process.argv,
+  moduleUrl: string = import.meta.url,
+  options: { readonly isPackaged?: boolean } = {},
+): boolean {
   const entry = argv[1];
-  if (entry === undefined || entry.length === 0) return false;
   const self = fileURLToPath(moduleUrl);
-  const candidate = resolve(entry);
-  if (candidate === self) return true;
-  // "electron ." passes the app directory; the entry module lives in its dist tree.
-  return resolve(candidate, 'dist', 'src', 'main.js') === self;
+  if (entry !== undefined && entry.length > 0) {
+    const candidate = resolve(entry);
+    if (candidate === self) return true;
+    // "electron ." passes the app directory; the entry module lives in its dist tree.
+    if (resolve(candidate, 'dist', 'src', 'main.js') === self) return true;
+  }
+  if (options.isPackaged !== true) return false;
+  // A packaged launch has no script argument, so the module path is the only
+  // signal left: the packaged layout always places the main script at
+  // dist/src/main.js (inside app.asar), and no other shipped module lives there.
+  return self.replaceAll('\\', '/').endsWith('/dist/src/main.js');
 }
 
