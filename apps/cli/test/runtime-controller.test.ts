@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
@@ -1084,6 +1084,228 @@ test('completed automatic decisions do not expose a stale pending prompt', async
     const session = (await controller.list()).find((entry) => entry.id === 'codex:100');
     assert.equal(session?.lastDecision, 'injected');
     assert.equal(session?.pendingPrompt, null);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const DSH_SESSION_ID = 'session-3acd60b1-9056-4191-9070-8cd3563436a7';
+const DSH_HOST_RECORD: RawProcessRecord = {
+  pid: 700,
+  parentPid: 1,
+  name: 'node.exe',
+  commandLine: 'node "C:\\repo\\deepseek-harness\\apps\\cli\\lib\\bin.js" web',
+  executablePath: 'C:\\node\\node.exe',
+  creationTimeMs: 1_000,
+  userSid: 'S-1-5-21-test',
+  workingDirectory: 'C:\\Users\\test',
+};
+
+async function createDshHome(
+  root: string,
+  input: {
+    readonly sessionId: string;
+    readonly cwd: string;
+    readonly mtimeMs?: number;
+    readonly sequence?: number;
+    readonly turnOpen?: boolean;
+    readonly blank?: boolean;
+  },
+): Promise<{ readonly home: string; readonly transcript: string }> {
+  const home = join(root, 'dsh');
+  const projectSlug = `--${input.cwd.replace(/[:\\/]+/gu, '-').replace(/^-+/u, '')}--`;
+  const directory = join(home, 'sessions', projectSlug, input.sessionId);
+  await mkdir(directory, { recursive: true });
+  const transcript = join(directory, 'session.v3.jsonl');
+  await writeFile(
+    transcript,
+    `${JSON.stringify({ type: 'session', version: 3, id: input.sessionId, createdAt: 2_000, cwd: input.cwd })}\n`,
+    'utf8',
+  );
+
+  const projectionDirectory = join(home, 'storages', 'session_projcache', 'sessions');
+  await mkdir(projectionDirectory, { recursive: true });
+  await writeFile(join(projectionDirectory, `${input.sessionId}.json`), JSON.stringify({
+    version: 7,
+    record: {
+      identity: { formatVersion: 3, createdAt: 2_000, cwd: input.cwd },
+      rows: {
+        sessionListMetadata: {
+          ver: 1,
+          seq: input.sequence ?? 10,
+          val: { blank: input.blank ?? false, lastPromptAt: 3_000 },
+        },
+        turnBoundary: {
+          ver: 2,
+          seq: input.sequence ?? 10,
+          val: {
+            openTurnStartSeq: 1,
+            lastStepBoundary: input.turnOpen === false ? { kind: 'end', seq: 9 } : { kind: 'start', seq: 10 },
+            lastTurn: 1,
+          },
+        },
+      },
+    },
+  }), 'utf8');
+  return { home, transcript };
+}
+
+test('polls a DeepSeek Harness host as one monitored row per live session', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-dsh-'));
+  const live = await createDshHome(root, {
+    sessionId: DSH_SESSION_ID,
+    cwd: 'D:\\project\\ai-cli-bypass',
+    turnOpen: true,
+  });
+  const blank = await createDshHome(root, {
+    sessionId: 'session-0919e034-01bd-4cb1-9747-70ef776e7a63',
+    cwd: 'D:\\project\\Orchester',
+    blank: true,
+  });
+  assert.equal(blank.home, live.home);
+
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    dryRun: true,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+  });
+  const auditStore = new AuditStore(join(root, 'audit.jsonl'));
+  let clock = 5_000;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore,
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+      DSH_HOST_RECORD,
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    dshHomeDirectory: live.home,
+    now: () => clock,
+  });
+
+  try {
+    await controller.start();
+    const sessions = await controller.list();
+    assert.equal(sessions.length, 1);
+    const session = sessions[0];
+    assert.ok(session);
+    assert.equal(session.id, `dsh:${DSH_SESSION_ID}`);
+    assert.equal(session.tool, 'dsh');
+    assert.equal(session.rootPid, 700);
+    assert.equal(session.conversationId, DSH_SESSION_ID);
+    assert.equal(session.transport, 'monitor-only');
+    assert.equal(session.sessionCwd, 'D:\\project\\ai-cli-bypass');
+    assert.equal(session.runningTurn, true);
+    assert.equal(session.transportError, 'DeepSeek Harness exposes no local input transport');
+
+    // A session that never received a prompt is history, not a monitored agent.
+    assert.ok(!sessions.some((entry) => entry.conversationId?.includes('0919e034')));
+
+    clock += 5_000;
+    await controller.poll();
+    const events = await auditStore.list();
+    assert.ok(events.some((event) =>
+      event.tool === 'dsh' && event.type === 'skip' && event.prompt === '继续'));
+    // The harness has no trusted local transport, so nothing may be written.
+    assert.ok(!events.some((event) => event.tool === 'dsh' && event.type === 'injection'));
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('records harness transcript growth as activity and refreshes the live step', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-dsh-activity-'));
+  const home = await createDshHome(root, {
+    sessionId: DSH_SESSION_ID,
+    cwd: 'D:\\project\\ai-cli-bypass',
+    turnOpen: true,
+    sequence: 10,
+  });
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    dryRun: true,
+    defaultIdleTimeoutMs: 100_000,
+    defaultCooldownMs: 100_000,
+  });
+  const auditStore = new AuditStore(join(root, 'audit.jsonl'));
+  let clock = 5_000;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore,
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+      DSH_HOST_RECORD,
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    dshHomeDirectory: home.home,
+    now: () => clock,
+  });
+
+  try {
+    await controller.start();
+    clock += 1_000;
+    await controller.poll();
+    assert.ok(!(await auditStore.list()).some((event) => event.details?.source === 'dsh-session'));
+
+    const projection = join(home.home, 'storages', 'session_projcache', 'sessions', `${DSH_SESSION_ID}.json`);
+    const document = JSON.parse(await readFile(projection, 'utf8')) as {
+      record: { rows: { sessionListMetadata: { seq: number }; turnBoundary: { seq: number; val: { lastStepBoundary: { kind: string; seq: number } } } } };
+    };
+    document.record.rows.sessionListMetadata.seq = 12;
+    document.record.rows.turnBoundary.seq = 12;
+    document.record.rows.turnBoundary.val.lastStepBoundary = { kind: 'end', seq: 12 };
+    await writeFile(projection, JSON.stringify(document), 'utf8');
+
+    clock += 1_000;
+    await controller.poll();
+
+    assert.ok((await auditStore.list()).some((event) => event.details?.source === 'dsh-session'));
+    const session = (await controller.list())[0];
+    assert.equal(session?.runningTurn, false);
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('drops a harness session once its host process exits', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-dsh-exit-'));
+  const home = await createDshHome(root, {
+    sessionId: DSH_SESSION_ID,
+    cwd: 'D:\\project\\ai-cli-bypass',
+  });
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({ ...defaultConfig, dryRun: true });
+  const provider = new MutableFixtureProvider([
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+    DSH_HOST_RECORD,
+  ]);
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider,
+    platform: 'win32',
+    currentProcessId: 50,
+    dshHomeDirectory: home.home,
+  });
+
+  try {
+    await controller.poll();
+    assert.equal((await controller.list()).length, 1);
+
+    provider.records = provider.records.filter((record) => record.pid !== DSH_HOST_RECORD.pid);
+    await controller.poll();
+
+    const sessions = await controller.list();
+    assert.equal(sessions[0]?.alive, false);
+    assert.equal(sessions[0]?.lastDecision, 'process-exited');
   } finally {
     await controller.stop();
     await rm(root, { recursive: true, force: true });
