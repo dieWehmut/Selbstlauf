@@ -9,10 +9,15 @@ const repositoryRoot = path.resolve(appRoot, '..', '..');
 
 const cliDist = path.join(repositoryRoot, 'apps', 'cli', 'dist');
 const webDist = path.join(repositoryRoot, 'apps', 'web', 'dist');
+const continuationScripts = path.join(repositoryRoot, 'scripts', 'continuation');
 const preload = path.join(appRoot, 'src', 'preload.mjs');
 const icon = path.join(appRoot, 'build', 'icon.ico');
 
-for (const [label, target] of [['apps/cli/dist', cliDist], ['apps/web/dist', webDist]]) {
+for (const [label, target] of [
+  ['apps/cli/dist', cliDist],
+  ['apps/web/dist', webDist],
+  ['scripts/continuation', continuationScripts],
+]) {
   if (!existsSync(target)) {
     throw new Error(`${label} is missing: ${target}\nRun "npm run build" before packaging the desktop app.`);
   }
@@ -23,7 +28,9 @@ export default {
   productName: 'Selbstlauf',
   copyright: 'Selbstlauf contributors',
   directories: {
-    output: path.join(repositoryRoot, 'tmp', 'desktop-dist'),
+    // Overridable so a release build can write outside the checkout; the default
+    // keeps local packaging output inside the ignored tmp/ directory.
+    output: process.env.SELBSTLAUF_DESKTOP_OUTPUT ?? path.join(repositoryRoot, 'tmp', 'desktop-dist'),
     buildResources: path.join(appRoot, 'build'),
   },
   // Only the compiled desktop shell ships inside the asar; the watchdog service
@@ -37,8 +44,43 @@ export default {
   extraResources: [
     { from: cliDist, to: 'service-dist' },
     { from: webDist, to: 'web-dist' },
+    // The logon-task script the watchdog registers must exist in the installed
+    // app; start-watchdog.ps1 resolves service-dist and web-dist beside it.
+    { from: continuationScripts, to: 'scripts/continuation' },
     { from: preload, to: 'preload.mjs' },
   ],
   asar: true,
-  ...(existsSync(icon) ? { win: { icon } } : {}),
+  win: {
+    target: [
+      { target: 'nsis', arch: ['x64', 'arm64'] },
+    ],
+    ...(existsSync(icon) ? { icon } : {}),
+  },
+  nsis: {
+    // Assisted per-user install: the watchdog itself is per-user (state under
+    // %LOCALAPPDATA% and a per-user logon task), so installing into the user
+    // profile keeps the whole product in one scope and needs no elevation.
+    oneClick: false,
+    perMachine: false,
+    allowToChangeInstallationDirectory: true,
+    createDesktopShortcut: true,
+    createStartMenuShortcut: true,
+    shortcutName: 'Selbstlauf',
+    uninstallDisplayName: 'Selbstlauf',
+    deleteAppDataOnUninstall: false,
+    artifactName: '${productName}-Setup-${version}-${arch}.${ext}',
+    // Ship the app package as a zip instead of a 7z.
+    //
+    // The 7z payload is decoded by the bundled nsis7z plugin, whose 7-Zip
+    // library predates the ARM64 branch filter: 7-Zip applies that filter to
+    // the ARM64 binaries of an arm64 build, the plugin cannot decode those
+    // entries, and it silently skips them (the installer exits 0 with
+    // Selbstlauf.exe and every DLL missing). Zip cannot carry branch filters
+    // and nsisunz is decoded by NSIS itself, which reports failures instead of
+    // installing a partial app.
+    useZip: true,
+    // A zip payload has no block map, and this app has no auto-updater that
+    // would consume one.
+    differentialPackage: false,
+  },
 };
