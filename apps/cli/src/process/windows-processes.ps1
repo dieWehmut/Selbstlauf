@@ -1,5 +1,6 @@
 param(
-    [string[]]$IncludeExecutableName = @()
+    [string[]]$IncludeExecutableName = @(),
+    [int[]]$IncludeProcessId = @()
 )
 
 Set-StrictMode -Version Latest
@@ -164,6 +165,91 @@ namespace Selbstlauf.ProcessMetadata {
                 : new IntPtr(address.ToInt32() + offset);
         }
     }
+
+    public static class ProcessOwnerReader {
+        private const uint ProcessQueryLimitedInformation = 0x1000;
+        private const uint TokenQuery = 0x0008;
+        private const int TokenUser = 1;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool GetTokenInformation(
+            IntPtr token,
+            int informationClass,
+            IntPtr information,
+            int informationLength,
+            out int returnLength);
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool ConvertSidToStringSid(IntPtr sid, out IntPtr stringSid);
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr LocalFree(IntPtr handle);
+
+        /// <summary>
+        /// Read the process owner SID from its token. WMI's GetOwnerSid costs
+        /// roughly half a second per process, which made one discovery pass take
+        /// minutes on a busy desktop; the token read takes microseconds.
+        /// </summary>
+        public static string TryRead(int processId) {
+            IntPtr process = OpenProcess(ProcessQueryLimitedInformation, false, processId);
+            if (process == IntPtr.Zero) {
+                return null;
+            }
+
+            IntPtr token = IntPtr.Zero;
+            IntPtr buffer = IntPtr.Zero;
+            try {
+                if (!OpenProcessToken(process, TokenQuery, out token)) {
+                    return null;
+                }
+
+                int size;
+                GetTokenInformation(token, TokenUser, IntPtr.Zero, 0, out size);
+                if (size <= 0) {
+                    return null;
+                }
+
+                buffer = Marshal.AllocHGlobal(size);
+                if (!GetTokenInformation(token, TokenUser, buffer, size, out size)) {
+                    return null;
+                }
+
+                IntPtr sid = Marshal.ReadIntPtr(buffer);
+                if (sid == IntPtr.Zero) {
+                    return null;
+                }
+
+                IntPtr text;
+                if (!ConvertSidToStringSid(sid, out text)) {
+                    return null;
+                }
+                try {
+                    return Marshal.PtrToStringUni(text);
+                } finally {
+                    LocalFree(text);
+                }
+            } catch {
+                return null;
+            } finally {
+                if (buffer != IntPtr.Zero) {
+                    Marshal.FreeHGlobal(buffer);
+                }
+                if (token != IntPtr.Zero) {
+                    CloseHandle(token);
+                }
+                CloseHandle(process);
+            }
+        }
+    }
 }
 '@
 
@@ -176,6 +262,16 @@ $includeNames = @(
         }
     }
 )
+
+$includeProcessIds = @(
+    foreach ($configuredId in $IncludeProcessId) {
+        [int]$configuredId
+    }
+)
+
+# The signature that marks a process as a supported CLI. The node image name
+# alone is far too broad, so the command line has to carry a known token.
+$cliSignaturePattern = '(?i)(?:claude-code|claude\.ps1|@openai[\\/]codex|codex\.js|codex\.exe)'
 
 function ConvertTo-NullableString {
     param([AllowNull()][object]$Value)
@@ -191,7 +287,16 @@ function ConvertTo-NullableString {
 }
 
 function Resolve-OwnerSid {
-    param([object]$Process)
+    param([object]$Process, [int]$ProcessId)
+
+    try {
+        $sid = [Selbstlauf.ProcessMetadata.ProcessOwnerReader]::TryRead($ProcessId)
+        if (-not [string]::IsNullOrWhiteSpace($sid)) {
+            return $sid
+        }
+    } catch {
+        # Fall through to the WMI owner lookup below.
+    }
 
     try {
         # GetOwnerSid is implemented by current Windows versions and avoids
@@ -231,6 +336,7 @@ function Resolve-WorkingDirectory {
 
 $records = @(
     foreach ($process in Get-WmiObject -Class Win32_Process) {
+        $processId = [int]$process.ProcessId
         $processName = ConvertTo-NullableString $process.Name
         $processCommandLine = ConvertTo-NullableString $process.CommandLine
         $processBaseName = if ($null -eq $processName) {
@@ -241,20 +347,24 @@ $records = @(
         $candidate =
             ($processBaseName -match '^(?:node|codex|claude)(?:[-.]|$)') -or
             ($null -ne $processBaseName -and $includeNames -contains $processBaseName) -or
-            $processCommandLine -match '(?i)(?:claude-code|claude\.ps1|@openai[\\/]codex|codex\.js|codex\.exe)'
+            ($processCommandLine -match $cliSignaturePattern) -or
+            # The watchdog's own process must always be reported so the caller
+            # can derive the current user's SID even when its image name is not
+            # a supported CLI (the packaged app runs it inside Selbstlauf.exe).
+            ($includeProcessIds -contains $processId)
         if (-not $candidate) {
             continue
         }
 
         [pscustomobject]@{
-            pid = [int]$process.ProcessId
+            pid = $processId
             parentPid = [int]$process.ParentProcessId
             name = $processName
             commandLine = $processCommandLine
             executablePath = ConvertTo-NullableString $process.ExecutablePath
             creationDate = ConvertTo-NullableString $process.CreationDate
-            userSid = Resolve-OwnerSid $process
-            workingDirectory = Resolve-WorkingDirectory ([int]$process.ProcessId)
+            userSid = Resolve-OwnerSid -Process $process -ProcessId $processId
+            workingDirectory = Resolve-WorkingDirectory $processId
         }
     }
 )
