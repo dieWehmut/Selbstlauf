@@ -41,6 +41,10 @@ $requiredFiles = @(
     'resources\preload.mjs',
     'resources\web-dist\index.html',
     'resources\service-dist\src\index.js',
+    # The service resolves its process provider beside its own module. tsc never
+    # emits the PowerShell asset, so this entry is the regression gate for an
+    # installer that served a WebUI while discovering no process at all.
+    'resources\service-dist\src\process\windows-processes.ps1',
     # The packaged app must ship the logon-task script tree; start-watchdog.ps1
     # resolves service-dist and web-dist beside it at runtime.
     'resources\scripts\continuation\start-watchdog.ps1',
@@ -155,6 +159,67 @@ Assert-Condition ($health.watchdogRunning -eq $true) 'bundled watchdog service i
 $index = Invoke-WebRequest -Uri "http://127.0.0.1:$($record.port)/" -TimeoutSec 30 -UseBasicParsing
 Assert-Condition ($index.Content -match 'id="root"') 'bundled WebUI was not served'
 Write-Output "installed app serves its WebUI on port $($record.port)"
+
+# A running service with a reachable WebUI is not evidence that it watches
+# anything: the installed provider is a separate asset and the packaged app
+# hosts the watchdog inside Selbstlauf.exe, whose image name is not a supported
+# CLI. Prove the whole chain by starting one process that carries a supported
+# signature and requiring the installed service to report it.
+$nodeExe = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+Assert-Condition ($null -ne $nodeExe) 'node.exe is required to prove the installed app discovers a live process'
+$probeDirectory = Join-Path $env:TEMP 'selbstlauf-discovery-probe'
+New-Item -ItemType Directory -Force -Path $probeDirectory | Out-Null
+# The probe keeps running under its own file name and carries the marker path as
+# an argument, so the provider sees a supported CLI token on its command line.
+# Passing an inline `-e` script would need quoting that Start-Process does not do.
+$probeScript = Join-Path $probeDirectory 'probe.js'
+Set-Content -LiteralPath $probeScript -Value 'setInterval(() => undefined, 1000);' -Encoding Ascii
+$probeMarker = Join-Path $probeDirectory 'claude.ps1'
+Set-Content -LiteralPath $probeMarker -Value '# discovery probe marker; never executed' -Encoding Ascii
+$probe = Start-Process -FilePath $nodeExe -ArgumentList @($probeScript, $probeMarker) -PassThru -WindowStyle Hidden
+try {
+    $discovered = @()
+    $listed = @()
+    $deadline = [DateTime]::UtcNow.AddSeconds(180)
+    while ([DateTime]::UtcNow -lt $deadline -and $discovered.Count -eq 0) {
+        $response = Invoke-RestMethod -Uri "http://127.0.0.1:$($record.port)/api/sessions" -TimeoutSec 60
+        $listed = @($response.sessions)
+        $discovered = @($listed | Where-Object { $_.rootPid -eq $probe.Id })
+        if ($discovered.Count -eq 0) { Start-Sleep -Milliseconds 1000 }
+    }
+    Assert-Condition ($discovered.Count -gt 0) (
+        "the installed app never discovered probe PID $($probe.Id); it listed " +
+        "$($listed.Count) session(s): " +
+        (@($listed | ForEach-Object { "$($_.tool):$($_.rootPid)" }) -join ', '))
+    $session = $discovered[0]
+    Assert-Condition ($session.tool -eq 'claude') "installed app classified the probe process as $($session.tool)"
+    Assert-Condition ($session.alive -eq $true) 'installed app reported the probe process as not alive'
+    Write-Output "installed app discovered the probe process as $($session.tool) PID $($session.rootPid)"
+    # The same service must also turn a watched process into a recorded decision,
+    # which is the difference between watching and merely listing.
+    $decisions = @()
+    $decisionDeadline = [DateTime]::UtcNow.AddSeconds(90)
+    while ([DateTime]::UtcNow -lt $decisionDeadline -and $decisions.Count -eq 0) {
+        $audit = Invoke-RestMethod -Uri "http://127.0.0.1:$($record.port)/api/audit?limit=200" -TimeoutSec 30
+        # Global audit events carry no sessionId, and StrictMode rejects a
+        # property lookup that does not exist on every element.
+        $decisions = @($audit.events | Where-Object {
+            $_.type -eq 'decision' -and
+            ($_.PSObject.Properties.Name -contains 'sessionId') -and
+            $_.sessionId -eq $session.id
+        })
+        if ($decisions.Count -eq 0) { Start-Sleep -Milliseconds 1000 }
+    }
+    Assert-Condition ($decisions.Count -gt 0) "the installed app recorded no decision for session $($session.id)"
+    Write-Output "installed app recorded watchdog decisions for PID $($probe.Id)"
+} finally {
+    # taskkill writes to stderr for an already-exited tree, which would abort the
+    # script under $ErrorActionPreference = 'Stop' and mask the real failure.
+    $ErrorActionPreference = 'SilentlyContinue'
+    if (-not $probe.HasExited) { & taskkill.exe /F /T /PID $probe.Id 2>$null | Out-Null }
+    Remove-Item -LiteralPath $probeDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    $ErrorActionPreference = 'Stop'
+}
 
 # The installed app must be able to own its logon task from the install root; a
 # repository-only path would register a task that never starts.
