@@ -93,3 +93,46 @@ stay `monitor-only`.
   and same-user grouping failed closed on every poll.
 - `GetOwnerSid()` cost roughly half a second per process, which made a single
   discovery pass take about a minute on a busy desktop even when it worked.
+
+## Installed app on the same host
+
+After the packaging fix, the arm64 setup was installed on the same machine and
+the installed app — not a repository checkout — was asked what it watches:
+
+```text
+installer exit=0
+installed: True
+D:\Desktop\Selbstlauf.lnk exists=True
+C:\Users\30119\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Selbstlauf.lnk exists=True
+target=C:\Users\30119\AppData\Local\Programs\Selbstlauf\Selbstlauf.exe
+working directory=C:\Users\30119\AppData\Local\Programs\Selbstlauf
+Selbstlauf 0.1.0 :: "C:\Users\30119\AppData\Local\Programs\Selbstlauf\Uninstall Selbstlauf.exe" /currentuser
+packaged provider asset: True
+
+service pid=108160 port=48920
+health: running=True dryRun=True
+sessions discovered = 11
+codex=8 dsh=3
+
+dsh:session-3acd60b1-9056-4191-9070-8cd3563436a7 dsh 97368 True monitor-only D:\project\ai-cli-bypass runningStep=True
+dsh:session-7a950179-084b-4992-9320-f18dfeed11a2 dsh 97368 True monitor-only D:\project\Orchester     runningStep=True
+dsh:session-abfb742e-7776-45ab-91cb-f22ae3bdff4f dsh 97368 True monitor-only D:\project\sandkasten    runningStep=False
+
+events since watchdog start: 15   decision=11 activity=4
+transport errors since start: 0
+injections since start: 0
+dsh activity events: 4
+```
+
+The same installation reported 448 `process-discovery` transport errors and one
+`currentUserSid is required` grouping skip when it was built from the previous
+revision; both are absent from the run above. The historical entries remain in
+the shared audit log, which is why they are quoted by reason rather than by
+count.
+
+`scripts/desktop/verify-installer.ps1` reproduces this gate on a clean machine
+without any of the host's own agents: it installs silently, starts a probe
+process that carries a `claude.ps1` marker, requires the installed service to
+list it, report it alive and record a decision for it, checks the logon task
+ownership, and then uninstalls and requires a clean removal. That run passed for
+`Selbstlauf-Setup-0.1.0-arm64.exe`.
