@@ -38,6 +38,8 @@ jobs:
       - name: Smoke test the desktop shell
         run: npm --workspace apps/desktop run smoke
         env:
+          # The smoke probe and the service it starts must agree on the port.
+          WATCHDOG_PORT: '48921'
           SELBSTLAUF_SMOKE_PORT: '48921'
 
   package:
@@ -65,7 +67,7 @@ jobs:
       - name: Package the Windows installers
         run: npm --workspace apps/desktop run package:win
 
-      - name: Verify the x64 installer installs a complete app
+      - name: Verify the x64 installer installs a complete, self-owned app
         shell: pwsh
         run: |
           $installer = Get-ChildItem -LiteralPath tmp/desktop-dist -Filter 'Selbstlauf-Setup-*-x64.exe' | Select-Object -First 1 -ExpandProperty FullName
