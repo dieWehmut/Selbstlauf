@@ -21,6 +21,7 @@ $appExe = Join-Path $installRoot 'Selbstlauf.exe'
 $uninstaller = Join-Path $installRoot 'Uninstall Selbstlauf.exe'
 $stateRoot = Join-Path $env:LOCALAPPDATA 'ai-cli-bypass\continuation'
 $watchdogPidFile = Join-Path $stateRoot 'watchdog.pid.json'
+$startupTaskName = 'Selbstlauf Continuation Watchdog'
 $uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\1cb81a0d-dabd-5e19-9fd9-86ff38a6ca44'
 $shortcuts = @(
     (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Selbstlauf.lnk'),
@@ -43,6 +44,7 @@ $requiredFiles = @(
     # The packaged app must ship the logon-task script tree; start-watchdog.ps1
     # resolves service-dist and web-dist beside it at runtime.
     'resources\scripts\continuation\start-watchdog.ps1',
+    'resources\scripts\continuation\startup-task.ps1',
     'resources\scripts\continuation\launch-watchdog.mjs'
 )
 
@@ -154,7 +156,23 @@ $index = Invoke-WebRequest -Uri "http://127.0.0.1:$($record.port)/" -TimeoutSec 
 Assert-Condition ($index.Content -match 'id="root"') 'bundled WebUI was not served'
 Write-Output "installed app serves its WebUI on port $($record.port)"
 
+# The installed app must be able to own its logon task from the install root; a
+# repository-only path would register a task that never starts.
+$startupHelper = Join-Path $installRoot 'resources\scripts\continuation\startup-task.ps1'
+& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $startupHelper /Delete /TN $startupTaskName /F 2>$null | Out-Null
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($record.port)/api/startup/install" -Headers @{ Origin = "http://127.0.0.1:$($record.port)" } -TimeoutSec 120 | Out-Null
+$startup = Invoke-RestMethod -Uri "http://127.0.0.1:$($record.port)/api/startup" -TimeoutSec 60
+Assert-Condition ($startup.installed -eq $true) 'the installed app did not register its logon task'
+$registeredAction = (Get-ScheduledTask -TaskName $startupTaskName).Actions | Select-Object -First 1
+$installedScript = (Resolve-Path -LiteralPath (Join-Path $installRoot 'resources\scripts\continuation\start-watchdog.ps1')).Path
+Assert-Condition ($registeredAction.Arguments -match [regex]::Escape($installedScript)) "the logon task does not run the installed script: $($registeredAction.Arguments)"
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($record.port)/api/startup/uninstall" -Headers @{ Origin = "http://127.0.0.1:$($record.port)" } -TimeoutSec 120 | Out-Null
+$startupAfter = Invoke-RestMethod -Uri "http://127.0.0.1:$($record.port)/api/startup" -TimeoutSec 60
+Assert-Condition ($startupAfter.installed -eq $false) 'the installed app did not remove its logon task'
+Write-Output 'installed app owns and removes its per-user logon task'
+
 Stop-SelbstlaufProcess
+& powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $installRoot 'resources\scripts\continuation\startup-task.ps1') /Delete /TN $startupTaskName /F 2>$null | Out-Null
 
 $uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru -Wait
 Assert-Condition ($uninstall.ExitCode -eq 0) "uninstaller exited with code $($uninstall.ExitCode)"
