@@ -8,6 +8,7 @@ const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(appRoot, '..', '..');
 
 const cliDist = path.join(repositoryRoot, 'apps', 'cli', 'dist');
+const processProviderScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'process', 'windows-processes.ps1');
 const webDist = path.join(repositoryRoot, 'apps', 'web', 'dist');
 const continuationScripts = path.join(repositoryRoot, 'scripts', 'continuation');
 const preload = path.join(appRoot, 'src', 'preload.mjs');
@@ -15,6 +16,7 @@ const icon = path.join(appRoot, 'build', 'icon.ico');
 
 for (const [label, target] of [
   ['apps/cli/dist', cliDist],
+  ['apps/cli/src/process/windows-processes.ps1', processProviderScript],
   ['apps/web/dist', webDist],
   ['scripts/continuation', continuationScripts],
 ]) {
@@ -43,6 +45,10 @@ export default {
   ],
   extraResources: [
     { from: cliDist, to: 'service-dist' },
+    // tsc never emits the PowerShell asset, and the service resolves it beside
+    // its own module. Without this copy the installed app starts, serves its
+    // WebUI, and silently discovers no process at all.
+    { from: processProviderScript, to: 'service-dist/src/process/windows-processes.ps1' },
     { from: webDist, to: 'web-dist' },
     // The logon-task script the watchdog registers must exist in the installed
     // app; start-watchdog.ps1 resolves service-dist and web-dist beside it.
