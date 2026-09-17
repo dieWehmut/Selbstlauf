@@ -1,4 +1,4 @@
-export type ToolName = 'claude' | 'codex';
+export type ToolName = 'claude' | 'codex' | 'dsh';
 export type TransportKind =
   | 'classic-console'
   | 'pty'
@@ -30,6 +30,10 @@ export interface SessionView {
   pendingPrompt?: string | null;
   lastDecision?: string;
   transportError?: string;
+  /** DeepSeek Harness sessions report the workspace they are attached to. */
+  sessionCwd?: string | null;
+  /** DeepSeek Harness sessions report whether a step is still running. */
+  runningTurn?: boolean;
 }
 
 export interface WatchdogConfig {
@@ -50,6 +54,7 @@ export interface WatchdogConfig {
       };
     };
     codex: { enabled: boolean; normalPrompt: string; goalPrompt: string; goalStatuses: readonly string[] };
+    dsh: { enabled: boolean; normalPrompt: string; sessionWindowMs: number };
   };
   processFilters: { sameUserOnly: boolean; include: readonly string[]; exclude: readonly string[] };
 }

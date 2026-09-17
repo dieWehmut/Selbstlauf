@@ -124,6 +124,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .tool-mark { display: grid; place-items: center; width: 29px; height: 29px; border: 1px solid var(--line-strong); }
 .tool-mark--codex { color: var(--blue); background: color-mix(in srgb, var(--blue) 10%, transparent); }
 .tool-mark--claude { color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.tool-mark--dsh { color: var(--blue); background: color-mix(in srgb, var(--green) 12%, transparent); }
 .capability { padding: 5px 8px; border: 1px solid var(--line); font: 10px var(--mono); }
 .capability-view { display: grid; justify-items: start; gap: 5px; }
 .capability-detail { display: block; max-width: 190px; color: var(--faint); font: 10px/1.35 var(--mono); }

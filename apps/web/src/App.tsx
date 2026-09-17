@@ -9,6 +9,7 @@ import {
   ListTree,
   Menu,
   Moon,
+  Network,
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
@@ -60,6 +61,11 @@ const fallbackConfig: WatchdogConfig = {
       normalPrompt: '继续',
       goalPrompt: '/goal resume',
       goalStatuses: ['active', 'paused'],
+    },
+    dsh: {
+      enabled: true,
+      normalPrompt: '继续',
+      sessionWindowMs: 3_600_000,
     },
   },
   processFilters: { sameUserOnly: true, include: [], exclude: [] },
@@ -126,12 +132,33 @@ const fallbackSessions: SessionView[] = [
     lastDecision: 'cannot-inject',
     transportError: 'no-cwd-match',
   },
+  {
+    id: 'dsh:session-4f21c0a8',
+    tool: 'dsh',
+    rootPid: 973_680,
+    childPids: [973_681],
+    conversationId: 'session-4f21c0a8-0e75-4f7a-9f0b-2a63b91d0f52',
+    goal: null,
+    transport: 'monitor-only',
+    alive: true,
+    enabled: true,
+    paused: false,
+    startedAtMs: now - 1_260_000,
+    lastActivityAtMs: now - 42_000,
+    quietForMs: 42_000,
+    pendingPrompt: '继续',
+    lastDecision: 'awaiting-quiet-period',
+    transportError: 'DeepSeek Harness exposes no local input transport',
+    sessionCwd: 'D:\\project\\ai-cli-bypass',
+    runningTurn: false,
+  },
 ];
 
 const fallbackEvents: AuditEvent[] = [
   { id: 'sample-1', timestampMs: now - 18_000, type: 'activity', sessionId: 'claude:214052', tool: 'claude' },
   { id: 'sample-2', timestampMs: now - 74_000, type: 'decision', sessionId: 'codex:336756', tool: 'codex', details: { decision: 'awaiting-quiet-period' } },
   { id: 'sample-3', timestampMs: now - 132_000, type: 'skip', sessionId: 'codex:333616', tool: 'codex', details: { reason: 'monitor-only' } },
+  { id: 'sample-4', timestampMs: now - 42_000, type: 'activity', sessionId: 'dsh:session-4f21c0a8', tool: 'dsh', details: { source: 'dsh-session' } },
 ];
 
 function duration(ms: number | null | undefined): string {
@@ -182,6 +209,17 @@ function canInject(session: SessionView): boolean {
   return session.alive && session.enabled && !['monitor-only', 'cannot-inject', 'unknown'].includes(session.transport);
 }
 
+function toolLabel(tool: SessionView['tool']): string {
+  if (tool === 'codex') return 'Codex';
+  if (tool === 'dsh') return 'DeepSeek Harness';
+  return 'Claude';
+}
+
+function conversationLabel(session: SessionView): string {
+  if (session.tool === 'dsh') return session.runningTurn ? '步骤执行中' : '等待输入';
+  return session.goal ? `Goal · ${session.goal.status}` : '普通对话';
+}
+
 function transportReason(error: string | undefined): string | null {
   if (!error) return null;
   const reasons: Record<string, string> = {
@@ -195,6 +233,10 @@ function transportReason(error: string | undefined): string | null {
     'ambiguous Claude resume session association': 'Claude 会话关联不唯一',
     'shared classic Console contains multiple discovered CLI sessions': '多个 CLI 共用同一 Console',
     'Codex state database was not found': '未找到 Codex 状态库',
+    'DeepSeek Harness exposes no local input transport': 'DeepSeek Harness 暂无本机写入通道',
+    'DeepSeek Harness host has no live session': 'Harness 宿主机没有活动会话',
+    'DeepSeek Harness session is no longer live': 'Harness 会话已结束',
+    'DeepSeek Harness session disappeared during discovery': 'Harness 会话在扫描中结束',
   };
   if (error.startsWith('ambiguous Claude session association')) return 'Claude 会话关联不唯一';
   return reasons[error] ?? error;
@@ -234,7 +276,7 @@ function DecisionChip({ decision }: { decision: string | undefined }) {
 function ToolMark({ tool }: { tool: SessionView['tool'] }) {
   return (
     <span className={`tool-mark tool-mark--${tool}`} aria-hidden="true">
-      {tool === 'codex' ? <Terminal size={16} /> : <Bot size={16} />}
+      {tool === 'codex' ? <Terminal size={16} /> : tool === 'dsh' ? <Network size={16} /> : <Bot size={16} />}
     </span>
   );
 }
@@ -292,10 +334,10 @@ function ProcessTable(props: {
             {props.sessions.map((session) => (
               <tr key={session.id} className={!session.alive ? 'is-muted' : undefined}>
                 <td>
-                  <div className="process-id"><ToolMark tool={session.tool} /><div><strong>{session.tool === 'codex' ? 'Codex' : 'Claude'}</strong><span>PID {session.rootPid}{session.childPids.length > 0 ? ` + ${session.childPids.length}` : ''}</span></div></div>
+                  <div className="process-id"><ToolMark tool={session.tool} /><div><strong>{toolLabel(session.tool)}</strong><span>PID {session.rootPid}{session.childPids.length > 0 ? ` + ${session.childPids.length}` : ''}{session.sessionCwd ? ` · ${session.sessionCwd}` : ''}</span></div></div>
                 </td>
                 <td><CapabilityBadge session={session} /></td>
-                <td><strong className="conversation">{session.goal ? `Goal · ${session.goal.status}` : '普通对话'}</strong><span className="subtle">{session.conversationId ?? '未关联'}</span></td>
+                <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle">{session.conversationId ?? '未关联'}</span></td>
                 <td><strong>{duration(session.quietForMs ?? (session.lastActivityAtMs ? Date.now() - session.lastActivityAtMs : null))}</strong><DecisionChip decision={session.lastDecision} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
                 <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} /></td>
@@ -307,9 +349,9 @@ function ProcessTable(props: {
       <div className="session-cards">
         {props.sessions.map((session) => (
           <article className="session-card" key={session.id}>
-            <header><div className="process-id"><ToolMark tool={session.tool} /><div><strong>{session.tool === 'codex' ? 'Codex' : 'Claude'}</strong><span>PID {session.rootPid}</span></div></div><CapabilityBadge session={session} /></header>
+            <header><div className="process-id"><ToolMark tool={session.tool} /><div><strong>{toolLabel(session.tool)}</strong><span>PID {session.rootPid}{session.sessionCwd ? ` · ${session.sessionCwd}` : ''}</span></div></div><CapabilityBadge session={session} /></header>
             <dl>
-              <div><dt>对话</dt><dd>{session.goal ? `Goal · ${session.goal.status}` : '普通对话'}</dd></div>
+              <div><dt>对话</dt><dd>{conversationLabel(session)}</dd></div>
               <div><dt>静默</dt><dd>{duration(session.quietForMs ?? 0)}</dd></div>
               <div className="session-card__prompt"><dt>下一输入</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
             </dl>
@@ -463,6 +505,8 @@ function SettingsPanel(props: {
           <label><span>Claude</span><input value={draft.tools.claude.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, normalPrompt: event.target.value } } })} /></label>
           <label><span>Codex 普通对话</span><input value={draft.tools.codex.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, normalPrompt: event.target.value } } })} /></label>
           <label><span>Codex Goal</span><input value={draft.tools.codex.goalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, goalPrompt: event.target.value } } })} /></label>
+          <label><span>DeepSeek Harness</span><input value={draft.tools.dsh.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, normalPrompt: event.target.value } } })} /></label>
+          <label><span>Harness 活动窗口（分钟）</span><input aria-label="Harness 活动窗口（分钟）" type="number" min="1" value={Math.round(draft.tools.dsh.sessionWindowMs / 60_000)} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, sessionWindowMs: Math.max(1, Number(event.target.value)) * 60_000 } } })} /></label>
         </div>
         <div className="switch-row"><div><strong>Dry run</strong><span>只记录决策，不写入进程</span></div><label className="switch"><input aria-label="Dry run" type="checkbox" checked={draft.dryRun} onChange={(event) => setDraft({ ...draft, dryRun: event.target.checked })} /><span /></label></div>
       </section>

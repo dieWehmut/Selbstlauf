@@ -21,6 +21,7 @@ const initialConfig: WatchdogConfig = {
       stopHook: { enabled: false, leaseTtlMs: 15_000, commandTimeoutMs: 1_500 },
     },
     codex: { enabled: true, normalPrompt: '继续', goalPrompt: '/goal resume', goalStatuses: ['active', 'paused'] },
+    dsh: { enabled: true, normalPrompt: '继续', sessionWindowMs: 3_600_000 },
   },
   processFilters: { sameUserOnly: true, include: [], exclude: [] },
 };
@@ -30,12 +31,14 @@ const initialSessions: SessionView[] = [
   { id: 'codex:336756', tool: 'codex', rootPid: 336756, childPids: [327660], conversationId: 'demo-goal', goal: { status: 'active', updatedAtMs: now - 26000 }, transport: 'codex-app-server', alive: true, enabled: true, paused: false, startedAtMs: now - 3420000, lastActivityAtMs: now - 74000, quietForMs: 74000, pendingPrompt: '/goal resume', lastDecision: 'awaiting-quiet-period' },
   { id: 'claude:214052', tool: 'claude', rootPid: 214052, childPids: [], conversationId: 'demo-project', goal: null, transport: 'classic-console', alive: true, enabled: true, paused: false, startedAtMs: now - 1680000, lastActivityAtMs: now - 18000, quietForMs: 18000, pendingPrompt: '继续', lastDecision: 'output-observed' },
   { id: 'codex:333616', tool: 'codex', rootPid: 333616, childPids: [177240], conversationId: null, goal: null, transport: 'monitor-only', transportError: 'no-cwd-match', alive: true, enabled: true, paused: false, startedAtMs: now - 840000, lastActivityAtMs: now - 132000, quietForMs: 132000, pendingPrompt: '继续', lastDecision: 'cannot-inject' },
+  { id: 'dsh:session-4f21c0a8', tool: 'dsh', rootPid: 973680, childPids: [973681], conversationId: 'session-4f21c0a8-0e75-4f7a-9f0b-2a63b91d0f52', goal: null, transport: 'monitor-only', transportError: 'DeepSeek Harness exposes no local input transport', alive: true, enabled: true, paused: false, startedAtMs: now - 1260000, lastActivityAtMs: now - 42000, quietForMs: 42000, pendingPrompt: '继续', lastDecision: 'awaiting-quiet-period', sessionCwd: 'D:\\project\\ai-cli-bypass', runningTurn: false },
 ];
 
 const events: AuditEvent[] = [
   { id: 'demo-1', timestampMs: now - 18000, type: 'activity', sessionId: 'claude:214052', tool: 'claude' },
   { id: 'demo-2', timestampMs: now - 74000, type: 'decision', sessionId: 'codex:336756', tool: 'codex', details: { decision: 'awaiting-quiet-period' } },
   { id: 'demo-3', timestampMs: now - 132000, type: 'skip', sessionId: 'codex:333616', tool: 'codex', details: { reason: 'monitor-only' } },
+  { id: 'demo-4', timestampMs: now - 42000, type: 'activity', sessionId: 'dsh:session-4f21c0a8', tool: 'dsh', details: { source: 'dsh-session' } },
 ];
 
 const initialHealth: HealthView = {
