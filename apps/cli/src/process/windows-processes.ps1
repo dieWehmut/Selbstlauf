@@ -1,17 +1,104 @@
 param(
     [string[]]$IncludeExecutableName = @(),
-    [int[]]$IncludeProcessId = @()
+    [int[]]$IncludeProcessId = @(),
+    [string[]]$WindowTitleMarker = @()
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# The provider's stdout is captured through a pipe, where Windows PowerShell 5.1
+# would otherwise encode non-ASCII window titles and paths in the OEM code page
+# and the caller would read mojibake.
+try {
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+} catch {
+    # A host without a console keeps its own encoding; the caller still parses.
+}
+
 Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Selbstlauf.ProcessMetadata {
+    public sealed class WindowRecord {
+        public long Handle;
+        public int Pid;
+        public string Title;
+        public string ClassName;
+        public bool Visible;
+    }
+
+    public static class TopLevelWindowReader {
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc callback, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowTextW(IntPtr hWnd, StringBuilder text, int maxCount);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassNameW(IntPtr hWnd, StringBuilder text, int maxCount);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        private const string FrameHostImage = "applicationframehost.exe";
+
+        private static WindowRecord Describe(IntPtr hWnd) {
+            uint pid;
+            GetWindowThreadProcessId(hWnd, out pid);
+            StringBuilder title = new StringBuilder(512);
+            GetWindowTextW(hWnd, title, title.Capacity);
+            StringBuilder className = new StringBuilder(256);
+            GetClassNameW(hWnd, className, className.Capacity);
+            return new WindowRecord {
+                Handle = hWnd.ToInt64(),
+                Pid = (int)pid,
+                Title = title.ToString(),
+                ClassName = className.ToString(),
+                Visible = IsWindowVisible(hWnd),
+            };
+        }
+
+        /// <summary>
+        /// Every titled top-level window. A UWP frame is owned by
+        /// ApplicationFrameHost, so the titled child window is reported with the
+        /// identifier of the process that actually renders it.
+        /// </summary>
+        public static WindowRecord[] Read() {
+            List<WindowRecord> list = new List<WindowRecord>();
+            EnumWindows((hWnd, _) => {
+                WindowRecord window = Describe(hWnd);
+                if (window.Title.Length == 0) {
+                    return true;
+                }
+                list.Add(window);
+                if (window.ClassName.Equals("ApplicationFrameWindow", StringComparison.OrdinalIgnoreCase)) {
+                    EnumChildWindows(hWnd, (child, __) => {
+                        WindowRecord inner = Describe(child);
+                        if (inner.Title.Length > 0) {
+                            list.Add(inner);
+                        }
+                        return true;
+                    }, IntPtr.Zero);
+                }
+                return true;
+            }, IntPtr.Zero);
+            return list.ToArray();
+        }
+    }
+
     public static class CurrentDirectoryReader {
         private const uint ProcessQueryInformation = 0x0400;
         private const uint ProcessVmRead = 0x0010;
@@ -269,6 +356,13 @@ $includeProcessIds = @(
     }
 )
 
+$windowTitleMarkers = @(
+    foreach ($configuredMarker in $WindowTitleMarker) {
+        $marker = ([string]$configuredMarker).Trim()
+        if ($marker.Length -gt 0) { $marker }
+    }
+)
+
 # The signature that marks a process as a supported CLI. It is used both to keep
 # the record (the node image name alone is far too broad) and to describe why an
 # otherwise unrelated process is being reported.
@@ -335,8 +429,91 @@ function Resolve-WorkingDirectory {
     }
 }
 
+$processIndex = @{}
+$allProcesses = @(Get-WmiObject -Class Win32_Process)
+foreach ($process in $allProcesses) {
+    $indexName = ConvertTo-NullableString $process.Name
+    $processIndex[[int]$process.ProcessId] = [pscustomobject]@{
+        pid = [int]$process.ProcessId
+        parentPid = [int]$process.ParentProcessId
+        name = $indexName
+        executablePath = ConvertTo-NullableString $process.ExecutablePath
+    }
+}
+
+# Top-level windows are enumerated once per run. A window is reported for a
+# candidate when its owner is an ancestor of that candidate, or when its title
+# carries one of the caller's markers (the harness WebUI is served over loopback
+# and is therefore owned by the browser, not by any ancestor).
+$windowsByOwner = @{}
+foreach ($window in [Selbstlauf.ProcessMetadata.TopLevelWindowReader]::Read()) {
+    if ([string]::IsNullOrWhiteSpace($window.Title)) {
+        continue
+    }
+    # Hidden windows cannot be shown to a person, so only the visible ones are
+    # reported; a marker match is kept regardless because it identifies the
+    # harness WebUI tab.
+    $ownerPid = [int]$window.Pid
+    $owner = $processIndex[$ownerPid]
+    $entry = [pscustomobject]@{
+        handle = [long]$window.Handle
+        pid = $ownerPid
+        processName = if ($null -eq $owner) { $null } else { $owner.name }
+        title = [string]$window.Title
+        className = [string]$window.ClassName
+        visible = [bool]$window.Visible
+    }
+    if (-not $entry.visible) {
+        $matched = $false
+        foreach ($marker in $windowTitleMarkers) {
+            if ($entry.title -like "*$marker*") { $matched = $true; break }
+        }
+        if (-not $matched) { continue }
+    }
+    if ($windowsByOwner.ContainsKey($ownerPid)) {
+        $windowsByOwner[$ownerPid] += $entry
+    } else {
+        $windowsByOwner[$ownerPid] = @($entry)
+    }
+}
+
+$markerWindows = @(
+    foreach ($window in $windowsByOwner.Values) {
+        foreach ($candidateWindow in $window) {
+            foreach ($marker in $windowTitleMarkers) {
+                if ($marker.Length -gt 0 -and $candidateWindow.title -like "*$marker*") {
+                    $candidateWindow
+                    break
+                }
+            }
+        }
+    }
+)
+
+function Resolve-Ancestors {
+    param([int]$ProcessId)
+
+    $chain = @()
+    $current = $processIndex[$ProcessId]
+    $visited = @{}
+    for ($depth = 0; $depth -lt 8 -and $null -ne $current; $depth++) {
+        $parentId = [int]$current.parentPid
+        if ($parentId -le 0 -or $visited.ContainsKey($parentId)) {
+            break
+        }
+        $visited[$parentId] = $true
+        $parent = $processIndex[$parentId]
+        if ($null -eq $parent) {
+            break
+        }
+        $chain += [pscustomobject]@{ pid = $parentId; name = $parent.name }
+        $current = $parent
+    }
+    return $chain
+}
+
 $records = @(
-    foreach ($process in Get-WmiObject -Class Win32_Process) {
+    foreach ($process in $allProcesses) {
         $processId = [int]$process.ProcessId
         $processName = ConvertTo-NullableString $process.Name
         $processCommandLine = ConvertTo-NullableString $process.CommandLine
@@ -357,6 +534,16 @@ $records = @(
             continue
         }
 
+        $ancestors = Resolve-Ancestors -ProcessId $processId
+        $chainPids = @($ancestors | ForEach-Object { $_.pid })
+        $chainWindows = @(
+            foreach ($chainPid in $chainPids) {
+                if ($windowsByOwner.ContainsKey($chainPid)) {
+                    $windowsByOwner[$chainPid]
+                }
+            }
+        )
+
         [pscustomobject]@{
             pid = $processId
             parentPid = [int]$process.ParentProcessId
@@ -366,8 +553,10 @@ $records = @(
             creationDate = ConvertTo-NullableString $process.CreationDate
             userSid = Resolve-OwnerSid -Process $process -ProcessId $processId
             workingDirectory = Resolve-WorkingDirectory $processId
+            ancestors = $ancestors
+            windows = @($chainWindows + $markerWindows | Where-Object { $null -ne $_ })
         }
     }
 )
 
-ConvertTo-Json -InputObject $records -Compress
+ConvertTo-Json -InputObject $records -Compress -Depth 6

@@ -21,6 +21,11 @@ export interface SessionController {
   pause(sessionId: string): Awaitable<boolean>;
   resume(sessionId: string): Awaitable<boolean>;
   inject(sessionId: string, prompt: string, dryRun: boolean): Awaitable<InjectionResult>;
+  focus?(sessionId: string): Awaitable<{
+    readonly ok: boolean;
+    readonly focused?: boolean;
+    readonly reason?: string;
+  }>;
 }
 
 export interface WatchdogLifecycle {
@@ -347,10 +352,28 @@ export class WatchdogHttpServer {
       return this.json(response, 200, { ok: true });
     }
 
-    const sessionRoute = /^\/api\/sessions\/([^/]+)\/(pause|resume|inject)$/.exec(url.pathname);
+    const sessionRoute = /^\/api\/sessions\/([^/]+)\/(pause|resume|inject|focus)$/.exec(url.pathname);
     if (method === 'POST' && sessionRoute !== null) {
       const sessionId = safeDecode(sessionRoute[1]);
       const action = sessionRoute[2];
+      if (action === 'focus') {
+        if (this.sessions.focus === undefined) throw new HttpError(501, 'window focus is not configured');
+        const result = await this.sessions.focus(sessionId);
+        await this.audit({
+          timestampMs: this.now(),
+          type: 'user-override',
+          sessionId,
+          details: { action: 'focus', ok: result.ok, reason: result.reason ?? null },
+        });
+        if (!result.ok) throw new HttpError(409, result.reason ?? 'session window is unavailable');
+        this.publish('sessions', { action: 'focus', sessionId });
+        return this.json(response, 200, {
+          ok: true,
+          sessionId,
+          focused: result.focused ?? true,
+          ...(result.reason === undefined ? {} : { reason: result.reason }),
+        });
+      }
       if (action === 'pause' || action === 'resume') {
         const ok = await this.sessions[action](sessionId);
         if (!ok) throw new HttpError(404, 'session not found');

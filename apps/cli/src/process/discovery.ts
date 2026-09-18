@@ -1,4 +1,9 @@
 import type { RawProcessRecord } from './process-provider.js';
+import {
+  classifySessionHost,
+  type HarnessHostHint,
+  type SessionHost,
+} from './host-apps.js';
 
 export type DiscoveredTool = 'claude' | 'codex' | 'dsh';
 
@@ -14,6 +19,8 @@ export interface GroupProcessesOptions extends ProcessNameOptions {
   /** Override the watchdog PID in tests or when discovery runs in a host process. */
   readonly currentProcessId?: number;
   readonly sameUserOnly?: boolean;
+  /** Marks the harness WebUI window so a hosted session can name its browser. */
+  readonly harnessHost?: HarnessHostHint | null;
 }
 
 export interface DiscoveredProcessSession {
@@ -32,6 +39,8 @@ export interface DiscoveredProcessSession {
    * instead of the root PID so each hosted session stays a distinct row.
    */
   readonly logicalId?: string;
+  /** The application the session is running inside, when it can be resolved. */
+  readonly host?: SessionHost | null;
   readonly transportHint: 'unknown';
 }
 
@@ -216,6 +225,22 @@ export function groupProcesses(
   return [...groups.values()]
     .map(({ tool, root, childPids }) => {
       const workingDirectory = root.workingDirectory ?? extractWorkingDirectory(root.commandLine);
+      const host = classifySessionHost({
+        rootPid: root.pid,
+        rootName: root.name,
+        ancestors: root.ancestors ?? [],
+        windows: (root.windows ?? []).map((window) => ({
+          handle: window.handle,
+          pid: window.pid,
+          processName: window.processName,
+          title: window.title,
+          className: window.className,
+          visible: window.visible,
+        })),
+        // Only the harness serves its interface from a process outside the
+        // session tree, so only its rows may match a browser window by title.
+        harness: tool === 'dsh' ? options.harnessHost ?? null : null,
+      });
       return {
         tool,
         rootPid: root.pid,
@@ -225,6 +250,7 @@ export function groupProcesses(
         creationTimeMs: root.creationTimeMs,
         userSid: root.userSid,
         ...(workingDirectory === null ? {} : { workingDirectory }),
+        ...(host === null ? {} : { host }),
         transportHint: 'unknown' as const,
       };
     })

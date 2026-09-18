@@ -129,6 +129,45 @@ test('serves health, sessions, validated config, and controls on loopback', asyn
   assert.equal((controller.inject as Function).length >= 2, true);
 });
 
+test('reveals a session window through the focus route', async (t) => {
+  const focused: string[] = [];
+  const { service } = await makeServer({
+    focus: async (sessionId) => {
+      focused.push(sessionId);
+      return sessionId === session.id
+        ? { ok: true, focused: true }
+        : { ok: false, reason: 'session-not-found' };
+    },
+  });
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const revealed = await request(base, `/api/sessions/${encodeURIComponent(session.id)}/focus`, {
+    method: 'POST',
+    origin: base,
+  });
+  assert.equal(revealed.response.status, 200);
+  assert.equal(revealed.json.ok, true);
+  assert.equal(revealed.json.focused, true);
+  assert.deepEqual(focused, [session.id]);
+
+  const missing = await request(base, '/api/sessions/absent/focus', { method: 'POST', origin: base });
+  assert.equal(missing.response.status, 409);
+  assert.equal(missing.json.error, 'session-not-found');
+});
+
+test('reports 501 when window reveal is not configured', async (t) => {
+  const { service } = await makeServer();
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const response = await request(base, `/api/sessions/${encodeURIComponent(session.id)}/focus`, {
+    method: 'POST',
+    origin: base,
+  });
+  assert.equal(response.response.status, 501);
+});
+
 test('rejects non-loopback origins and oversized JSON bodies', async (t) => {
   const { service } = await makeServer();
   t.after(() => service.stop());

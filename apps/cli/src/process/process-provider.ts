@@ -15,6 +15,24 @@ export interface RawProcessRecord {
   readonly userSid: string | null;
   /** Best-effort working directory extracted by the provider, if available. */
   readonly workingDirectory?: string | null;
+  /** Immediate parent first, walking outward from this process. */
+  readonly ancestors?: readonly RawAncestorRecord[];
+  /** Visible windows owned by an ancestor, plus caller-marked title matches. */
+  readonly windows?: readonly RawWindowRecord[];
+}
+
+export interface RawAncestorRecord {
+  readonly pid: number;
+  readonly name: string;
+}
+
+export interface RawWindowRecord {
+  readonly handle: number;
+  readonly pid: number;
+  readonly processName: string | null;
+  readonly title: string;
+  readonly className: string;
+  readonly visible: boolean;
 }
 
 interface WindowsProcessJsonRecord {
@@ -26,6 +44,8 @@ interface WindowsProcessJsonRecord {
   readonly creationDate: unknown;
   readonly userSid: unknown;
   readonly workingDirectory: unknown;
+  readonly ancestors: unknown;
+  readonly windows: unknown;
 }
 
 export type ProcessCommandRunner = (
@@ -45,6 +65,12 @@ export interface WindowsProcessProviderOptions {
    * fails closed on every poll.
    */
   readonly includeProcessIds?: readonly number[];
+  /**
+   * Window-title substrings that mark a window as relevant even when no
+   * ancestor owns it. The harness WebUI is served over loopback, so the browser
+   * showing it is never part of the session's process tree.
+   */
+  readonly windowTitleMarkers?: readonly string[];
   readonly runCommand?: ProcessCommandRunner;
 }
 
@@ -92,6 +118,13 @@ function asRecord(value: unknown, index: number): WindowsProcessJsonRecord {
     throw new Error(`Process record ${index} must be an object`);
   }
   return value as WindowsProcessJsonRecord;
+}
+
+/** Nested collections carry their own shape, so they are read as plain objects. */
+function asPlainRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function requiredInteger(value: unknown, field: string, index: number): number {
@@ -147,6 +180,49 @@ function nullableCreationDate(value: unknown, index: number): number | null {
   return timestamp;
 }
 
+function optionalRecordArray(value: unknown): readonly unknown[] | null {
+  if (value === undefined || value === null) return null;
+  return Array.isArray(value) ? value : [value];
+}
+
+function parseAncestors(value: unknown, index: number): RawAncestorRecord[] {
+  const entries = optionalRecordArray(value);
+  if (entries === null) return [];
+  const ancestors: RawAncestorRecord[] = [];
+  for (const entry of entries) {
+    const record = asPlainRecord(entry);
+    if (record === null) continue;
+    const name = nullableString(record.name, 'ancestors[].name', index);
+    if (name === null) continue;
+    ancestors.push({ pid: requiredInteger(record.pid, 'ancestors[].pid', index), name });
+  }
+  return ancestors;
+}
+
+function parseWindows(value: unknown, index: number): RawWindowRecord[] {
+  const entries = optionalRecordArray(value);
+  if (entries === null) return [];
+  const windows: RawWindowRecord[] = [];
+  for (const entry of entries) {
+    const record = asPlainRecord(entry);
+    if (record === null) continue;
+    const title = nullableString(record.title, 'windows[].title', index);
+    const className = nullableString(record.className, 'windows[].className', index);
+    if (title === null || className === null) continue;
+    const handle = record.handle;
+    if (typeof handle !== 'number' || !Number.isSafeInteger(handle) || handle <= 0) continue;
+    windows.push({
+      handle,
+      pid: requiredInteger(record.pid, 'windows[].pid', index),
+      processName: nullableString(record.processName, 'windows[].processName', index),
+      title,
+      className,
+      visible: record.visible === true,
+    });
+  }
+  return windows;
+}
+
 /** Parse the single JSON document emitted by the PowerShell provider. */
 export function parseWindowsProcessJson(stdout: string): RawProcessRecord[] {
   const text = stdout.trim();
@@ -179,6 +255,8 @@ export function parseWindowsProcessJson(stdout: string): RawProcessRecord[] {
       creationTimeMs: nullableCreationDate(record.creationDate, index),
       userSid: nullableString(record.userSid, 'userSid', index),
       ...(workingDirectory === null ? {} : { workingDirectory }),
+      ancestors: parseAncestors(record.ancestors, index),
+      windows: parseWindows(record.windows, index),
     } satisfies RawProcessRecord;
   });
 }
@@ -188,6 +266,7 @@ export class WindowsProcessProvider implements ProcessProvider {
   private readonly scriptPath: string;
   private readonly includeExecutableNames: readonly string[];
   private readonly includeProcessIds: readonly number[];
+  private readonly windowTitleMarkers: readonly string[];
   private readonly runCommand: ProcessCommandRunner;
   private activeAbort: AbortController | null = null;
 
@@ -196,6 +275,7 @@ export class WindowsProcessProvider implements ProcessProvider {
     this.scriptPath = options.scriptPath ?? defaultScriptPath();
     this.includeExecutableNames = options.includeExecutableNames ?? [];
     this.includeProcessIds = options.includeProcessIds ?? [];
+    this.windowTitleMarkers = options.windowTitleMarkers ?? [];
     this.runCommand = options.runCommand ?? runPowerShell;
   }
 
@@ -217,6 +297,11 @@ export class WindowsProcessProvider implements ProcessProvider {
     for (const processId of this.includeProcessIds) {
       if (Number.isSafeInteger(processId) && processId > 0) {
         args.push('-IncludeProcessId', String(processId));
+      }
+    }
+    for (const marker of this.windowTitleMarkers) {
+      if (marker.trim().length > 0) {
+        args.push('-WindowTitleMarker', marker);
       }
     }
     const abort = new AbortController();
