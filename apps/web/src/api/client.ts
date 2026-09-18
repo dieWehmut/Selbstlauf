@@ -4,6 +4,7 @@ export type TransportKind =
   | 'pty'
   | 'codex-app-server'
   | 'claude-stop-hook'
+  | 'dsh-web'
   | 'monitor-only'
   | 'cannot-inject'
   | 'unknown';
@@ -11,6 +12,15 @@ export type TransportKind =
 export interface GoalView {
   status: string;
   updatedAtMs?: number;
+}
+
+export interface SessionHostView {
+  processId: number;
+  executableName: string;
+  label: string;
+  category: 'terminal' | 'editor' | 'desktop-app' | 'browser' | 'console' | 'shell' | 'unknown';
+  windowHandle: number | null;
+  windowTitle: string | null;
 }
 
 export interface SessionView {
@@ -34,6 +44,8 @@ export interface SessionView {
   sessionCwd?: string | null;
   /** DeepSeek Harness sessions report whether a step is still running. */
   runningTurn?: boolean;
+  /** The application the session runs inside, when it could be resolved. */
+  host?: SessionHostView | null;
 }
 
 export interface WatchdogConfig {
@@ -54,7 +66,7 @@ export interface WatchdogConfig {
       };
     };
     codex: { enabled: boolean; normalPrompt: string; goalPrompt: string; goalStatuses: readonly string[] };
-    dsh: { enabled: boolean; normalPrompt: string; sessionWindowMs: number };
+    dsh: { enabled: boolean; normalPrompt: string; sessionWindowMs: number; allowApiInput: boolean };
   };
   processFilters: { sameUserOnly: boolean; include: readonly string[]; exclude: readonly string[] };
 }
@@ -136,6 +148,7 @@ export interface WatchdogApi {
   pause(id: string): Promise<void>;
   resume(id: string): Promise<void>;
   inject(id: string): Promise<void>;
+  focus(id: string): Promise<{ focused: boolean; reason?: string }>;
   install(): Promise<void>;
   startup(): Promise<StartupTaskView>;
   installStartup(): Promise<void>;
@@ -190,6 +203,10 @@ export function createApi(): WatchdogApi {
     pause: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
     resume: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
     inject: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/inject`, { method: 'POST' }),
+    focus: (id) => request<{ focused: boolean; reason?: string }>(
+      `/sessions/${encodeURIComponent(id)}/focus`,
+      { method: 'POST' },
+    ),
     install: () => request<void>('/install', { method: 'POST' }),
     startup: () => request<StartupTaskView>('/startup'),
     installStartup: () => request<void>('/startup/install', { method: 'POST' }),

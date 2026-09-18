@@ -19,6 +19,7 @@ import {
   Send,
   Settings2,
   ShieldAlert,
+  SquareArrowOutUpRight,
   Sun,
   Terminal,
   Trash2,
@@ -66,6 +67,7 @@ const fallbackConfig: WatchdogConfig = {
       enabled: true,
       normalPrompt: '继续',
       sessionWindowMs: 3_600_000,
+      allowApiInput: true,
     },
   },
   processFilters: { sameUserOnly: true, include: [], exclude: [] },
@@ -148,7 +150,7 @@ const fallbackSessions: SessionView[] = [
     quietForMs: 42_000,
     pendingPrompt: '继续',
     lastDecision: 'awaiting-quiet-period',
-    transportError: 'DeepSeek Harness exposes no local input transport',
+    transportError: 'dry run keeps DeepSeek Harness input disabled',
     sessionCwd: 'D:\\project\\ai-cli-bypass',
     runningTurn: false,
   },
@@ -182,6 +184,7 @@ function transportLabel(transport: SessionView['transport']): string {
     pty: 'PTY',
     'codex-app-server': 'App Server',
     'claude-stop-hook': 'Stop Hook',
+    'dsh-web': 'Harness API',
     'monitor-only': '仅监控',
     'cannot-inject': '不可写入',
     unknown: '待识别',
@@ -234,6 +237,11 @@ function transportReason(error: string | undefined): string | null {
     'shared classic Console contains multiple discovered CLI sessions': '多个 CLI 共用同一 Console',
     'Codex state database was not found': '未找到 Codex 状态库',
     'DeepSeek Harness exposes no local input transport': 'DeepSeek Harness 暂无本机写入通道',
+    'DeepSeek Harness input is disabled in the watchdog settings': '已关闭 Harness 写入',
+    'dry run keeps DeepSeek Harness input disabled': 'Dry Run 期间不写入 Harness',
+    'the local DeepSeek Harness session API is unavailable': '未找到可认证的 Harness 本机接口',
+    'harness rejected the local session credential': 'Harness 拒绝了本机会话凭据',
+    'The harness session still has an unfinished step.': 'Harness 仍在执行步骤，不打断',
     'DeepSeek Harness host has no live session': 'Harness 宿主机没有活动会话',
     'DeepSeek Harness session is no longer live': 'Harness 会话已结束',
     'DeepSeek Harness session disappeared during discovery': 'Harness 会话在扫描中结束',
@@ -286,12 +294,23 @@ interface SessionActionsProps {
   busy: string | null;
   onPause: (session: SessionView) => void;
   onInject: (session: SessionView) => void;
+  onFocus: (session: SessionView) => void;
 }
 
-function SessionActions({ session, busy, onPause, onInject }: SessionActionsProps) {
+function SessionActions({ session, busy, onPause, onInject, onFocus }: SessionActionsProps) {
   const waiting = busy === session.id;
   return (
     <div className="row-actions">
+      <button
+        className="icon-button"
+        type="button"
+        title="打开运行位置"
+        aria-label={`打开运行位置 PID ${session.rootPid}`}
+        disabled={waiting || !session.alive || session.host === null || session.host === undefined}
+        onClick={() => onFocus(session)}
+      >
+        <SquareArrowOutUpRight size={17} />
+      </button>
       <button
         className="icon-button"
         type="button"
@@ -316,19 +335,33 @@ function SessionActions({ session, busy, onPause, onInject }: SessionActionsProp
   );
 }
 
+function HostCell({ session }: { session: SessionView }) {
+  const host = session.host ?? null;
+  if (host === null) return <span className="subtle">未识别宿主</span>;
+  return (
+    <div className="host-cell">
+      <span className={`host-badge host-badge--${host.category}`}>{host.label}</span>
+      <span className="subtle" title={host.windowTitle ?? undefined}>
+        {host.windowTitle ?? (host.windowHandle === null ? '网页界面' : `PID ${host.processId}`)}
+      </span>
+    </div>
+  );
+}
+
 function ProcessTable(props: {
   sessions: SessionView[];
   config: WatchdogConfig;
   busy: string | null;
   onPause: (session: SessionView) => void;
   onInject: (session: SessionView) => void;
+  onFocus: (session: SessionView) => void;
 }) {
   return (
     <>
       <div className="process-table-wrap">
         <table className="process-table">
           <thead>
-            <tr><th>进程</th><th>能力</th><th>对话</th><th>静默</th><th>下一输入</th><th><span className="sr-only">操作</span></th></tr>
+            <tr><th>进程</th><th>运行位置</th><th>能力</th><th>对话</th><th>静默</th><th>下一输入</th><th><span className="sr-only">操作</span></th></tr>
           </thead>
           <tbody>
             {props.sessions.map((session) => (
@@ -336,11 +369,12 @@ function ProcessTable(props: {
                 <td>
                   <div className="process-id"><ToolMark tool={session.tool} /><div><strong>{toolLabel(session.tool)}</strong><span>PID {session.rootPid}{session.childPids.length > 0 ? ` + ${session.childPids.length}` : ''}{session.sessionCwd ? ` · ${session.sessionCwd}` : ''}</span></div></div>
                 </td>
+                <td><HostCell session={session} /></td>
                 <td><CapabilityBadge session={session} /></td>
                 <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle">{session.conversationId ?? '未关联'}</span></td>
                 <td><strong>{duration(session.quietForMs ?? (session.lastActivityAtMs ? Date.now() - session.lastActivityAtMs : null))}</strong><DecisionChip decision={session.lastDecision} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
-                <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} /></td>
+                <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} /></td>
               </tr>
             ))}
           </tbody>
@@ -351,11 +385,12 @@ function ProcessTable(props: {
           <article className="session-card" key={session.id}>
             <header><div className="process-id"><ToolMark tool={session.tool} /><div><strong>{toolLabel(session.tool)}</strong><span>PID {session.rootPid}{session.sessionCwd ? ` · ${session.sessionCwd}` : ''}</span></div></div><CapabilityBadge session={session} /></header>
             <dl>
+              <div className="session-card__host"><dt>运行位置</dt><dd><HostCell session={session} /></dd></div>
               <div><dt>对话</dt><dd>{conversationLabel(session)}</dd></div>
               <div><dt>静默</dt><dd>{duration(session.quietForMs ?? 0)}</dd></div>
               <div className="session-card__prompt"><dt>下一输入</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
             </dl>
-            <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} /></footer>
+            <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} /></footer>
           </article>
         ))}
       </div>
@@ -508,6 +543,7 @@ function SettingsPanel(props: {
           <label><span>DeepSeek Harness</span><input value={draft.tools.dsh.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, normalPrompt: event.target.value } } })} /></label>
           <label><span>Harness 活动窗口（分钟）</span><input aria-label="Harness 活动窗口（分钟）" type="number" min="1" value={Math.round(draft.tools.dsh.sessionWindowMs / 60_000)} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, sessionWindowMs: Math.max(1, Number(event.target.value)) * 60_000 } } })} /></label>
         </div>
+        <div className="switch-row"><div><strong>允许续写 DeepSeek Harness</strong><span>通过 Harness 自己的本机会话接口写入，仅在会话已停止且能完成本机认证时生效</span></div><label className="switch"><input aria-label="允许续写 DeepSeek Harness" type="checkbox" checked={draft.tools.dsh.allowApiInput} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, allowApiInput: event.target.checked } } })} /><span /></label></div>
         <div className="switch-row"><div><strong>Dry run</strong><span>只记录决策，不写入进程</span></div><label className="switch"><input aria-label="Dry run" type="checkbox" checked={draft.dryRun} onChange={(event) => setDraft({ ...draft, dryRun: event.target.checked })} /><span /></label></div>
       </section>
       <section className="settings-section settings-section--wide hook-settings">
@@ -651,6 +687,18 @@ export default function App({ api: suppliedApi }: AppProps) {
     } finally { setBusy(null); }
   };
 
+  const focusSession = async (session: SessionView) => {
+    setBusy(session.id); setNotice(null);
+    try {
+      const result = await api.focus(session.id);
+      setNotice(result.focused
+        ? `已打开 ${session.host?.label ?? '运行位置'}`
+        : `已置顶 ${session.host?.label ?? '运行位置'}（系统未授予前台焦点）`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '无法打开运行位置');
+    } finally { setBusy(null); }
+  };
+
   const saveConfig = async (nextConfig: WatchdogConfig) => {
     setSaving(true); setNotice(null);
     try {
@@ -790,7 +838,7 @@ export default function App({ api: suppliedApi }: AppProps) {
 
         {page === 'overview' && <div className="page-content">
           <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{sessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>服务状态</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : connected ? '已停止' : '离线'}</strong></div></section>
-          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : '样例数据'}</span></div><ProcessTable sessions={sessions} config={config} busy={busy} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} /></section>
+          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : '样例数据'}</span></div><ProcessTable sessions={sessions} config={config} busy={busy} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
           <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => setPage('timeline')}>查看全部</button></div><Timeline events={events.slice(0, 5)} /></section>
         </div>}
 

@@ -14,14 +14,14 @@ function api(): WatchdogApi {
         stopHook: { enabled: false, leaseTtlMs: 15_000, commandTimeoutMs: 1_500 },
       },
       codex: { enabled: true, normalPrompt: '继续', goalPrompt: '/goal resume', goalStatuses: ['active', 'paused'] },
-      dsh: { enabled: true, normalPrompt: '继续', sessionWindowMs: 3_600_000 },
+      dsh: { enabled: true, normalPrompt: '继续', sessionWindowMs: 3_600_000, allowApiInput: true },
     }, processFilters: { sameUserOnly: true, include: [], exclude: [] },
   } as const;
   const sessions = [
-    { id: 'goal', tool: 'codex' as const, rootPid: 10, childPids: [], conversationId: 'goal-1', goal: { status: 'paused' }, transport: 'codex-app-server' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 120_000, pendingPrompt: '/goal resume', lastDecision: 'awaiting-quiet-period' },
-    { id: 'normal', tool: 'claude' as const, rootPid: 11, childPids: [], conversationId: null, goal: null, transport: 'classic-console' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 4_000, pendingPrompt: '请继续', lastDecision: 'output-observed' },
-    { id: 'limited', tool: 'codex' as const, rootPid: 12, childPids: [], conversationId: null, goal: null, transport: 'monitor-only' as const, transportError: 'no-cwd-match', alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 150_000, pendingPrompt: '继续', lastDecision: 'cannot-inject' },
-    { id: 'dsh:hosted', tool: 'dsh' as const, rootPid: 13, childPids: [14], conversationId: 'session-hosted', goal: null, transport: 'monitor-only' as const, transportError: 'DeepSeek Harness exposes no local input transport', alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 42_000, pendingPrompt: '继续', lastDecision: 'awaiting-quiet-period', sessionCwd: 'D:\\project\\ai-cli-bypass', runningTurn: true },
+    { id: 'goal', tool: 'codex' as const, rootPid: 10, childPids: [], conversationId: 'goal-1', goal: { status: 'paused' }, transport: 'codex-app-server' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 120_000, pendingPrompt: '/goal resume', lastDecision: 'awaiting-quiet-period', host: { processId: 20, executableName: 'Tabby.exe', label: 'Tabby', category: 'terminal' as const, windowHandle: 65_001, windowTitle: ' Orchester' } },
+    { id: 'normal', tool: 'claude' as const, rootPid: 11, childPids: [], conversationId: null, goal: null, transport: 'classic-console' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 4_000, pendingPrompt: '请继续', lastDecision: 'output-observed', host: { processId: 21, executableName: 'Code.exe', label: 'Visual Studio Code', category: 'editor' as const, windowHandle: 65_002, windowTitle: 'config.toml - Visual Studio Code' } },
+    { id: 'limited', tool: 'codex' as const, rootPid: 12, childPids: [], conversationId: null, goal: null, transport: 'monitor-only' as const, transportError: 'no-cwd-match', alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 150_000, pendingPrompt: '继续', lastDecision: 'cannot-inject', host: null },
+    { id: 'dsh:hosted', tool: 'dsh' as const, rootPid: 13, childPids: [14], conversationId: 'session-hosted', goal: null, transport: 'dsh-web' as const, alive: true, enabled: true, paused: false, startedAtMs: 1, lastActivityAtMs: 2, quietForMs: 42_000, pendingPrompt: '继续', lastDecision: 'awaiting-quiet-period', sessionCwd: 'D:\\project\\ai-cli-bypass', runningTurn: true, host: { processId: 22, executableName: 'msedge.exe', label: 'Microsoft Edge', category: 'browser' as const, windowHandle: 65_003, windowTitle: '帮我优化排版 — DSH' } },
   ];
   return {
     health: vi.fn(async () => ({ ok: true, running: true, dryRun: true, lastPollAtMs: Date.now() - 2_000 })),
@@ -29,6 +29,7 @@ function api(): WatchdogApi {
     updateConfig: vi.fn(async (next) => next),
     sessions: vi.fn(async () => sessions),
     pause: vi.fn(async () => undefined), resume: vi.fn(async () => undefined), inject: vi.fn(async () => undefined),
+    focus: vi.fn(async () => ({ focused: true })),
     install: vi.fn(async () => undefined), startup: vi.fn(async () => ({ installed: false })), installStartup: vi.fn(async () => undefined), uninstallStartup: vi.fn(async () => undefined),
     claudeHook: vi.fn(async () => ({ installed: false, enabled: false, restartRequired: false, manualReviewRequired: false })),
     codexProfiles: vi.fn(async () => ({ path: 'C:/demo/config.toml', exists: true, active: {}, alternatives: {}, current: null })),
@@ -47,6 +48,22 @@ function stoppedApi(): WatchdogApi {
 }
 
 describe('watchdog dashboard', () => {
+  it('shows where each session runs and opens that window', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    expect((await screen.findAllByText('Tabby')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Visual Studio Code').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Microsoft Edge').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('未识别宿主').length).toBeGreaterThan(0);
+
+    // A session with a resolved window offers the reveal action; one without a
+    // host keeps it disabled.
+    const reveal = (await screen.findAllByRole('button', { name: '打开运行位置 PID 10' }))[0];
+    expect(reveal).not.toBeDisabled();
+    fireEvent.click(reveal);
+    await waitFor(() => expect(fake.focus).toHaveBeenCalledWith('goal'));
+    expect((await screen.findAllByRole('button', { name: '打开运行位置 PID 12' }))[0]).toBeDisabled();
+  });
   it('renders independent PIDs and goal/non-goal prompts', async () => {
     render(<App api={api()} />);
     expect(screen.getByText('Selbstlauf')).toBeInTheDocument();
@@ -64,14 +81,30 @@ describe('watchdog dashboard', () => {
     expect(await screen.findByLabelText('Last watchdog poll')).toHaveTextContent('2s');
   });
 
-  it('renders a monitored DeepSeek Harness session with its workspace and live step', async () => {
-    render(<App api={api()} />);
+  it('renders a continuable DeepSeek Harness session with its workspace and live step', async () => {
+    const fake = api();
+    render(<App api={fake} />);
     expect((await screen.findAllByText('DeepSeek Harness')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('session-hosted').length).toBeGreaterThan(0);
     expect(screen.getAllByText('步骤执行中').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('DeepSeek Harness 暂无本机写入通道').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Harness API').length).toBeGreaterThan(0);
+    // The harness session is writable in this fixture, so manual continuation is
+    // offered exactly like it is for a Console session.
     const harnessInject = (await screen.findAllByRole('button', { name: '立即续写 PID 13' }))[0];
-    expect(harnessInject).toBeDisabled();
+    expect(harnessInject).not.toBeDisabled();
+    fireEvent.click(harnessInject);
+    await waitFor(() => expect(fake.inject).toHaveBeenCalledWith('dsh:hosted'));
+  });
+
+  it('persists the harness write switch through the API', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    fireEvent.click(screen.getByRole('checkbox', { name: '允许续写 DeepSeek Harness' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      tools: expect.objectContaining({ dsh: expect.objectContaining({ allowApiInput: false }) }),
+    })));
   });
 
   it('disables injection for monitor-only sessions and calls pause/inject controls', async () => {

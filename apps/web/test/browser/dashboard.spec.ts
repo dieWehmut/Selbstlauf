@@ -9,7 +9,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
     await expect(page.locator('.process-table-wrap')).toBeVisible();
     await expect(page.locator('.session-cards')).toBeHidden();
-    await expect(page.locator('.process-table tbody tr')).toHaveCount(3);
+    await expect(page.locator('.process-table tbody tr')).toHaveCount(4);
     await expect(page.getByRole('button', { name: '紧急停止' })).toBeVisible();
     await page.getByRole('button', { name: '紧急停止' }).click();
     await expect(page.getByRole('button', { name: '启动 Watchdog' })).toBeVisible();
@@ -26,7 +26,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
 
     await expect(page.locator('.process-table-wrap')).toBeHidden();
     await expect(page.locator('.session-cards')).toBeVisible();
-    await expect(page.locator('.session-card')).toHaveCount(3);
+    await expect(page.locator('.session-card')).toHaveCount(4);
     await expect(page.getByRole('button', { name: '紧急停止' })).toBeVisible();
     await page.getByRole('button', { name: '紧急停止' }).click();
     await expect(page.getByRole('button', { name: '启动 Watchdog' })).toBeVisible();
