@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -76,12 +77,38 @@ export interface ElectronShell {
 export interface DesktopWindowRequest {
   readonly serviceOrigin: string;
   readonly preloadPath?: string;
+  /** Branded window/taskbar icon; falls back to the Electron default when absent. */
+  readonly iconPath?: string;
+}
+
+export interface WindowIconOptions {
+  readonly appRoot: string;
+}
+
+/**
+ * Locate the icon installed with the app.
+ *
+ * The asset ships beside the app (`apps/desktop/build` in a checkout,
+ * `resources/build` in a packaged install) and is loaded by absolute path,
+ * which is the only form Electron accepts without a registered protocol.
+ * A build without the asset still opens its window; it just keeps the default.
+ */
+export function resolveWindowIconPath(options: WindowIconOptions): string | undefined {
+  const candidate = resolve(options.appRoot, 'build', 'icon.ico');
+  return existsSync(candidate) ? candidate : undefined;
+}
+
+/** Spreadable form so callers never build an `undefined` icon option. */
+function windowIcon(appRoot: string): { readonly iconPath?: string } {
+  const iconPath = resolveWindowIconPath({ appRoot });
+  return iconPath === undefined ? {} : { iconPath };
 }
 
 function openWindow(shell: ElectronShell, request: DesktopWindowRequest): ElectronWindow {
   const window = new shell.BrowserWindow({
     ...createWindowOptions({ serviceOrigin: request.serviceOrigin }),
     ...(request.preloadPath === undefined ? {} : { preload: request.preloadPath }),
+    ...(request.iconPath === undefined ? {} : { icon: request.iconPath }),
   } as DesktopWindowOptions);
   applyNavigationPolicy({
     webContents: window.webContents,
@@ -97,10 +124,14 @@ function openWindow(shell: ElectronShell, request: DesktopWindowRequest): Electr
 export async function launchDesktop(
   shell: ElectronShell,
   environment: NodeJS.ProcessEnv = process.env,
+  options: { readonly appRoot?: string } = {},
 ): Promise<ResolvedTarget> {
   await shell.app.whenReady();
   const target = await resolveDesktopTarget(environment);
-  const window = openWindow(shell, { serviceOrigin: target.url });
+  const window = openWindow(shell, {
+    serviceOrigin: target.url,
+    ...(options.appRoot === undefined ? {} : windowIcon(options.appRoot)),
+  });
   await window.loadURL(target.url);
   window.on('closed', () => undefined);
   return target;
@@ -138,6 +169,7 @@ export async function hostAndLaunch(
   const window = openWindow(shell, {
     serviceOrigin: target.url,
     ...(options.preloadPath === undefined ? {} : { preloadPath: options.preloadPath }),
+    ...windowIcon(options.appRoot),
   });
   await window.loadURL(target.url);
   window.on('closed', () => undefined);
@@ -168,7 +200,7 @@ export async function main(): Promise<void> {
     const fallback = await resolveDesktopTarget().catch(() => null);
     if (fallback === null || fallback.kind !== 'service') throw error;
     process.stderr.write(`${message}\nfalling back to the recorded watchdog service\n`);
-    const window = openWindow(shell, { serviceOrigin: fallback.url, preloadPath });
+    const window = openWindow(shell, { serviceOrigin: fallback.url, preloadPath, ...windowIcon(appRoot) });
     await window.loadURL(fallback.url);
     window.on('closed', () => undefined);
     hosted = { target: fallback, host: null };

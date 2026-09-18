@@ -134,6 +134,57 @@ test('opens a hardened window pointed at a healthy watchdog service', async () =
   }
 });
 
+test('brands the window with the shipped Selbstlauf icon', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-brand-'));
+  await mkdir(join(root, 'service-dist', 'src'), { recursive: true });
+  await mkdir(join(root, 'web-dist'), { recursive: true });
+  await mkdir(join(root, 'build'), { recursive: true });
+  await writeFile(join(root, 'service-dist', 'src', 'index.js'), '', 'utf8');
+  await writeFile(join(root, 'build', 'icon.ico'), 'icon', 'utf8');
+
+  const stub = buildShell();
+  try {
+    await hostAndLaunch(stub.shell, {
+      appRoot: root,
+      resourcesPath: root,
+      environment: { LOCALAPPDATA: root } as NodeJS.ProcessEnv,
+      startService: async () => ({
+        origin: 'http://127.0.0.1:48500',
+        pid: 4242,
+        reused: false,
+        stop: async () => undefined,
+      }),
+    });
+    assert.equal(stub.windows[0]?.icon, join(root, 'build', 'icon.ico'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('omits the window icon when no branded asset is installed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-nobrand-'));
+  await mkdir(join(root, 'service-dist', 'src'), { recursive: true });
+  await mkdir(join(root, 'web-dist'), { recursive: true });
+  await writeFile(join(root, 'service-dist', 'src', 'index.js'), '', 'utf8');
+
+  const stub = buildShell();
+  try {
+    await hostAndLaunch(stub.shell, {
+      appRoot: root,
+      resourcesPath: root,
+      environment: { LOCALAPPDATA: root } as NodeJS.ProcessEnv,
+      startService: async () => ({
+        origin: 'http://127.0.0.1:48500',
+        pid: 4242,
+        reused: false,
+        stop: async () => undefined,
+      }),
+    });
+    assert.equal('icon' in (stub.windows[0] ?? {}), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test('detects the CLI entry for both "electron ." and direct script launches', () => {
   const moduleUrl = pathToFileURL(resolve('apps', 'desktop', 'dist', 'src', 'main.js')).href;
   const self = resolve('apps', 'desktop', 'dist', 'src', 'main.js');

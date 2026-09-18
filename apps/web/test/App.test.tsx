@@ -48,6 +48,14 @@ function stoppedApi(): WatchdogApi {
 }
 
 describe('watchdog dashboard', () => {
+  it('brands the sidebar with the Selbstlauf icon', async () => {
+    render(<App api={api()} />);
+    const mark = await screen.findByTestId('brand-mark');
+    // The asset is imported, so Vite rewrites the URL for the Pages sub-path too.
+    expect(mark.querySelector('img')?.getAttribute('src')).toContain('brand');
+    expect(mark.querySelector('img')?.getAttribute('alt')).toBe('');
+  });
+
   it('shows where each session runs and opens that window', async () => {
     const fake = api();
     render(<App api={fake} />);

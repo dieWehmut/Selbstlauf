@@ -36,6 +36,8 @@ export interface DesktopWindowOptions extends DesktopWebPreferences {
   readonly minHeight: number;
   readonly autoHideMenuBar: true;
   readonly backgroundColor: string;
+  /** Absolute path of the branded window/taskbar icon, when one is installed. */
+  readonly icon?: string;
 }
 
 function parseOrigin(value: string): URL | null {
