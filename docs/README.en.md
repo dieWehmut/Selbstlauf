@@ -425,11 +425,18 @@ a path. The Pages demo models the same buttons in memory and installs nothing.
 ### Appearance
 
 The General tab offers the theme choice: one preview card each for system, light,
-and dark, a comparison strip showing the current variables beside the edited ones,
-and an accent picker that repaints the interface immediately. Overrides are stored
-per color scheme, so a custom dark palette survives a switch to light and back,
-and reset restores the built-in palette for the current scheme. All of this is
-client-side and never writes server state.
+and dark, then a code diff showing the surface, accent, and contrast values in
+effect beside the stock ones. Below that the page lists one row per setting: the
+accent picker, background and foreground color inputs, the interface font and
+weight, the content font (which can simply follow the interface), a translucent
+sidebar switch, and a contrast slider.
+
+Contrast sets how far surfaces and borders sit from the page background; a higher
+value lifts panels more clearly. A translucent sidebar lets the page show through
+so the layout reads as one surface. Overrides are stored per color scheme, so a
+custom dark palette survives a switch to light and back, and reset restores the
+built-in palette for the current scheme. All of this is client-side and never
+writes server state.
 
 ## WebUI demo site
 
