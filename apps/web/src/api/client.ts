@@ -126,6 +126,26 @@ export interface CodexProfileApplyView {
   changes: CodexProfileChangeView[];
 }
 
+export type ToolState = 'current' | 'outdated' | 'missing' | 'unknown';
+
+export interface EnvironmentToolView {
+  readonly id: string;
+  readonly label: string;
+  readonly packageName: string;
+  readonly installed: string | null;
+  readonly latest: string | null;
+  readonly state: ToolState;
+  readonly installCommand: string;
+}
+
+export interface EnvironmentView {
+  readonly tools: readonly EnvironmentToolView[];
+  readonly upgrades: readonly string[];
+  readonly missing: readonly string[];
+  readonly manualCommands: readonly string[];
+  readonly checkedAtMs: number;
+}
+
 
 export type WatchdogEvent =
   | { readonly kind: 'audit'; readonly event: AuditEvent }
@@ -155,6 +175,8 @@ export interface WatchdogApi {
   uninstallStartup(): Promise<void>;
   codexProfiles(): Promise<CodexProfilesView>;
   applyCodexProfile(fields: readonly CodexProfileFieldView[]): Promise<CodexProfileApplyView>;
+  environment(): Promise<EnvironmentView>;
+  refreshEnvironment(): Promise<EnvironmentView>;
   claudeHook(): Promise<ClaudeHookStatusView>;
   installClaudeHook(): Promise<ClaudeHookStatusView>;
   uninstallClaudeHook(): Promise<ClaudeHookStatusView>;
@@ -216,6 +238,8 @@ export function createApi(): WatchdogApi {
       method: 'PUT',
       body: JSON.stringify({ fields }),
     }),
+    environment: () => request<EnvironmentView>('/environment'),
+    refreshEnvironment: () => request<EnvironmentView>('/environment/refresh', { method: 'POST' }),
     claudeHook: () => request<ClaudeHookStatusView>('/claude-hook'),
     installClaudeHook: () => request<ClaudeHookStatusView>('/claude-hook/install', { method: 'POST' }),
     uninstallClaudeHook: () => request<ClaudeHookStatusView>('/claude-hook/uninstall', { method: 'POST' }),

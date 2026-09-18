@@ -85,6 +85,55 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.screenshot({ path: testInfo.outputPath('codex-endpoints-desktop-1280x900.png'), fullPage: true });
   });
 
+  test('reports the local agent environment and the manual install commands', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/');
+    await page.getByRole('button', { name: '设置' }).click();
+
+    const panel = page.locator('.environment-panel');
+    await expect(panel.getByRole('heading', { name: '本地环境检查' })).toBeVisible();
+
+    // Every catalog agent appears with its installed and published version.
+    await expect(panel.getByText('Claude Code')).toBeVisible();
+    await expect(panel.getByTestId('tool-claude').getByText('2.1.274')).toBeVisible();
+    await expect(panel.getByTestId('tool-claude').getByText('2.1.276')).toBeVisible();
+    await expect(panel.getByTestId('tool-claude').getByText('可升级')).toBeVisible();
+
+    // A tool that is not installed says so instead of claiming it is current.
+    await expect(panel.getByTestId('tool-grok').getByText('未安装').first()).toBeVisible();
+
+    // The manual install block opens and carries the real commands.
+    await panel.getByRole('button', { name: /手动安装命令/ }).click();
+    await expect(panel.getByTestId('manual-commands')).toContainText('npm i -g @openai/codex@latest');
+    await expect(panel.getByTestId('manual-commands')).toContainText('npm i -g openclaw@latest');
+
+    // The Cards stay inside the viewport.
+    const panelBox = await panel.boundingBox();
+    expect(panelBox).not.toBeNull();
+    expect(panelBox!.x).toBeGreaterThanOrEqual(0);
+    expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(1280);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+
+    await page.screenshot({ path: testInfo.outputPath('environment-desktop-1280x900.png'), fullPage: true });
+  });
+
+  test('keeps the environment cards readable on a narrow mobile viewport', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 360, height: 780 });
+    await page.goto('/');
+    await page.getByRole('button', { name: '打开菜单' }).click();
+    await page.getByRole('button', { name: '设置' }).click();
+
+    const panel = page.locator('.environment-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId('tool-claude')).toBeVisible();
+    const panelBox = await panel.boundingBox();
+    expect(panelBox).not.toBeNull();
+    expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(360);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath('environment-mobile-360x780.png'), fullPage: true });
+  });
+
+
   test('keeps Codex endpoint controls bounded on a narrow mobile viewport', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/');

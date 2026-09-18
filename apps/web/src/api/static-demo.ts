@@ -1,6 +1,8 @@
 import type {
   AuditEvent,
   ClaudeHookStatusView,
+  EnvironmentToolView,
+  EnvironmentView,
   HealthView,
   SessionView,
   WatchdogApi,
@@ -48,6 +50,31 @@ const initialHealth: HealthView = {
   lastPollAtMs: now - 1_000,
   version: 'pages-demo',
 };
+
+/**
+ * Sample environment data for the hosted Pages demo.
+ *
+ * The demo never probes a real machine, so this mirrors what a typical Windows
+ * install reports: a few agents behind their published release, Codex current,
+ * and one agent that is not installed at all.
+ */
+function environmentReport(): EnvironmentView {
+  const tools: EnvironmentToolView[] = [
+    { id: 'claude', label: 'Claude Code', packageName: '@anthropic-ai/claude-code', installed: '2.1.274', latest: '2.1.276', state: 'outdated', installCommand: 'npm i -g @anthropic-ai/claude-code@latest' },
+    { id: 'codex', label: 'Codex', packageName: '@openai/codex', installed: '0.155.0', latest: '0.155.0', state: 'current', installCommand: 'npm i -g @openai/codex@latest' },
+    { id: 'gemini', label: 'Gemini CLI', packageName: '@google/gemini-cli', installed: '0.50.0', latest: '0.60.0', state: 'outdated', installCommand: 'npm i -g @google/gemini-cli@latest' },
+    { id: 'grok', label: 'Grok Build', packageName: '@xai-official/grok', installed: null, latest: '1.0.34', state: 'missing', installCommand: 'npm i -g @xai-official/grok@latest' },
+    { id: 'opencode', label: 'OpenCode', packageName: 'opencode-ai', installed: '1.17.15', latest: '1.18.31', state: 'outdated', installCommand: 'npm i -g opencode-ai@latest' },
+    { id: 'openclaw', label: 'OpenClaw', packageName: 'openclaw', installed: '2026.3.28', latest: '2026.9.4', state: 'outdated', installCommand: 'npm i -g openclaw@latest' },
+  ];
+  return {
+    tools,
+    upgrades: tools.filter((tool) => tool.state === 'outdated').map((tool) => tool.id),
+    missing: tools.filter((tool) => tool.state === 'missing').map((tool) => tool.id),
+    manualCommands: tools.map((tool) => tool.installCommand),
+    checkedAtMs: now,
+  };
+}
 
 export function createStaticDemoApi(): WatchdogApi {
   let currentConfig = structuredClone(initialConfig);
@@ -115,6 +142,8 @@ export function createStaticDemoApi(): WatchdogApi {
       return { ok: true, changes };
     },
     claudeHook: async () => hookStatus(),
+    environment: async () => environmentReport(),
+    refreshEnvironment: async () => environmentReport(),
     installClaudeHook: async () => {
       hookInstallation = { installed: true, restartRequired: true, manualReviewRequired: false };
       return hookStatus();

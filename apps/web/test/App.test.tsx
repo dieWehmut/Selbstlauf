@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
 import type { SessionView, WatchdogApi, WatchdogEvent } from '../src/api/client';
+import type { EnvironmentView } from '../src/api/client';
 
 function api(): WatchdogApi {
   const config = {
@@ -34,6 +35,8 @@ function api(): WatchdogApi {
     claudeHook: vi.fn(async () => ({ installed: false, enabled: false, restartRequired: false, manualReviewRequired: false })),
     codexProfiles: vi.fn(async () => ({ path: 'C:/demo/config.toml', exists: true, active: {}, alternatives: {}, current: null })),
     applyCodexProfile: vi.fn(async () => ({ ok: true, changes: [] })),
+    environment: vi.fn(async () => environment),
+    refreshEnvironment: vi.fn(async () => environment),
     installClaudeHook: vi.fn(async () => ({ installed: true, enabled: false, restartRequired: true, manualReviewRequired: false })),
     uninstallClaudeHook: vi.fn(async () => ({ installed: false, enabled: false, restartRequired: false, manualReviewRequired: false })),
     disableClaudeHook: vi.fn(async () => ({ installed: true, enabled: false, restartRequired: true, manualReviewRequired: false })),
@@ -41,11 +44,60 @@ function api(): WatchdogApi {
   };
 }
 
+const environment: EnvironmentView = {
+  tools: [
+    { id: 'claude', label: 'Claude Code', packageName: '@anthropic-ai/claude-code', installed: '2.1.274', latest: '2.1.276', state: 'outdated', installCommand: 'npm i -g @anthropic-ai/claude-code@latest' },
+    { id: 'codex', label: 'Codex', packageName: '@openai/codex', installed: '0.155.0', latest: '0.155.0', state: 'current', installCommand: 'npm i -g @openai/codex@latest' },
+    { id: 'gemini', label: 'Gemini CLI', packageName: '@google/gemini-cli', installed: '0.50.0', latest: '0.60.0', state: 'outdated', installCommand: 'npm i -g @google/gemini-cli@latest' },
+    { id: 'grok', label: 'Grok Build', packageName: '@xai-official/grok', installed: null, latest: '1.0.34', state: 'missing', installCommand: 'npm i -g @xai-official/grok@latest' },
+  ],
+  upgrades: ['claude', 'gemini'],
+  missing: ['grok'],
+  manualCommands: [
+    'npm i -g @anthropic-ai/claude-code@latest',
+    'npm i -g @openai/codex@latest',
+    'npm i -g @google/gemini-cli@latest',
+    'npm i -g @xai-official/grok@latest',
+  ],
+  checkedAtMs: 1,
+};
+
 function stoppedApi(): WatchdogApi {
   const fake = api();
   fake.health = vi.fn(async () => ({ ok: true, running: false, dryRun: true, lastPollAtMs: Date.now() - 2_000 }));
   return fake;
 }
+
+  it('reports the local environment and offers the install commands', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+
+    // The panel names each agent with its installed and published version.
+    expect(await screen.findByText('Claude Code')).toBeInTheDocument();
+    expect(screen.getByText('2.1.274')).toBeInTheDocument();
+    expect(screen.getByText('2.1.276')).toBeInTheDocument();
+
+    // A missing tool says so instead of pretending it is current.
+    expect(screen.getAllByText('未安装').length).toBeGreaterThan(0);
+
+    // The manual install block is available behind its toggle.
+    fireEvent.click(screen.getByRole('button', { name: /手动安装命令/ }));
+    const block = await screen.findByTestId('manual-commands');
+    expect(block.textContent).toContain('npm i -g @openai/codex@latest');
+
+    // The block can be copied as one runnable script.
+    const writeText = vi.fn(async () => undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    fireEvent.click(screen.getByRole('button', { name: '复制安装命令' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0][0]).toContain('npm i -g @openai/codex@latest');
+
+    // Refreshing asks the service to re-probe rather than reusing its cache.
+    fireEvent.click(screen.getByRole('button', { name: '刷新本地环境' }));
+    await waitFor(() => expect(fake.refreshEnvironment).toHaveBeenCalled());
+  });
+
 
 describe('watchdog dashboard', () => {
   it('brands the sidebar with the Selbstlauf icon', async () => {

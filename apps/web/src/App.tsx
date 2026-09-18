@@ -4,6 +4,7 @@ import {
   CircleAlert,
   CirclePause,
   CirclePlay,
+  Copy,
   Gauge,
   LayoutDashboard,
   ListTree,
@@ -36,6 +37,9 @@ import {
   type ClaudeHookStatusView,
   type CodexProfileFieldView,
   type CodexProfilesView,
+  type EnvironmentToolView,
+  type EnvironmentView,
+  type ToolState,
   type HealthView,
   type SessionView,
   type WatchdogApi,
@@ -414,6 +418,119 @@ function Timeline({ events }: { events: AuditEvent[] }) {
   );
 }
 
+/**
+ * The local environment panel.
+ *
+ * Mirrors what CC Switch shows for a Windows install: one card per agent CLI
+ * with the installed and published version, a state badge, and the exact npm
+ * command that upgrades it. Nothing here installs anything: the panel reports,
+ * and the manual-command block is copyable text a person runs themselves.
+ */
+
+const ENVIRONMENT_STATE_LABEL: Record<ToolState, string> = {
+  outdated: '可升级',
+  current: '已就绪',
+  missing: '未安装',
+  unknown: '未知',
+};
+
+function EnvironmentToolCard({ tool }: { tool: EnvironmentToolView }) {
+  return (
+    <article className={`tool-card tool-card--${tool.state}`} data-testid={`tool-${tool.id}`}>
+      <header>
+        <div className="tool-card__id">
+          <strong>{tool.label}</strong>
+          <span className="tool-card__package">{tool.packageName}</span>
+        </div>
+        <span className={`state-chip state-chip--${tool.state === 'current' ? 'ready' : tool.state === 'outdated' ? 'waiting' : tool.state === 'missing' ? 'limited' : 'error'}`}>
+          <span className="state-chip__dot" />
+          {ENVIRONMENT_STATE_LABEL[tool.state]}
+        </span>
+      </header>
+      <dl className="tool-card__versions">
+        <div><dt>当前版本</dt><dd>{tool.installed ?? '未安装'}</dd></div>
+        <div><dt>最新版本</dt><dd>{tool.latest ?? '--'}</dd></div>
+      </dl>
+      {tool.state === 'outdated' && <code className="tool-card__command">{tool.installCommand}</code>}
+    </article>
+  );
+}
+
+function EnvironmentPanel(props: {
+  environment: EnvironmentView | null;
+  refreshing: boolean;
+  onRefresh: () => Promise<void>;
+}) {
+  const [manualOpen, setManualOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  /**
+   * Copy the whole block as one runnable script.
+   *
+   * The clipboard is not always available (an insecure context, a denied
+   * permission), so the confirmation only appears after the write resolves.
+   */
+  const copyManualCommands = async (commands: readonly string[]) => {
+    try {
+      await navigator.clipboard.writeText(commands.join('\n'));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2_000);
+    } catch {
+      setCopied(false);
+    }
+  };
+  if (props.environment === null) return null;
+  const report = props.environment;
+  return (
+    <section className="settings-section settings-section--wide environment-panel">
+      <div className="section-title">
+        <div><span className="eyebrow">Environment</span><h2>本地环境检查</h2></div>
+        <button
+          className="button button--secondary"
+          type="button"
+          aria-label="刷新本地环境"
+          disabled={props.refreshing}
+          onClick={() => void props.onRefresh()}
+        >
+          {props.refreshing ? <RefreshCw className="spin" size={16} /> : <RefreshCw size={16} />}
+          刷新
+        </button>
+      </div>
+      <div className="environment-panel__body">
+        <div className="tool-grid">
+          {report.tools.map((tool) => <EnvironmentToolCard key={tool.id} tool={tool} />)}
+        </div>
+        <div className="manual-commands">
+          <button
+            className="manual-commands__toggle"
+            type="button"
+            aria-expanded={manualOpen}
+            onClick={() => setManualOpen((current) => !current)}
+          >
+            <Terminal size={16} />
+            手动安装命令
+            <span className="manual-commands__chevron">{manualOpen ? '收起' : '展开'}</span>
+          </button>
+          {manualOpen && (
+            <div className="manual-commands__body">
+              <div className="manual-commands__actions">
+                <button
+                  className="button button--secondary"
+                  type="button"
+                  aria-label="复制安装命令"
+                  onClick={() => { void copyManualCommands(report.manualCommands); }}
+                >
+                  <Copy size={15} />
+                  {copied ? '已复制' : '复制'}
+                </button>
+              </div>
+              <pre data-testid="manual-commands">{report.manualCommands.map((command) => `# ${command.split(' ').at(-1)?.replace('@latest', '') ?? ''}\n${command}`).join('\n')}</pre>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
 function CodexEndpointsPanel(props: {
   profiles: CodexProfilesView | null;
   onApply: (fields: CodexProfileFieldView[]) => Promise<void>;
@@ -490,6 +607,9 @@ function SettingsPanel(props: {
   config: WatchdogConfig;
   hookStatus: ClaudeHookStatusView;
   profiles: CodexProfilesView | null;
+  environment: EnvironmentView | null;
+  environmentRefreshing: boolean;
+  onRefreshEnvironment: () => Promise<void>;
   onApplyProfile: (fields: CodexProfileFieldView[]) => Promise<void>;
   applyingProfile: boolean;
   saving: boolean;
@@ -592,6 +712,7 @@ function SettingsPanel(props: {
         <div className="switch-row"><div><strong>仅监控当前用户进程</strong><span>关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入</span></div><label className="switch"><input aria-label="仅监控当前用户进程" type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
       </section>
       <CodexEndpointsPanel profiles={props.profiles} onApply={props.onApplyProfile} applying={props.applyingProfile} />
+      <EnvironmentPanel environment={props.environment} refreshing={props.environmentRefreshing} onRefresh={props.onRefreshEnvironment} />
       <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}保存配置</button><button className="button button--secondary" type="button" onClick={() => void props.onInstall()} disabled={props.saving}><CirclePlay size={17} />安装 Watchdog</button><button className="button button--secondary" type="button" onClick={() => void props.onToggleStartup()} disabled={props.saving}><Power size={17} />{props.startupInstalled ? '移除启动项' : '安装启动项'}</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? '停止 Watchdog' : '启动 Watchdog'}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />卸载 Watchdog</button></div>
     </form>
   );
@@ -610,6 +731,8 @@ export default function App({ api: suppliedApi }: AppProps) {
   const [startupInstalled, setStartupInstalled] = useState(false);
   const [hookStatus, setHookStatus] = useState<ClaudeHookStatusView>(fallbackHookStatus);
   const [codexProfiles, setCodexProfiles] = useState<CodexProfilesView | null>(null);
+  const [environment, setEnvironment] = useState<EnvironmentView | null>(null);
+  const [environmentRefreshing, setEnvironmentRefreshing] = useState(false);
   const [applyingProfile, setApplyingProfile] = useState(false);
   const [config, setConfig] = useState(fallbackConfig);
   const [sessions, setSessions] = useState<SessionView[]>(fallbackSessions);
@@ -646,13 +769,14 @@ export default function App({ api: suppliedApi }: AppProps) {
 
   const refresh = async () => {
     try {
-      const [nextHealth, nextConfig, nextSessions, nextStartup, nextHookStatus, nextCodexProfiles] = await Promise.all([
+      const [nextHealth, nextConfig, nextSessions, nextStartup, nextHookStatus, nextCodexProfiles, nextEnvironment] = await Promise.all([
         api.health(),
         api.config(),
         api.sessions(),
         api.startup(),
         api.claudeHook(),
         api.codexProfiles(),
+        api.environment(),
       ]);
       setHealth(nextHealth);
       setConfig(nextConfig);
@@ -660,6 +784,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       setStartupInstalled(nextStartup.installed);
       setHookStatus(nextHookStatus);
       setCodexProfiles(nextCodexProfiles);
+      setEnvironment(nextEnvironment);
       setConnected(true);
     } catch {
       setConnected(false);
@@ -701,6 +826,19 @@ export default function App({ api: suppliedApi }: AppProps) {
     } finally { setBusy(null); }
   };
 
+  /**
+   * Re-probe the machine instead of reusing the service's cached scan.
+   * The probe shells out to npm, so the button reports its own progress.
+   */
+  const refreshEnvironment = async () => {
+    setEnvironmentRefreshing(true); setNotice(null);
+    try {
+      setEnvironment(await api.refreshEnvironment());
+      setNotice('本地环境已刷新');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '刷新失败');
+    } finally { setEnvironmentRefreshing(false); }
+  };
   const saveConfig = async (nextConfig: WatchdogConfig) => {
     setSaving(true); setNotice(null);
     try {
@@ -845,7 +983,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{events.length} 条</span></div><Timeline events={events} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
       </main>
     </div>
   );
