@@ -77,6 +77,47 @@ When the OS still refuses, the window is raised to the top of the z-order and th
 endpoint answers with `focused: false` plus the reason, so the dashboard can say
 "raised, focus not granted" instead of claiming success.
 
+## Installed app on the same host
+
+The updated arm64 setup was installed, started, and asked what it watches. The
+installed app - not a repository checkout - reports a location for every session:
+
+```text
+health running=True dryRun=True
+sessions=11
+
+codex:5132                                         Visual Studio Code  [editor]      win=67092     title=orchester.jsonc - Nexus - Visual Studio Code
+codex:62072                                        Codex 应用          [desktop-app] win=18220776  title=ChatGPT
+codex:77248                                        Codex 应用          [desktop-app] win=18220776  title=ChatGPT
+dsh:session-3acd60b1-9056-4191-9070-8cd3563436a7   Microsoft Edge      [browser]     win=2427170   title=帮我优化排版 命令栏应该在输 — DSH 本地构建
+dsh:session-7a950179-084b-4992-9320-f18dfeed11a2   Microsoft Edge      [browser]     win=2427170   title=帮我优化排版 命令栏应该在输 — DSH 本地构建
+codex:96368                                        Tabby               [terminal]    win=459954    title= deepseek-harness
+codex:114336                                       Tabby               [terminal]    win=459954    title= deepseek-harness
+codex:126328                                       Tabby               [terminal]    win=459954    title= deepseek-harness
+codex:130968                                       Tabby               [terminal]    win=459954    title= deepseek-harness
+
+focus script shipped: True
+bundle has 运行位置: True      bundle has 打开运行位置: True      bundle has Harness API: True
+```
+
+Revealing works from the installed app for all three host kinds:
+
+```text
+reveal codex:96368                                      -> ok=True focused=True
+reveal dsh:session-3acd60b1-9056-4191-9070-8cd3563436a7 -> ok=True focused=True
+reveal codex:62072                                      -> ok=True focused=True
+```
+
+The two `session-4af0…` / `session-8818…` rows are the disposable sessions the
+continuation check created. Their directories were deleted afterwards, but the
+running harness still serves them from memory until it restarts, which is why a
+harness row can outlive its files.
+
+The packaged service also carries the new modules, so the installed app has the
+same code paths as the checkout:
+`resources/service-dist/src/dsh/web-host.js`, `.../dsh/loopback-ports.js`,
+`.../transport/dsh-transport.js`, and `.../process/window-focus.ps1`.
+
 ## Defects this run uncovered
 
 - Every session initially reported the harness browser window, because the
