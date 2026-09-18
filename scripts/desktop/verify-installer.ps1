@@ -45,6 +45,9 @@ $requiredFiles = @(
     # emits the PowerShell asset, so this entry is the regression gate for an
     # installer that served a WebUI while discovering no process at all.
     'resources\service-dist\src\process\windows-processes.ps1',
+    # The reveal action resolves its own PowerShell asset the same way, so the
+    # installed app needs it to be able to show a session's window.
+    'resources\service-dist\src\process\window-focus.ps1',
     # The packaged app must ship the logon-task script tree; start-watchdog.ps1
     # resolves service-dist and web-dist beside it at runtime.
     'resources\scripts\continuation\start-watchdog.ps1',
