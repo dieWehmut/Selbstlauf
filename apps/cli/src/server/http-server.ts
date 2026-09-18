@@ -7,6 +7,7 @@ import type { AuditStore } from '../store/audit-store.js';
 import type { ConfigStore } from '../store/config-store.js';
 import type { CodexConfigProfiles } from '../codex/profile-store.js';
 import type { EnvironmentCheck } from '../environment/environment-check.js';
+import { isKnownToolId, type ToolUpgrader } from '../environment/upgrade.js';
 type Awaitable<T> = T | Promise<T>;
 
 export interface InjectionResult {
@@ -68,6 +69,7 @@ export interface WatchdogHttpServerOptions {
   readonly auditStore: AuditStore;
   readonly codexProfiles?: CodexConfigProfiles;
   readonly environment?: EnvironmentCheck;
+  readonly upgrader?: ToolUpgrader;
   readonly sessions: SessionController;
   readonly status?: () => Awaitable<WatchdogStatus>;
   readonly host?: string;
@@ -91,6 +93,7 @@ export class WatchdogHttpServer {
   private readonly auditStore: AuditStore;
   private readonly codexProfiles?: CodexConfigProfiles;
   private readonly environment?: EnvironmentCheck;
+  private readonly upgrader?: ToolUpgrader;
   private readonly sessions: SessionController;
   private readonly status: () => Awaitable<WatchdogStatus>;
   private readonly host: string;
@@ -112,6 +115,7 @@ export class WatchdogHttpServer {
     this.auditStore = options.auditStore;
     this.codexProfiles = options.codexProfiles;
     this.environment = options.environment;
+    this.upgrader = options.upgrader;
     this.sessions = options.sessions;
     this.status = options.status ?? (() => ({ lastPollAtMs: null }));
     this.host = options.host ?? '127.0.0.1';
@@ -326,6 +330,35 @@ export class WatchdogHttpServer {
       await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'environment-refresh' } });
       this.publish('environment', report);
       return this.json(response, 200, report);
+    }
+    if (method === 'POST' && url.pathname === '/api/environment/upgrade') {
+      if (this.upgrader === undefined) throw new HttpError(501, 'tool upgrader is not configured');
+      const body = await readJson(request, this.maxJsonBytes, false) as { id?: unknown };
+      if (typeof body.id !== 'string' || !isKnownToolId(body.id)) {
+        throw new HttpError(400, 'id must name a supported tool');
+      }
+      const result = await this.upgrader.upgrade(body.id);
+      await this.audit({
+        timestampMs: this.now(),
+        type: 'user-override',
+        details: { action: 'environment-upgrade', tool: body.id, ok: result.ok },
+      });
+      if (!result.ok) {
+        throw new HttpError(409, result.error ?? 'the install failed');
+      }
+      this.publish('environment-upgraded', result);
+      return this.json(response, 200, result);
+    }
+    if (method === 'POST' && url.pathname === '/api/environment/upgrade-all') {
+      if (this.upgrader === undefined) throw new HttpError(501, 'tool upgrader is not configured');
+      const results = await this.upgrader.upgradeAll();
+      await this.audit({
+        timestampMs: this.now(),
+        type: 'user-override',
+        details: { action: 'environment-upgrade-all', succeeded: results.filter((result) => result.ok).length },
+      });
+      this.publish('environment-upgraded', results);
+      return this.json(response, 200, { ok: results.every((result) => result.ok), results });
     }
     if (method === 'PUT' && url.pathname === '/api/codex/profiles') {
       if (this.codexProfiles === undefined) throw new HttpError(501, 'Codex profile store is not configured');

@@ -9,6 +9,7 @@ import { ConfigStore } from '../src/store/config-store.js';
 import { AuditStore } from '../src/store/audit-store.js';
 import { CodexConfigProfiles } from '../src/codex/profile-store.js';
 import { EnvironmentCheck } from '../src/environment/environment-check.js';
+import { ToolUpgrader } from '../src/environment/upgrade.js';
 import {
   WatchdogHttpServer,
   type SessionController,
@@ -35,6 +36,7 @@ async function makeServer(
   overrides: Partial<SessionController> = {},
   status?: () => { readonly lastPollAtMs: number | null },
   environment?: EnvironmentCheck,
+  upgrader?: ToolUpgrader,
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'watchdog-http-'));
   const controller: SessionController = {
@@ -52,6 +54,7 @@ async function makeServer(
     sessions: controller,
     status,
     ...(environment === undefined ? {} : { environment }),
+    ...(upgrader === undefined ? {} : { upgrader }),
     port: 0,
   });
   await service.start();
@@ -114,6 +117,84 @@ test('serves the local environment report and refreshes it on demand', async (t)
   assert.equal(refreshed.response.status, 200);
   assert.equal(scans, 2);
 });
+
+test('installs one catalog tool and upgrades every outdated one', async (t) => {
+  const installed: string[] = [];
+  const check = new EnvironmentCheck({
+    readInstalled: async () => [
+      { id: 'claude', installed: '2.1.274' },
+      { id: 'codex', installed: '0.155.0' },
+      { id: 'gemini', installed: null },
+      { id: 'grok', installed: null },
+      { id: 'opencode', installed: null },
+      { id: 'openclaw', installed: null },
+    ],
+    readLatest: async () => new Map([
+      ['@anthropic-ai/claude-code', '2.1.276'],
+      ['@openai/codex', '0.155.0'],
+    ]),
+  });
+  const upgrader = new ToolUpgrader({
+    runNpm: async (args) => {
+      installed.push(args[2]);
+      return 'added 1 package';
+    },
+    check,
+  });
+  const { service, auditStore } = await makeServer({}, undefined, check, upgrader);
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const one = await request(base, '/api/environment/upgrade', {
+    method: 'POST',
+    origin: base,
+    body: { id: 'claude' },
+  });
+  assert.equal(one.response.status, 200);
+  assert.equal(one.json.ok, true);
+  assert.deepEqual(installed, ['@anthropic-ai/claude-code@latest']);
+
+  // A bulk upgrade touches only the tools the report marks outdated.
+  installed.length = 0;
+  const all = await request(base, '/api/environment/upgrade-all', { method: 'POST', origin: base });
+  assert.equal(all.response.status, 200);
+  assert.deepEqual(installed, ['@anthropic-ai/claude-code@latest']);
+  assert.deepEqual(all.json.results.map((result: { id: string }) => result.id), ['claude']);
+
+  // The install is audited, and the audit never records a token or a path.
+  const actions = (await auditStore.list()).filter((event) => typeof event.details?.action === 'string');
+  assert.deepEqual(actions.map((event) => event.details?.action), ['environment-upgrade', 'environment-upgrade-all']);
+});
+
+test('rejects an unknown tool id and a cross-origin install', async (t) => {
+  const check = new EnvironmentCheck({ readInstalled: async () => [], readLatest: async () => new Map() });
+  let ran = 0;
+  const upgrader = new ToolUpgrader({ runNpm: async () => { ran += 1; return ''; } });
+  const { service } = await makeServer({}, undefined, check, upgrader);
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const unknown = await request(base, '/api/environment/upgrade', {
+    method: 'POST',
+    origin: base,
+    body: { id: 'not-a-tool' },
+  });
+  assert.equal(unknown.response.status, 400);
+  assert.equal(ran, 0);
+
+  const crossOrigin = await request(base, '/api/environment/upgrade', {
+    method: 'POST',
+    origin: 'https://evil.example',
+    body: { id: 'codex' },
+  });
+  assert.equal(crossOrigin.response.status, 403);
+  assert.equal(ran, 0);
+
+  const missing = await request(base, '/api/environment/upgrade', { method: 'POST', origin: base, body: {} });
+  assert.equal(missing.response.status, 400);
+  assert.equal(ran, 0);
+});
+
 
 test('rejects a cross-origin environment refresh', async (t) => {
   const check = new EnvironmentCheck({

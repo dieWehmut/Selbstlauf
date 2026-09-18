@@ -11,6 +11,7 @@ import { WatchdogInstallation } from './lifecycle/installation.js';
 import { ClaudeLeaseStore } from './claude/lease-store.js';
 import { CodexConfigProfiles } from './codex/profile-store.js';
 import { EnvironmentCheck } from './environment/environment-check.js';
+import { ToolUpgrader } from './environment/upgrade.js';
 import {
   CLAUDE_HOOK_OWNER,
   ClaudeHookInstallation,
@@ -54,6 +55,9 @@ export async function startWatchdogProcess(
   });
   // One shared check so the panel reuses its scan across browsers and polls.
   const environment = new EnvironmentCheck();
+  // The upgrader refreshes that same check, so the panel reflects the install
+  // that just finished instead of the version it replaced.
+  const upgrader = new ToolUpgrader({ check: environment });
 
   const installation = new WatchdogInstallation({
     stateDirectory,
@@ -82,6 +86,7 @@ export async function startWatchdogProcess(
     staticDirectory: options.staticDirectory ?? process.env.WATCHDOG_STATIC_DIR ?? defaultStaticDirectory(),
     codexProfiles,
     environment,
+    upgrader,
   });
   let uninstallProcess: (() => Promise<void>) | null = null;
   server.setLifecycle({
