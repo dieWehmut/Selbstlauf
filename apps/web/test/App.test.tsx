@@ -110,8 +110,28 @@ function stoppedApi(): WatchdogApi {
     expect(within(previews).getByRole('radio', { name: '跟随系统' })).toHaveAttribute('aria-checked', 'false');
     expect(within(previews).getByRole('radio', { name: '深色' })).toHaveAttribute('aria-checked', 'true');
 
-    // The diff shows the stock values beside the values in effect.
-    expect(screen.getByTestId('theme-diff').textContent).toContain('#0d1216');
+    // The diff names the surface, the accent, and the contrast in effect.
+    const diff = screen.getByTestId('theme-diff').textContent ?? '';
+    expect(diff).toContain('accent: "#e6b65b"');
+    expect(diff).toContain('contrast: 68');
+
+    // The type rows are independent: the interface stack and the reading stack
+    // can differ, and "same as UI" stops mattering once they do.
+    fireEvent.change(screen.getByRole('combobox', { name: 'UI 字体' }), { target: { value: 'mono' } });
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--ui-font')).toBe('var(--mono)'));
+    expect(document.documentElement.style.getPropertyValue('--content-font')).toBe('var(--mono)');
+    fireEvent.change(screen.getByRole('combobox', { name: '内容字体' }), { target: { value: 'serif' } });
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--content-font')).toContain('Georgia'));
+
+    // The contrast slider lifts the surfaces away from the page background.
+    const beforeContrast = document.documentElement.style.getPropertyValue('--panel');
+    fireEvent.change(screen.getByRole('slider', { name: '对比度' }), { target: { value: '20' } });
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--panel')).not.toBe(beforeContrast));
+    expect(JSON.parse(localStorage.getItem('watchdog-palette') ?? '{}').dark.contrast).toBe(20);
+
+    // A translucent sidebar is a document-level flag the stylesheet reads.
+    fireEvent.click(screen.getByRole('checkbox', { name: '半透明侧边栏' }));
+    await waitFor(() => expect(document.documentElement.dataset.sidebar).toBe('translucent'));
 
     // Picking an accent repaints the document root, which every rule derives from.
     fireEvent.change(screen.getByRole('combobox', { name: '强调色' }), { target: { value: '#e05c93' } });

@@ -135,6 +135,11 @@ test.describe('Selbstlauf watchdog workbench', () => {
     const accent = await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'));
     expect(accent).toBe('#e05c93');
 
+    // The light scheme keeps the same layout with its own palette.
+    await previews.getByRole('radio', { name: '浅色' }).click();
+    await page.screenshot({ path: testInfo.outputPath('appearance-light-1280x900.png'), fullPage: true });
+    await previews.getByRole('radio', { name: '深色' }).click();
+
     const panelBox = await page.locator('.appearance-panel').boundingBox();
     expect(panelBox).not.toBeNull();
     expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(1280);

@@ -70,18 +70,86 @@ function resolveTheme(preference: ThemePreference, prefersLight: boolean): Theme
   return preference;
 }
 
-/** A per-theme palette override chosen in the appearance section. */
+/** Font stacks the appearance section can switch between. */
+type FontChoice = 'system' | 'mono' | 'serif';
+
+/** What the body text renders in, and how heavy it sits. */
+interface TypeSetting {
+  readonly family: FontChoice;
+  /** 400 or 500; the reference pairs the family pick with a weight pick. */
+  readonly weight: 400 | 500;
+}
+
+/** A per-theme palette chosen in the appearance section. */
 interface ThemePalette {
   readonly accent: string;
   readonly background: string;
   readonly foreground: string;
+  /** 0-100 slider; feeds the surface and border mixes below. */
+  readonly contrast: number;
+  /** Draw the sidebar as a translucent layer over the page background. */
+  readonly translucentSidebar: boolean;
+  /** The interface chrome's type. */
+  readonly uiType: TypeSetting;
+  /** The reading surfaces' type; "same" reuses the interface stack. */
+  readonly contentType: TypeSetting & { readonly sameAsUi: boolean };
 }
 
 /** The palette each theme starts from; also what reset returns to. */
 const DEFAULT_PALETTES: Record<Theme, ThemePalette> = {
-  dark: { accent: '#e6b65b', background: '#0d1216', foreground: '#e9eef0' },
-  light: { accent: '#a56a08', background: '#eef2f1', foreground: '#1c262b' },
+  dark: {
+    accent: '#e6b65b', background: '#0d1216', foreground: '#e9eef0', contrast: 68,
+    translucentSidebar: false,
+    uiType: { family: 'system', weight: 400 },
+    contentType: { family: 'system', weight: 400, sameAsUi: true },
+  },
+  light: {
+    accent: '#a56a08', background: '#eef2f1', foreground: '#1c262b', contrast: 68,
+    translucentSidebar: false,
+    uiType: { family: 'system', weight: 400 },
+    contentType: { family: 'system', weight: 400, sameAsUi: true },
+  },
 };
+
+const FONT_CHOICES: readonly FontChoice[] = ['system', 'mono', 'serif'];
+
+function normalizeType(value: unknown, fallback: TypeSetting): TypeSetting {
+  if (value === null || typeof value !== 'object') return fallback;
+  const entry = value as { family?: unknown; weight?: unknown };
+  return {
+    family: FONT_CHOICES.includes(entry.family as FontChoice) ? (entry.family as FontChoice) : fallback.family,
+    weight: entry.weight === 500 ? 500 : fallback.weight,
+  };
+}
+
+/**
+ * The shape a saved palette must have.
+ *
+ * Saves from an earlier build lack the type and layout fields, so each missing
+ * field falls back rather than discarding the whole palette.
+ */
+function normalizePalette(value: unknown, fallback: ThemePalette): ThemePalette {
+  if (value === null || typeof value !== 'object') return fallback;
+  const entry = value as Partial<Record<keyof ThemePalette, unknown>>;
+  const colour = (key: 'accent' | 'background' | 'foreground') =>
+    typeof entry[key] === 'string' && HEX_COLOR.test(entry[key] as string) ? (entry[key] as string) : fallback[key];
+  const contentType = value as { contentType?: unknown };
+  const content = normalizeType(contentType.contentType, fallback.contentType);
+  return {
+    accent: colour('accent'),
+    background: colour('background'),
+    foreground: colour('foreground'),
+    contrast: typeof entry.contrast === 'number' && Number.isFinite(entry.contrast)
+      ? Math.min(100, Math.max(0, Math.round(entry.contrast)))
+      : fallback.contrast,
+    translucentSidebar: typeof entry.translucentSidebar === 'boolean' ? entry.translucentSidebar : fallback.translucentSidebar,
+    uiType: normalizeType(entry.uiType, fallback.uiType),
+    contentType: {
+      ...content,
+      sameAsUi: (contentType.contentType as { sameAsUi?: unknown } | undefined)?.sameAsUi !== false,
+    },
+  };
+}
 
 /** Ready-made accents, so the common pick needs no colour wheel. */
 const ACCENT_PRESETS: readonly { readonly label: string; readonly value: string }[] = [
@@ -94,12 +162,19 @@ const ACCENT_PRESETS: readonly { readonly label: string; readonly value: string 
 const PALETTE_STORAGE_KEY = 'watchdog-palette';
 const HEX_COLOR = /^#[0-9a-f]{6}$/iu;
 
-/** Accept only a complete #rrggbb palette, so a bad import cannot half-apply. */
-function isThemePalette(value: unknown): value is ThemePalette {
+/** Accept only the required #rrggbb fields, so a bad import cannot half-apply. */
+function isThemePalette(value: unknown): boolean {
   if (value === null || typeof value !== 'object') return false;
   const entry = value as Partial<Record<keyof ThemePalette, unknown>>;
   return (['accent', 'background', 'foreground'] as const).every((key) =>
     typeof entry[key] === 'string' && HEX_COLOR.test(entry[key] as string));
+}
+
+/** The CSS font stack behind each choice. */
+function fontStack(choice: FontChoice): string {
+  if (choice === 'mono') return "var(--mono)";
+  if (choice === 'serif') return "Georgia, 'Times New Roman', serif";
+  return "'Segoe UI Variable', 'Segoe UI', sans-serif";
 }
 
 /** Load the saved overrides; a missing or corrupt entry just means "default". */
@@ -110,7 +185,7 @@ function loadPaletteOverrides(): Partial<Record<Theme, ThemePalette>> {
     const parsed = JSON.parse(stored) as Partial<Record<Theme, unknown>>;
     const overrides: Partial<Record<Theme, ThemePalette>> = {};
     for (const theme of ['light', 'dark'] as const) {
-      if (isThemePalette(parsed[theme])) overrides[theme] = parsed[theme] as ThemePalette;
+      if (isThemePalette(parsed[theme])) overrides[theme] = normalizePalette(parsed[theme], DEFAULT_PALETTES[theme]);
     }
     return overrides;
   } catch {
@@ -731,21 +806,16 @@ function CodexEndpointsPanel(props: {
 /**
  * The appearance section.
  *
- * Mirrors the reference's appearance page: three theme previews, a diff of the
- * variables each theme resolves to, and the accent picker. The previews are
- * drawn from the same palette the app uses, so picking one is not a leap of
- * faith about what the app will look like.
+ * Mirrors the reference's appearance page: three theme previews on a light
+ * card, a diff of the values each theme resolves to, then one row per setting
+ * (accent, background, foreground, type, contrast) so the page reads as a list
+ * of choices rather than a wall of cards.
  */
 const THEME_OPTIONS: readonly { readonly id: ThemePreference; readonly label: string; readonly ariaLabel: string }[] = [
   { id: 'system', label: '系统', ariaLabel: '跟随系统' },
   { id: 'light', label: '浅色', ariaLabel: '浅色' },
   { id: 'dark', label: '深色', ariaLabel: '深色' },
 ];
-
-/** The vars each preview card paints itself from. */
-function previewPalette(theme: Theme, palettes: Record<Theme, ThemePalette>): ThemePalette {
-  return palettes[theme];
-}
 
 function ThemePreviewCard(props: {
   readonly id: ThemePreference;
@@ -763,10 +833,14 @@ function ThemePreviewCard(props: {
   const [left, right] = props.systems ?? [props.palette, props.palette];
   const card = (scheme: Theme, palette: ThemePalette) => (
     <span className="theme-preview__half" data-scheme={scheme} style={{ background: palette.background }}>
-      <span className="theme-preview__bar" style={{ background: palette.accent }} />
-      <span className="theme-preview__line" style={{ background: palette.foreground, opacity: .55 }} />
-      <span className="theme-preview__line theme-preview__line--short" style={{ background: palette.foreground, opacity: .32 }} />
-      <span className="theme-preview__block" style={{ background: mixColor(palette.background, palette.foreground, scheme === 'dark' ? 0.14 : 0.06) }} />
+      <span className="theme-preview__shell">
+        <span className="theme-preview__rail" style={{ background: mixColor(palette.background, palette.foreground, scheme === 'dark' ? 0.1 : 0.05) }} />
+        <span className="theme-preview__sheet" style={{ background: mixColor(palette.background, palette.foreground, scheme === 'dark' ? 0.16 : 0.04) }}>
+          <span className="theme-preview__bar" style={{ background: palette.accent }} />
+          <span className="theme-preview__line" style={{ background: palette.foreground, opacity: .5 }} />
+          <span className="theme-preview__line theme-preview__line--short" style={{ background: palette.foreground, opacity: .3 }} />
+        </span>
+      </span>
     </span>
   );
   return (
@@ -788,29 +862,53 @@ function ThemePreviewCard(props: {
   );
 }
 
+/**
+ * The side-by-side code sample.
+ *
+ * The left pane keeps the stock values so the comparison reads as a diff: what
+ * the theme ships with against what the current choices resolve to.
+ */
 function ThemeDiffPreview(props: {
   readonly palette: ThemePalette;
   readonly activeTheme: Theme;
 }) {
-  // The left pane is always the stock palette, so the comparison reads as a diff.
   const before = DEFAULT_PALETTES[props.activeTheme];
   const after = props.palette;
-  const rows: readonly { readonly key: string; readonly label: string; readonly from: string; readonly to: string }[] = [
-    { key: 'surface', label: 'surface', from: before.background, to: after.background },
-    { key: 'accent', label: 'accent', from: before.accent, to: after.accent },
-    { key: 'contrast', label: 'foreground', from: before.foreground, to: after.foreground },
+  const rows: readonly { readonly from: string; readonly to: string }[] = [
+    // A translucent sidebar is a different surface, so it shows up as a diff.
+    { from: before.translucentSidebar ? 'sidebar-elevated' : 'sidebar', to: after.translucentSidebar ? 'sidebar-elevated' : 'sidebar' },
+    { from: before.accent, to: after.accent },
+    { from: String(before.contrast), to: String(after.contrast) },
   ];
+  const pane = (values: readonly string[], after: boolean) => (
+    <div className={after ? 'theme-diff__pane theme-diff__pane--after' : 'theme-diff__pane'}>
+      <span className="theme-diff__gutter" aria-hidden="true" />
+      <span className="theme-diff__code">
+        <span className="theme-diff__title">const themePreview: ThemeConfig = {'{'}</span>
+        <span className="theme-diff__line"><span className="theme-diff__num">2</span>surface: "{values[0]}",</span>
+        <span className="theme-diff__line"><span className="theme-diff__num">3</span>accent: "{values[1]}",</span>
+        <span className="theme-diff__line"><span className="theme-diff__num">4</span>contrast: {values[2]},</span>
+        <span className="theme-diff__title">{'}'};</span>
+      </span>
+    </div>
+  );
   return (
     <div className="theme-diff" data-testid="theme-diff">
-      <div className="theme-diff__pane">
-        <span className="theme-diff__pane-title">当前主题</span>
-        <pre>{rows.map((row) => `${row.label}: "${row.from}"`).join('\n')}</pre>
-      </div>
-      <span className="theme-diff__arrow" aria-hidden="true">→</span>
-      <div className="theme-diff__pane theme-diff__pane--after">
-        <span className="theme-diff__pane-title">修改后</span>
-        <pre>{rows.map((row) => `${row.label}: "${row.to}"`).join('\n')}</pre>
-      </div>
+      {pane(rows.map((row) => row.from), false)}
+      {pane(rows.map((row) => row.to), true)}
+    </div>
+  );
+}
+
+/** One labelled row in the settings list. */
+function AppearanceRow(props: {
+  readonly label: string;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <div className="appearance-row">
+      <span className="appearance-row__label">{props.label}</span>
+      <div className="appearance-row__control">{props.children}</div>
     </div>
   );
 }
@@ -838,10 +936,25 @@ function AppearancePanel(props: {
       setCopyState('failed');
     }
   };
+  const ui = props.palette.uiType;
+  const content = props.palette.contentType;
+  const setUi = (patch: Partial<TypeSetting>) => props.onPaletteChange({ uiType: { ...ui, ...patch } });
+  const setContent = (patch: Partial<TypeSetting & { sameAsUi: boolean }>) =>
+    props.onPaletteChange({ contentType: { ...content, ...patch } });
   return (
     <section className="settings-section settings-section--wide appearance-panel">
-      <div className="section-title"><div><span className="eyebrow">Appearance</span><h2>外观</h2></div><Sun size={20} /></div>
-      <p className="section-hint">选择应用的外观主题，立即生效。</p>
+      <div className="section-title">
+        <div><span className="eyebrow">Appearance</span><h2>外观</h2></div>
+        <div className="appearance-panel__actions">
+          <button className="text-button" type="button" onClick={() => void props.onImport()}>
+            <Copy size={14} /> 导入
+          </button>
+          <button className="text-button" type="button" onClick={() => void copy()}>
+            <Copy size={14} /> {copyState === 'done' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制主题'}
+          </button>
+        </div>
+      </div>
+      <p className="section-hint">选择应用的外观主题与排版，立即生效。</p>
       <div className="theme-previews" role="radiogroup" aria-label="外观主题">
         {THEME_OPTIONS.map((option) => (
           <ThemePreviewCard
@@ -851,16 +964,15 @@ function AppearancePanel(props: {
             ariaLabel={option.ariaLabel}
             scheme={option.id === 'system' ? props.activeTheme : option.id}
             selected={props.preference === option.id}
-            palette={previewPalette(option.id === 'system' ? props.activeTheme : option.id, props.palettes)}
+            palette={option.id === 'system' ? props.palettes[props.activeTheme] : props.palettes[option.id as Theme]}
             systems={[props.palettes.light, props.palettes.dark]}
             onSelect={() => props.onPreferenceChange(option.id)}
           />
         ))}
       </div>
       <ThemeDiffPreview palette={props.palette} activeTheme={props.activeTheme} />
-      <div className="appearance-actions">
-        <label className="appearance-color">
-          <span>强调色</span>
+      <div className="appearance-list">
+        <AppearanceRow label="强调色">
           <select
             aria-label="强调色"
             value={props.palette.accent}
@@ -872,39 +984,95 @@ function AppearancePanel(props: {
               </option>
             ))}
           </select>
-        </label>
-        <label className="appearance-color">
-          <span>背景</span>
-          <input
-            type="color"
-            aria-label="背景"
-            value={props.palette.background}
-            onChange={(event) => props.onPaletteChange({ background: event.target.value })}
-          />
-          <code>{props.palette.background}</code>
-        </label>
-        <label className="appearance-color">
-          <span>前景</span>
-          <input
-            type="color"
-            aria-label="前景"
-            value={props.palette.foreground}
-            onChange={(event) => props.onPaletteChange({ foreground: event.target.value })}
-          />
-          <code>{props.palette.foreground}</code>
-        </label>
+        </AppearanceRow>
+        <AppearanceRow label="背景">
+          <span className="appearance-swatch">
+            <input
+              type="color"
+              aria-label="背景"
+              value={props.palette.background}
+              onChange={(event) => props.onPaletteChange({ background: event.target.value })}
+            />
+            <code>{props.palette.background.toUpperCase()}</code>
+          </span>
+        </AppearanceRow>
+        <AppearanceRow label="前景">
+          <span className="appearance-swatch">
+            <input
+              type="color"
+              aria-label="前景"
+              value={props.palette.foreground}
+              onChange={(event) => props.onPaletteChange({ foreground: event.target.value })}
+            />
+            <code>{props.palette.foreground.toUpperCase()}</code>
+          </span>
+        </AppearanceRow>
+        <AppearanceRow label="UI 字体">
+          <select aria-label="UI 字体" value={ui.family} onChange={(event) => setUi({ family: event.target.value as FontChoice })}>
+            <option value="system">系统默认</option>
+            <option value="mono">等宽</option>
+            <option value="serif">衬线</option>
+          </select>
+          <select aria-label="UI 字重" value={String(ui.weight)} onChange={(event) => setUi({ weight: event.target.value === '500' ? 500 : 400 })}>
+            <option value="400">常规</option>
+            <option value="500">中等</option>
+          </select>
+        </AppearanceRow>
+        <AppearanceRow label="内容字体">
+          <select
+            aria-label="内容字体"
+            value={content.sameAsUi ? 'same' : content.family}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === 'same') setContent({ sameAsUi: true });
+              else setContent({ sameAsUi: false, family: value as FontChoice });
+            }}
+          >
+            <option value="same">与界面字体相同</option>
+            <option value="system">系统默认</option>
+            <option value="mono">等宽</option>
+            <option value="serif">衬线</option>
+          </select>
+          <select
+            aria-label="内容字重"
+            value={String(content.weight)}
+            onChange={(event) => setContent({ weight: event.target.value === '500' ? 500 : 400 })}
+          >
+            <option value="400">常规</option>
+            <option value="500">中等</option>
+          </select>
+        </AppearanceRow>
+        <AppearanceRow label="半透明侧边栏">
+          <label className="switch">
+            <input
+              aria-label="半透明侧边栏"
+              type="checkbox"
+              checked={props.palette.translucentSidebar}
+              onChange={(event) => props.onPaletteChange({ translucentSidebar: event.target.checked })}
+            />
+            <span />
+          </label>
+        </AppearanceRow>
+        <AppearanceRow label="对比度">
+          <span className="appearance-slider">
+            <input
+              type="range"
+              aria-label="对比度"
+              min="0"
+              max="100"
+              step="1"
+              value={props.palette.contrast}
+              onChange={(event) => props.onPaletteChange({ contrast: Number(event.target.value) })}
+            />
+            <code>{props.palette.contrast}</code>
+          </span>
+        </AppearanceRow>
       </div>
-      <div className="theme-actions">
-        <button className="text-button" type="button" onClick={() => void props.onImport()}>
-          <Copy size={14} /> 导入
-        </button>
-        <button className="text-button" type="button" onClick={() => void copy()}>
-          <Copy size={14} /> {copyState === 'done' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制主题'}
-        </button>
-        {props.customized && (
-          <button className="text-button" type="button" onClick={props.onPaletteReset}>恢复默认</button>
-        )}
-      </div>
+      {props.customized && (
+        <div className="settings-actions">
+          <button className="button button--secondary" type="button" onClick={props.onPaletteReset}>恢复默认</button>
+        </div>
+      )}
     </section>
   );
 }
@@ -1175,6 +1343,24 @@ export default function App({ api: suppliedApi }: AppProps) {
     root.style.setProperty('--accent-strong', mixColor(palette.accent, theme === 'dark' ? '#ffffff' : '#000000', 0.28));
     root.style.setProperty('--bg', palette.background);
     root.style.setProperty('--text', palette.foreground);
+
+    // The slider drives how far surfaces and borders sit from the background.
+    // Surfaces always lift toward white, which is the direction both schemes
+    // use: a dark page gains a lighter card, a light page gains a white one.
+    const lift = (weight: number) => mixColor(palette.background, '#ffffff', weight + palette.contrast / 1400);
+    root.style.setProperty('--panel', lift(0.012));
+    root.style.setProperty('--panel-soft', lift(0.004));
+    root.style.setProperty('--panel-raised', lift(0.022));
+    root.style.setProperty('--line', mixColor(palette.background, palette.foreground, 0.1 + palette.contrast / 420));
+
+    const uiType = fontStack(palette.uiType.family);
+    const content = palette.contentType.sameAsUi ? uiType : fontStack(palette.contentType.family);
+    root.style.setProperty('--ui-font', uiType);
+    root.style.setProperty('--content-font', content);
+    root.style.setProperty('--ui-weight', String(palette.uiType.weight));
+    root.style.setProperty('--content-weight', String(palette.contentType.weight));
+
+    root.dataset.sidebar = palette.translucentSidebar ? 'translucent' : 'solid';
   }, [palette, theme]);
 
   useEffect(() => {
