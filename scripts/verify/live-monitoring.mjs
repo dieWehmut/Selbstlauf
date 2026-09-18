@@ -139,8 +139,30 @@ try {
       `harness session ${session.sessionId} reports runningStep=${session.turnOpen}`,
     );
     check(
-      row.transport === 'monitor-only',
-      `harness session ${session.sessionId} stays monitor-only`,
+      row.transport === 'monitor-only' || row.transport === 'dsh-web',
+      `harness session ${session.sessionId} reports a harness transport`,
+    );
+  }
+
+  // Every watched session must say where it runs, and a harness row must name
+  // the browser interface rather than the console that launched it.
+  const live = sessions.filter((session) => session.alive);
+  const withoutHost = live.filter((session) => !session.host);
+  check(
+    withoutHost.length === 0,
+    `every live session names where it runs (missing: ${withoutHost.map((s) => s.id).join(', ') || 'none'})`,
+  );
+  for (const session of live.filter((entry) => entry.host)) {
+    check(
+      typeof session.host.label === 'string' && session.host.label.length > 0 &&
+      typeof session.host.category === 'string',
+      `${session.id} runs in ${session.host.label} [${session.host.category}]`,
+    );
+  }
+  for (const row of live.filter((entry) => entry.tool === 'dsh' && entry.host)) {
+    check(
+      row.host.category === 'browser',
+      `${row.id} is located in a browser interface (${row.host.label})`,
     );
   }
 
