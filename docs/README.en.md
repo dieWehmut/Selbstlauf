@@ -227,7 +227,7 @@ and child processes into one logical session:
 |---|---|---|---|
 | Claude Code | `claude.ps1`, `claude-code` | JSONL under `~/.claude/projects` | Console / PTY / Stop Hook |
 | Codex CLI | `codex.exe`, `@openai/codex`, `codex.js` | thread and goal databases under `~/.codex` | Codex App Server |
-| DeepSeek Harness | `dsh.exe` / `dsh.cmd`, `@deepseek-ai/dsh`, `apps/cli/lib/bin.js` and `subprocess-local/runner.js` under `deepseek-harness` | session directories under `$DSH_HOME/sessions` plus the `storages/session_projcache` projection | monitor-only |
+| DeepSeek Harness | `dsh.exe` / `dsh.cmd`, `@deepseek-ai/dsh`, `apps/cli/lib/bin.js` and `subprocess-local/runner.js` under `deepseek-harness` | session directories under `$DSH_HOME/sessions` plus the `storages/session_projcache` projection | Harness local session API |
 
 One DeepSeek Harness `web` host serves many workspaces, so the host process is
 not itself an agent: the watchdog expands every live harness session into its
@@ -239,10 +239,55 @@ whether a step is still running, so the UI separates "running a step" from
 the activity window, are not listed.
 
 The harness session log is a zstd-compressed append-only log. The watchdog reads
-only its first line to recover `cwd` and never writes to it. Because the harness
-exposes no local input transport, the tool stays `monitor-only`: it records
-activity and decisions but injects nothing. `tools.dsh.sessionWindowMs`
-(default one hour) decides when an inactive session becomes history.
+only its first line to recover `cwd` and never writes to it.
+
+### Continuing a DeepSeek Harness session
+
+The harness has no console and no PID-scoped input channel: a session is
+addressed by its own identity and its owner is a long-lived `web` process. The
+watchdog therefore uses the harness's own local interface. It enumerates the
+loopback ports the host listens on, confirms the 401 fingerprint on `GET /`,
+reads the `client-connection/browser-session` secret the harness itself stores
+in `$DSH_HOME/.credentials.yaml`, signs the same browser cookie the UI uses, and
+calls the same `session/prompt` endpoint (`mode: queue`) the WebUI calls.
+
+The safety boundary is deliberately narrow:
+
+- Only loopback http origins are contacted. The credential is read-only, used for
+  that one request, never logged and never persisted.
+- A session is written to only when it currently has **no unfinished step**
+  (`turnOpen === false`); a running agent is never interrupted. That is a second
+  gate independent of the quiet-period threshold.
+- A dry run only locates the harness: it probes the origin without reading the
+  credential and writes nothing. The same holds when the tool is disabled.
+- Every failure (unreadable secret, wrong fingerprint, rejected cookie, vanished
+  session) falls back to `monitor-only` with a stated reason instead of guessing.
+- Writes go only through the harness's own session controller; no global keyboard
+  or mouse API is used.
+
+`tools.dsh.allowApiInput` (on by default) controls that channel, and
+`tools.dsh.sessionWindowMs` (default one hour) decides when an inactive session
+becomes history.
+
+### Where a session runs, and revealing it
+
+Every row reports the application the agent actually lives in rather than only a
+PID: process discovery walks the ancestor chain and takes one `EnumWindows` pass
+over the top-level windows those ancestors own, which recognizes **Tabby /
+Windows Terminal / VS Code / Cursor / the Codex app (ChatGPT.exe) / Edge /
+Chrome / Firefox** and records the window handle that can be raised. The
+"running location" column shows that host and its window title, and the adjacent
+button calls `POST /api/sessions/<id>/focus` to restore and raise the window.
+
+Harness rows are the exception: their interface is served by a browser, and the
+browser is not in the session's process tree. A harness row therefore finds the
+browser window whose title carries the `DSH` marker (browser windows first, any
+matching window second); when no window matches, the row names the harness WebUI
+and opens that loopback address instead. Revealing uses window-management calls
+only (`SetForegroundWindow`, `AttachThreadInput`, `SwitchToThisWindow`,
+`SetWindowPos`) and never synthesizes keyboard or mouse input. When Windows
+refuses the foreground change because of the foreground lock, the window is
+still raised to the top of the z-order and the UI says so.
 
 Process discovery needs `powershell.exe` (Windows PowerShell 5.1 or later). The
 owner SID comes from the process token instead of a per-process WMI
@@ -250,19 +295,24 @@ owner SID comes from the process token instead of a per-process WMI
 full discover → associate → decide chain now completes within the default
 two-second poll interval.
 
-To verify that monitoring really works on this machine instead of checking health
-alone:
+To verify that monitoring and continuation really work on this machine instead of
+checking health alone:
 
 ```powershell
 npm run build
-node .\scripts\verify\live-monitoring.mjs
+node .\scripts\verify\live-monitoring.mjs      # every local agent is found, with its location
+node .\scripts\verify\dsh-continuation.mjs     # the harness really accepts a "继续"
 ```
 
-The script enumerates this machine's processes and harness sessions
+`live-monitoring.mjs` enumerates this machine's processes and harness sessions
 independently, then requires the running service to report a matching row for
-each one with the right tool, workspace and `monitor-only` transport, and
-requires recorded activity/decision events with no injection. A real run is
-recorded in [verification/2026-09-17-live-monitoring.md](verification/2026-09-17-live-monitoring.md).
+each one with the right tool, workspace, running location and transport, and
+requires recorded activity/decision events with no injection.
+`dsh-continuation.mjs` owns a disposable harness session, sends `继续` through the
+very transport the watchdog uses, requires the harness to accept and persist it,
+and then cancels the turn it started. Real runs are recorded in
+[verification/2026-09-17-live-monitoring.md](verification/2026-09-17-live-monitoring.md)
+and [verification/2026-09-18-harness-continuation.md](verification/2026-09-18-harness-continuation.md).
 
 ## Desktop App and Installer
 

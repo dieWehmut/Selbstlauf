@@ -226,7 +226,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchd
 |---|---|---|---|
 | Claude Code | `claude.ps1`、`claude-code` | `~/.claude/projects` 的 JSONL | Console / PTY / Stop Hook |
 | Codex CLI | `codex.exe`、`@openai/codex`、`codex.js` | `~/.codex` 的线程与 goal 状态库 | Codex App Server |
-| DeepSeek Harness | `dsh.exe` / `dsh.cmd`、`@deepseek-ai/dsh`、`deepseek-harness` 下的 `apps/cli/lib/bin.js` 与 `subprocess-local/runner.js` | `$DSH_HOME/sessions` 的会话目录与 `storages/session_projcache` 投影 | 仅监控 |
+| DeepSeek Harness | `dsh.exe` / `dsh.cmd`、`@deepseek-ai/dsh`、`deepseek-harness` 下的 `apps/cli/lib/bin.js` 与 `subprocess-local/runner.js` | `$DSH_HOME/sessions` 的会话目录与 `storages/session_projcache` 投影 | Harness 本机会话接口 |
 
 DeepSeek Harness 的 `web` 宿主机是一个进程服务多个工作区，所以宿主机本身不是一个 agent：
 watchdog 会把每个仍然活跃的 harness 会话展开成独立的一行，会话 ID 取自 harness 自己的
@@ -235,24 +235,61 @@ watchdog 会把每个仍然活跃的 harness 会话展开成独立的一行，�
 区分“步骤执行中”和“等待输入”。从未收到过提示的空会话、以及在活动窗口之外的历史会话不会
 出现在列表里。
 
-harness 的会话日志是 zstd 压缩的追加日志，watchdog 只读取第一行会话头用于补齐 `cwd`，绝不写入；
-由于 harness 目前没有本机写入通道，该工具整体保持 `monitor-only`：只记录活动与决策，不注入
-任何内容。`tools.dsh.sessionWindowMs`（默认 1 小时）决定多久没有活动的会话会被当作历史。
+harness 的会话日志是 zstd 压缩的追加日志，watchdog 只读取第一行会话头用于补齐 `cwd`，绝不写入。
+
+### 续写 DeepSeek Harness
+
+harness 没有控制台，也没有以 PID 为作用域的写入通道：会话由自己的身份寻址，宿主是一个长驻的
+`web` 进程。watchdog 因此走 harness 自己的本机接口：它枚举宿主机监听的 loopback 端口，用
+`GET /` 的 401 指纹确认那就是 harness，然后读取 harness 自己存在
+`$DSH_HOME/.credentials.yaml` 里的 `client-connection/browser-session` 密钥，签出与浏览器相同的
+会话 cookie，并调用 UI 自己使用的 `session/prompt`（`mode: queue`）。
+
+安全边界是刻意收窄的：
+
+- 只对 `127.0.0.1` 的 http 源生效；证书只读、只用于本次请求，绝不写日志、绝不落盘。
+- 只有会话当前**没有未结束的步骤**（`turnOpen === false`）时才写入；正在执行的 agent 不会被
+  打断。这是独立于静默阈值的第二道闸门。
+- `dry run` 期间只探测 harness 位置、不读取密钥，也不写入；`tools.dsh` 关闭时同样不写入。
+- 任何一步失败（读不到密钥、指纹不符、cookie 被拒、会话消失）都退回 `monitor-only`，
+  并在界面上给出原因，而不是猜测。
+- 写入只通过 harness 自己的会话控制器完成，不使用全局键盘或鼠标 API。
+
+`tools.dsh.allowApiInput`（默认开启）控制这条通道；`tools.dsh.sessionWindowMs`（默认 1 小时）
+决定多久没有活动的会话会被当作历史。
+
+### 会话运行位置与一键打开
+
+每一行都会给出该 agent 实际所在的宿主，而不只是 PID：进程发现会沿父链回溯，并用一次
+`EnumWindows` 拿到这些祖先拥有的一级窗口，据此识别 **Tabby / Windows Terminal / VS Code /
+Cursor / Codex 应用（ChatGPT.exe）/ Edge / Chrome / Firefox** 等宿主，并记录可置前的窗口句柄。
+界面里的「运行位置」列显示宿主名称与窗口标题，旁边的按钮会调用
+`POST /api/sessions/<id>/focus` 把那个窗口恢复并置前。
+
+harness 行是例外：它的界面由浏览器提供，浏览器不在会话的进程树里。因此 harness 行按窗口标题中
+的 `DSH` 标记找到正在显示 WebUI 的浏览器窗口（优先浏览器，其次任何匹配窗口）；若找不到窗口，
+则显示「DeepSeek Harness 网页界面」并改为打开该 loopback 地址。置前只使用窗口管理 API
+（`SetForegroundWindow`、`AttachThreadInput`、`SwitchToThisWindow`、`SetWindowPos`），从不合成
+键盘或鼠标输入；Windows 若因前台锁拒绝授予焦点，窗口仍会被置顶显示，界面会说明这一点。
 
 进程发现需要 `powershell.exe`（Windows PowerShell 5.1 或更高版本）。拥有者 SID 通过进程令牌
 读取，而不是逐进程调用 WMI 的 `GetOwnerSid()`，因为后者在进程较多的桌面上每次轮询要花掉近
 一分钟；这也让“发现 → 关联 → 决策”的完整链路能在默认 2 秒轮询间隔下真正跑完。
 
-要在这台机器上验证监控确实生效，而不是只看健康检查：
+要在这台机器上验证监控与续写确实生效，而不是只看健康检查：
 
 ```powershell
 npm run build
-node .\scripts\verify\live-monitoring.mjs
+node .\scripts\verify\live-monitoring.mjs      # 每个本机 agent 都被发现，并给出运行位置
+node .\scripts\verify\dsh-continuation.mjs     # harness 真的接受了一次「继续」
 ```
 
-脚本会独立枚举本机进程与 harness 会话，再要求正在运行的服务为每一个都给出对应的一行、
-正确的工具、工作区与 `monitor-only` 传输，并确认已经写入活动/决策事件且没有任何注入。
-一次真机运行记录见 [docs/verification/2026-09-17-live-monitoring.md](docs/verification/2026-09-17-live-monitoring.md)。
+`live-monitoring.mjs` 会独立枚举本机进程与 harness 会话，再要求正在运行的服务为每一个都给出
+对应的一行、正确的工具、工作区、运行位置与传输，并确认已经写入活动/决策事件且没有任何注入。
+`dsh-continuation.mjs` 会自己创建一个一次性 harness 会话，用 watchdog 的同一个传输写入「继续」，
+验证 harness 接受并落盘，然后取消它启动的那一轮。真机运行记录见
+[docs/verification/2026-09-17-live-monitoring.md](docs/verification/2026-09-17-live-monitoring.md)
+与 [docs/verification/2026-09-18-harness-continuation.md](docs/verification/2026-09-18-harness-continuation.md)。
 
 ## 桌面应用与安装程序
 
