@@ -406,6 +406,31 @@ The local routes are `GET /api/codex/profiles` and `PUT /api/codex/profiles`
 change is recorded as a `user-override` audit event. The panel is available
 only from the localhost watchdog; the Pages demo uses in-memory sample data
 and never touches local files.
+### Local tool upgrades
+
+The About tab in settings lists every agent CLI in the catalog with its installed
+and published version and marks the ones that are behind. Each outdated card
+offers an upgrade button that calls the local `POST /api/environment/upgrade`
+(`{ "id": "claude" }`), and the panel header offers `POST /api/environment/upgrade-all`,
+which upgrades only the tools the report already marks outdated; it never installs
+software the machine never had.
+
+The service accepts only catalog ids and builds the command from the catalog
+entry, so a caller cannot smuggle in an arbitrary package name or extra npm
+argument. Global installs run one at a time so concurrent runs cannot corrupt the
+same prefix, and the environment scan is refreshed afterwards so the panel shows
+what was actually installed. Each install is audited without recording a token or
+a path. The Pages demo models the same buttons in memory and installs nothing.
+
+### Appearance
+
+The General tab offers the theme choice: one preview card each for system, light,
+and dark, a comparison strip showing the current variables beside the edited ones,
+and an accent picker that repaints the interface immediately. Overrides are stored
+per color scheme, so a custom dark palette survives a switch to light and back,
+and reset restores the built-in palette for the current scheme. All of this is
+client-side and never writes server state.
+
 ## WebUI demo site
 
 Run the management UI locally with:
