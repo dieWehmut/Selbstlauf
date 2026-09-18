@@ -117,6 +117,7 @@ test('freezes the DeepSeek Harness tool defaults', () => {
     enabled: true,
     normalPrompt: '继续',
     sessionWindowMs: 3_600_000,
+    allowApiInput: true,
   });
 });
 
@@ -132,6 +133,15 @@ test('defaults a legacy config without a DeepSeek Harness block', () => {
   assert.equal(Object.isFrozen(parsed.tools.dsh), true);
 });
 
+test('defaults harness API input on for a config that predates it', () => {
+  const legacy = structuredClone(defaultConfig) as unknown as {
+    tools: { dsh: Record<string, unknown> };
+  };
+  delete legacy.tools.dsh.allowApiInput;
+
+  assert.equal(parseConfig(legacy).tools.dsh.allowApiInput, true);
+});
+
 test('parses an explicit DeepSeek Harness window and rejects an invalid one', () => {
   const withDsh = (dsh: unknown) => ({
     ...defaultConfig,
@@ -140,7 +150,11 @@ test('parses an explicit DeepSeek Harness window and rejects an invalid one', ()
 
   assert.deepEqual(
     parseConfig(withDsh({ enabled: false, normalPrompt: 'go on', sessionWindowMs: 60_000 })).tools.dsh,
-    { enabled: false, normalPrompt: 'go on', sessionWindowMs: 60_000 },
+    { enabled: false, normalPrompt: 'go on', sessionWindowMs: 60_000, allowApiInput: true },
+  );
+  assert.deepEqual(
+    parseConfig(withDsh({ enabled: true, normalPrompt: '继续', sessionWindowMs: 60_000, allowApiInput: false })).tools.dsh,
+    { enabled: true, normalPrompt: '继续', sessionWindowMs: 60_000, allowApiInput: false },
   );
   assert.throws(
     () => parseConfig(withDsh({ enabled: true, normalPrompt: '继续', sessionWindowMs: 0 })),
@@ -149,5 +163,9 @@ test('parses an explicit DeepSeek Harness window and rejects an invalid one', ()
   assert.throws(
     () => parseConfig(withDsh({ enabled: true, normalPrompt: '', sessionWindowMs: 1_000 })),
     /tools\.dsh\.normalPrompt/,
+  );
+  assert.throws(
+    () => parseConfig(withDsh({ enabled: true, normalPrompt: '继续', sessionWindowMs: 1_000, allowApiInput: 'yes' })),
+    /tools\.dsh\.allowApiInput/,
   );
 });

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 
 import { defaultConfig } from '../src/domain/config.js';
+import { DshHostClient } from '../src/dsh/web-host.js';
 import { ClaudeLeaseStore } from '../src/claude/lease-store.js';
 import type { ClaudeContinuationLease, ClaudeLeaseRequest } from '../src/claude/lease-store.js';
 import { AppServerClient } from '../src/codex/app-server.js';
@@ -1200,7 +1201,7 @@ test('polls a DeepSeek Harness host as one monitored row per live session', asyn
     assert.equal(session.transport, 'monitor-only');
     assert.equal(session.sessionCwd, 'D:\\project\\ai-cli-bypass');
     assert.equal(session.runningTurn, true);
-    assert.equal(session.transportError, 'DeepSeek Harness exposes no local input transport');
+    assert.equal(session.transportError, 'dry run keeps DeepSeek Harness input disabled');
 
     // A session that never received a prompt is history, not a monitored agent.
     assert.ok(!sessions.some((entry) => entry.conversationId?.includes('0919e034')));
@@ -1208,9 +1209,12 @@ test('polls a DeepSeek Harness host as one monitored row per live session', asyn
     clock += 5_000;
     await controller.poll();
     const events = await auditStore.list();
+    // The harness row is monitored in dry-run, but a session whose step is still
+    // running is never handed a continuation.
     assert.ok(events.some((event) =>
-      event.tool === 'dsh' && event.type === 'skip' && event.prompt === '继续'));
-    // The harness has no trusted local transport, so nothing may be written.
+      event.tool === 'dsh' && event.type === 'skip' && event.details?.reason === 'harness-step-running'));
+    assert.ok(!events.some((event) => event.tool === 'dsh' && event.prompt !== undefined));
+    // The harness has no unattended write path in dry-run, so nothing is written.
     assert.ok(!events.some((event) => event.tool === 'dsh' && event.type === 'injection'));
   } finally {
     await controller.stop();
@@ -1306,6 +1310,364 @@ test('drops a harness session once its host process exits', async () => {
     const sessions = await controller.list();
     assert.equal(sessions[0]?.alive, false);
     assert.equal(sessions[0]?.lastDecision, 'process-exited');
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const DSH_SECRET = 'kRvh6kC50JlSEaqoon1GHkVx7zv8h8lfIyu36z8cob4';
+
+/** A fake harness web host: the 401 fingerprint on `/`, RPC elsewhere. */
+function fakeDshHost(onPrompt?: (body: unknown) => void) {
+  const calls: Array<{ readonly url: string; readonly body: unknown }> = [];
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
+    calls.push({ url, body });
+    if (init?.method === undefined) {
+      return new Response('dsh web authentication required; reopen the URL printed by dsh web.\n', { status: 401 });
+    }
+    onPrompt?.(body);
+    return Response.json({
+      type: 'server-response',
+      rpcId: 'x',
+      result: { ok: true, value: { accepted: true } },
+    });
+  }) as unknown as typeof fetch;
+  return { calls, fetchImpl };
+}
+
+async function writeDshCredentials(home: string): Promise<string> {
+  const credentials = join(home, 'credentials-home');
+  await mkdir(credentials, { recursive: true });
+  await writeFile(join(credentials, '.credentials.yaml'), [
+    'version: 1',
+    'records:',
+    '  client-connection/browser-session:',
+    '    kind: grant',
+    '    payload:',
+    '      version: 1',
+    `      secret: ${DSH_SECRET}`,
+    '',
+  ].join('\n'), 'utf8');
+  return credentials;
+}
+
+async function dshControllerFixture(options: {
+  readonly dryRun: boolean;
+  readonly allowApiInput?: boolean;
+  readonly turnOpen?: boolean;
+}) {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-dsh-api-'));
+  const home = await createDshHome(root, {
+    sessionId: DSH_SESSION_ID,
+    cwd: 'D:\\project\\ai-cli-bypass',
+    turnOpen: options.turnOpen ?? false,
+  });
+  const credentialsHome = await writeDshCredentials(root);
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({
+    ...defaultConfig,
+    dryRun: options.dryRun,
+    defaultIdleTimeoutMs: 100,
+    defaultCooldownMs: 1_000,
+    tools: {
+      ...defaultConfig.tools,
+      dsh: {
+        ...defaultConfig.tools.dsh,
+        ...(options.allowApiInput === undefined ? {} : { allowApiInput: options.allowApiInput }),
+      },
+    },
+  });
+  const auditStore = new AuditStore(join(root, 'audit.jsonl'));
+  const host = fakeDshHost();
+  let clock = 5_000;
+  const controller = new WatchdogController({
+    configStore,
+    auditStore,
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+      DSH_HOST_RECORD,
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    dshHomeDirectory: home.home,
+    dshHostClientFactory: () => new DshHostClient({ homeDirectory: credentialsHome, fetchImpl: host.fetchImpl }),
+    dshPortLister: async () => [3080],
+    now: () => clock,
+  });
+  return {
+    root,
+    controller,
+    auditStore,
+    host,
+    advance: (ms: number) => { clock += ms; },
+    cleanup: async () => {
+      await controller.stop();
+      await rm(root, { recursive: true, force: true });
+    },
+  };
+}
+
+test('continues a quiet harness session through the harness session API', async () => {
+  const fixture = await dshControllerFixture({ dryRun: false });
+  try {
+    await fixture.controller.start();
+    await fixture.advance(5_000);
+    await fixture.controller.poll();
+    await fixture.advance(5_000);
+    await fixture.controller.poll();
+
+    const session = (await fixture.controller.list())[0];
+    assert.equal(session?.transport, 'dsh-web');
+    assert.equal(session?.transportError, undefined);
+
+    const promptCalls = fixture.host.calls.filter((call) => call.url.endsWith('/api/session/prompt'));
+    assert.equal(promptCalls.length, 1);
+    const body = promptCalls[0]?.body as { payload: { args: { request: { content: unknown; mode: string } } } };
+    assert.equal(body.payload.args.request.mode, 'queue');
+    assert.deepEqual(body.payload.args.request.content, [{ type: 'text', text: '继续' }]);
+
+    const events = await fixture.auditStore.list();
+    assert.ok(events.some((event) => event.type === 'injection' && event.tool === 'dsh' && event.prompt === '继续'));
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('keeps a running harness step untouched and skips the continuation', async () => {
+  const fixture = await dshControllerFixture({ dryRun: false, turnOpen: true });
+  try {
+    await fixture.controller.start();
+    await fixture.advance(5_000);
+    await fixture.controller.poll();
+    await fixture.advance(5_000);
+    await fixture.controller.poll();
+
+    assert.equal((await fixture.controller.list())[0]?.transport, 'dsh-web');
+    assert.equal(fixture.host.calls.filter((call) => call.url.endsWith('/api/session/prompt')).length, 0);
+
+    const events = await fixture.auditStore.list();
+    assert.ok(events.some((event) => event.type === 'skip' && event.details?.reason === 'harness-step-running'));
+    assert.ok(!events.some((event) => event.type === 'injection'));
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('a dry run keeps harness input disabled even when the host is reachable', async () => {
+  const fixture = await dshControllerFixture({ dryRun: true });
+  try {
+    await fixture.controller.start();
+    const session = (await fixture.controller.list())[0];
+    assert.equal(session?.transport, 'monitor-only');
+    assert.equal(session?.transportError, 'dry run keeps DeepSeek Harness input disabled');
+    assert.equal(fixture.host.calls.filter((call) => call.url.endsWith('/api/session/prompt')).length, 0);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('disabling harness API input keeps the session monitor-only', async () => {
+  const fixture = await dshControllerFixture({ dryRun: false, allowApiInput: false });
+  try {
+    await fixture.controller.start();
+    const session = (await fixture.controller.list())[0];
+    assert.equal(session?.transport, 'monitor-only');
+    assert.equal(session?.transportError, 'DeepSeek Harness input is disabled in the watchdog settings');
+    // No host is probed at all while input is disabled.
+    assert.equal(fixture.host.calls.length, 0);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('an unreachable harness host leaves the session monitor-only', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-dsh-nohost-'));
+  const home = await createDshHome(root, {
+    sessionId: DSH_SESSION_ID,
+    cwd: 'D:\\project\\ai-cli-bypass',
+    turnOpen: false,
+  });
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({ ...defaultConfig, dryRun: false });
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+      DSH_HOST_RECORD,
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    dshHomeDirectory: home.home,
+    dshHostClientFactory: () => new DshHostClient({
+      homeDirectory: join(root, 'absent'),
+      fetchImpl: (async () => { throw new Error('fixture refuses connections'); }) as unknown as typeof fetch,
+    }),
+    dshPortLister: async () => [3080],
+  });
+  try {
+    await controller.start();
+    const session = (await controller.list())[0];
+    assert.equal(session?.transport, 'monitor-only');
+    assert.equal(session?.transportError, 'the local DeepSeek Harness session API is unavailable');
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+/** A process record carrying a resolved host window. */
+function hostedRecord(input: {
+  readonly pid: number;
+  readonly name: string;
+  readonly commandLine: string;
+  readonly hostPid: number;
+  readonly hostName: string;
+  readonly hostTitle: string;
+  readonly handle: number;
+}): RawProcessRecord {
+  return {
+    pid: input.pid,
+    parentPid: 1,
+    name: input.name,
+    commandLine: input.commandLine,
+    executablePath: null,
+    creationTimeMs: 1_000,
+    userSid: 'S-1-5-21-test',
+    workingDirectory: 'D:\\project\\ai-cli-bypass',
+    ancestors: [{ pid: input.hostPid, name: input.hostName }, { pid: 5292, name: 'explorer.exe' }],
+    windows: [{
+      handle: input.handle,
+      pid: input.hostPid,
+      processName: input.hostName,
+      title: input.hostTitle,
+      className: 'Chrome_WidgetWin_1',
+      visible: true,
+    }],
+  };
+}
+
+test('reports the application each session runs inside', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-host-'));
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({ ...defaultConfig, dryRun: true });
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+      hostedRecord({
+        pid: 300,
+        name: 'node.exe',
+        commandLine: '"node" "C:\\npm\\node_modules\\@openai\\codex\\bin\\codex.js" --dangerously-bypass-approvals-and-sandbox',
+        hostPid: 31192,
+        hostName: 'Tabby.exe',
+        hostTitle: ' Orchester',
+        handle: 459_954,
+      }),
+      hostedRecord({
+        pid: 301,
+        name: 'codex.exe',
+        commandLine: 'codex.exe app-server --listen stdio://',
+        hostPid: 3752,
+        hostName: 'ChatGPT.exe',
+        hostTitle: 'ChatGPT',
+        handle: 18_220_776,
+      }),
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+  });
+  try {
+    await controller.poll();
+    const sessions = await controller.list();
+    const tabby = sessions.find((session) => session.rootPid === 300);
+    assert.equal(tabby?.host?.label, 'Tabby');
+    assert.equal(tabby?.host?.category, 'terminal');
+    assert.equal(tabby?.host?.windowHandle, 459_954);
+    assert.equal(tabby?.host?.windowTitle, ' Orchester');
+
+    const codexApp = sessions.find((session) => session.rootPid === 301);
+    assert.equal(codexApp?.host?.label, 'Codex 应用');
+    assert.equal(codexApp?.host?.category, 'desktop-app');
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('reveals a session window and falls back to the harness interface', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-focus-'));
+  const home = await createDshHome(root, {
+    sessionId: DSH_SESSION_ID,
+    cwd: 'D:\\project\\ai-cli-bypass',
+    turnOpen: false,
+  });
+  const credentialsHome = await writeDshCredentials(root);
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({ ...defaultConfig, dryRun: true });
+  const host = fakeDshHost();
+  const focused: number[] = [];
+  const opened: string[] = [];
+  const auditStore = new AuditStore(join(root, 'audit.jsonl'));
+  const controller = new WatchdogController({
+    configStore,
+    auditStore,
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1_000, userSid: 'S-1-5-21-test' },
+      hostedRecord({
+        pid: 302,
+        name: 'node.exe',
+        commandLine: '"node" "C:\\npm\\node_modules\\@openai\\codex\\bin\\codex.js" --dangerously-bypass-approvals-and-sandbox',
+        hostPid: 31192,
+        hostName: 'Tabby.exe',
+        hostTitle: ' Orchester',
+        handle: 459_954,
+      }),
+      DSH_HOST_RECORD,
+    ]),
+    platform: 'win32',
+    currentProcessId: 50,
+    dshHomeDirectory: home.home,
+    dshHostClientFactory: () => new DshHostClient({ homeDirectory: credentialsHome, fetchImpl: host.fetchImpl }),
+    dshPortLister: async () => [3080],
+    focusWindowImpl: async (handle) => {
+      focused.push(handle);
+      return handle === 459_954
+        ? { ok: true, focused: true, title: ' Orchester' }
+        : { ok: false, focused: false, reason: 'foreground-refused' };
+    },
+    openUrlImpl: async (url) => {
+      opened.push(url);
+      return { ok: true, focused: true };
+    },
+  });
+
+  try {
+    await controller.poll();
+    const sessions = await controller.list();
+    const tabby = sessions.find((session) => session.rootPid === 302);
+    const harnessRow = sessions.find((session) => session.tool === 'dsh');
+    assert.ok(tabby);
+    assert.ok(harnessRow);
+
+    assert.deepEqual(await controller.focus(tabby.id), { ok: true, focused: true, title: ' Orchester' });
+    assert.deepEqual(focused, [459_954]);
+    assert.deepEqual(opened, []);
+
+    // The harness row has no window inside its own process tree, so revealing it
+    // opens the interface that serves it.
+    assert.equal(harnessRow.host?.windowHandle, null);
+    assert.deepEqual(await controller.focus(harnessRow.id), { ok: true, focused: true });
+    assert.deepEqual(opened, ['http://127.0.0.1:3080']);
+
+    const events = await auditStore.list();
+    assert.ok(events.some((event) => event.details?.action === 'focus'));
+
+    assert.deepEqual(await controller.focus('dsh:missing'), { ok: false, reason: 'session-not-found' });
   } finally {
     await controller.stop();
     await rm(root, { recursive: true, force: true });

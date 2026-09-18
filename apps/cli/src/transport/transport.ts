@@ -2,7 +2,7 @@ import type { TransportKind } from '../domain/types.js';
 
 export type InjectableTransportKind = Extract<
   TransportKind,
-  'classic-console' | 'pty'
+  'classic-console' | 'pty' | 'dsh-web'
 >;
 
 export type TransportErrorCode =

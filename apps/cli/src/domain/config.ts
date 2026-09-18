@@ -49,6 +49,7 @@ const defaults: WatchdogConfig = {
       enabled: true,
       normalPrompt: '继续',
       sessionWindowMs: 3_600_000,
+      allowApiInput: true,
     },
   },
   processFilters: {
@@ -140,6 +141,9 @@ function parseDshConfig(value: unknown): DshToolConfig {
     sessionWindowMs: config.sessionWindowMs === undefined
       ? defaultConfig.tools.dsh.sessionWindowMs
       : requirePositiveInteger(config.sessionWindowMs, 'tools.dsh.sessionWindowMs'),
+    allowApiInput: config.allowApiInput === undefined
+      ? defaultConfig.tools.dsh.allowApiInput
+      : requireBoolean(config.allowApiInput, 'tools.dsh.allowApiInput'),
   };
 }
 

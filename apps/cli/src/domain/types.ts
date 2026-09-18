@@ -18,6 +18,7 @@ export const TRANSPORT_KINDS = [
   'pty',
   'codex-app-server',
   'claude-stop-hook',
+  'dsh-web',
   'monitor-only',
   'cannot-inject',
   'unknown',
@@ -70,6 +71,12 @@ export interface DshToolConfig extends ToolConfig {
    * this window are treated as history rather than live agents.
    */
   readonly sessionWindowMs: number;
+  /**
+   * Whether a quiet harness session may be continued through the harness's own
+   * loopback session API. When false, or when the harness host cannot be
+   * authenticated, the tool stays `monitor-only`.
+   */
+  readonly allowApiInput: boolean;
 }
 
 export interface WatchdogConfig {

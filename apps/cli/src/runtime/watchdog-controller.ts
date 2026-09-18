@@ -19,6 +19,8 @@ import {
   type DshSessionActivity,
   type DshSessionFile,
 } from '../association/dsh.js';
+import { listLoopbackListenPorts } from '../dsh/loopback-ports.js';
+import { DshHostClient } from '../dsh/web-host.js';
 import { defaultConfig } from '../domain/config.js';
 import type {
   GoalSnapshot,
@@ -32,13 +34,17 @@ import {
   groupProcesses,
   type DiscoveredProcessSession,
 } from '../process/discovery.js';
+import type { SessionHost } from '../process/host-apps.js';
+import { focusWindow, openLocalUrl, type WindowFocusResult } from '../process/window-focus.js';
 import {
   WindowsProcessProvider,
   type ProcessProvider,
   type RawProcessRecord,
 } from '../process/process-provider.js';
 import { ConsoleTransport } from '../transport/console-bridge.js';
+import { DshWebTransport } from '../transport/dsh-transport.js';
 import type {
+  InjectableTransportKind,
   SessionTransport,
 } from '../transport/transport.js';
 import type { AuditStore } from '../store/audit-store.js';
@@ -67,6 +73,14 @@ export interface WatchdogControllerOptions {
   readonly transportFactory?: (session: DiscoveredProcessSession) => SessionTransport | null;
   readonly claudeLeaseStore?: ClaudeLeaseStore;
   readonly claudeHookInstalled?: () => boolean | Promise<boolean>;
+  /** Builds one harness web-host client; overridable for tests. */
+  readonly dshHostClientFactory?: () => DshHostClient;
+  /** Lists the loopback ports a harness host listens on; overridable for tests. */
+  readonly dshPortLister?: (pid: number) => Promise<number[]>;
+  /** Raises one window; overridable for tests. */
+  readonly focusWindowImpl?: (handle: number) => Promise<WindowFocusResult>;
+  /** Opens one local interface URL; overridable for tests. */
+  readonly openUrlImpl?: (url: string) => Promise<WindowFocusResult>;
 }
 
 export interface RuntimeSessionView extends SessionSnapshot {
@@ -78,6 +92,8 @@ export interface RuntimeSessionView extends SessionSnapshot {
   readonly sessionCwd?: string | null;
   /** True while the hosted DeepSeek Harness session has an unfinished step. */
   readonly runningTurn?: boolean;
+  /** The application the session runs inside, with the window to raise. */
+  readonly host?: SessionHost | null;
 }
 
 export interface WatchdogRuntimeStatus {
@@ -93,7 +109,7 @@ interface RuntimeSession {
   userPaused: boolean;
   alive: boolean;
   transport: SessionTransport | null;
-  validatedTransportKind: Extract<TransportKind, 'classic-console' | 'pty'> | null;
+  validatedTransportKind: InjectableTransportKind | null;
   transportKind: TransportKind;
   transportError: string | undefined;
   consoleProcessIds: readonly number[] | null;
@@ -118,6 +134,17 @@ const DEFAULT_CODEX_HOME = join(homedir(), '.codex');
 const DEFAULT_DSH_HOME = join(homedir(), '.dsh');
 const SHARED_CONSOLE_ERROR = 'shared classic Console contains multiple discovered CLI sessions';
 const DSH_MONITOR_ONLY_REASON = 'DeepSeek Harness exposes no local input transport';
+const DSH_INPUT_DISABLED_REASON = 'DeepSeek Harness input is disabled in the watchdog settings';
+const DSH_DRY_RUN_REASON = 'dry run keeps DeepSeek Harness input disabled';
+const DSH_API_UNAVAILABLE_REASON = 'the local DeepSeek Harness session API is unavailable';
+const DSH_HOST_RETRY_MS = 60_000;
+/**
+ * Window titles containing this marker are showing the harness WebUI. The
+ * harness serves its browser UI over loopback, so the browser is never part of
+ * the session's process tree and only its title connects the two.
+ */
+const DSH_WINDOW_TITLE_MARKER = 'DSH';
+const DSH_WEB_LABEL = 'DeepSeek Harness 网页界面';
 
 /**
  * Owns one polling loop and one state machine per discovered process group.
@@ -139,9 +166,14 @@ export class WatchdogController {
   private readonly transportFactory?: (session: DiscoveredProcessSession) => SessionTransport | null;
   private readonly claudeLeaseStore?: ClaudeLeaseStore;
   private readonly claudeHookInstalled: () => boolean | Promise<boolean>;
+  private readonly dshHostClientFactory: () => DshHostClient;
+  private readonly dshPortLister: (pid: number) => Promise<number[]>;
+  private readonly focusWindowImpl: (handle: number) => Promise<WindowFocusResult>;
+  private readonly openUrlImpl: (url: string) => Promise<WindowFocusResult>;
   private readonly activeClaudeLeaseWrites = new Set<Promise<WriteResultLike>>();
   private readonly sessions = new Map<string, RuntimeSession>();
   private dshSessions = new Map<string, DshSessionFile>();
+  private readonly dshHosts = new Map<number, { client: DshHostClient; attemptedAtMs: number | null }>();
   private codexPathsPromise: Promise<CodexPaths | null> | null = null;
   private currentConfig: WatchdogConfig = defaultConfig;
   private timer: NodeJS.Timeout | null = null;
@@ -155,7 +187,10 @@ export class WatchdogController {
     this.auditStore = options.auditStore;
     this.currentProcessId = options.currentProcessId ?? process.pid;
     this.provider = options.provider ??
-      new WindowsProcessProvider({ includeProcessIds: [this.currentProcessId] });
+      new WindowsProcessProvider({
+        includeProcessIds: [this.currentProcessId],
+        windowTitleMarkers: [DSH_WINDOW_TITLE_MARKER],
+      });
     this.publish = options.publish;
     this.now = options.now ?? Date.now;
     this.platform = options.platform ?? process.platform;
@@ -167,6 +202,11 @@ export class WatchdogController {
     this.transportFactory = options.transportFactory;
     this.claudeLeaseStore = options.claudeLeaseStore;
     this.claudeHookInstalled = options.claudeHookInstalled ?? (() => false);
+    this.dshHostClientFactory = options.dshHostClientFactory ??
+      (() => new DshHostClient({ homeDirectory: this.dshHomeDirectory }));
+    this.dshPortLister = options.dshPortLister ?? ((pid: number) => listLoopbackListenPorts(pid));
+    this.focusWindowImpl = options.focusWindowImpl ?? ((handle: number) => focusWindow(handle));
+    this.openUrlImpl = options.openUrlImpl ?? ((url: string) => openLocalUrl(url));
   }
 
   public async start(): Promise<void> {
@@ -349,6 +389,47 @@ export class WatchdogController {
     return resumed;
   }
 
+  /**
+   * Show a person where a session lives: raise the window it runs in, or open
+   * the local interface that serves it when no window belongs to the session.
+   *
+   * This only manages windows and URLs; it never sends input to the session.
+   * @param sessionId - the watched session to reveal.
+   * @returns whether a window was raised or an interface was opened.
+   */
+  public async focus(sessionId: string): Promise<WindowFocusResult> {
+    const session = this.sessions.get(sessionId);
+    if (session === undefined) return { ok: false, reason: 'session-not-found' };
+    if (!session.alive) return { ok: false, reason: 'session-is-not-alive' };
+
+    const handle = session.group.host?.windowHandle ?? null;
+    let result = handle === null
+      ? { ok: false, reason: 'no-window-for-session' } as WindowFocusResult
+      : await this.focusWindowImpl(handle);
+
+    // A harness row usually has no window of its own inside the session tree;
+    // when the OS refused the foreground change, opening the interface lets the
+    // browser activate itself instead.
+    if (!result.ok && session.group.tool === 'dsh') {
+      const fallback = await this.openSessionInterface(session);
+      if (fallback.ok) result = fallback;
+    }
+
+    await this.record(session, 'user-override', {
+      action: 'focus',
+      ok: result.ok,
+      reason: result.reason ?? null,
+    });
+    return result;
+  }
+
+  private async openSessionInterface(session: RuntimeSession): Promise<WindowFocusResult> {
+    if (session.group.tool !== 'dsh') return { ok: false, reason: 'no-window-for-session' };
+    const origin = this.dshHosts.get(session.group.rootPid)?.client.origin ?? null;
+    if (origin === null) return { ok: false, reason: 'harness-interface-unknown' };
+    return await this.openUrlImpl(harnessInterfaceUrl(origin));
+  }
+
   public async inject(
     sessionId: string,
     prompt: string,
@@ -387,6 +468,9 @@ export class WatchdogController {
       const groups = groupProcesses(records, {
         currentProcessId: this.currentProcessId,
         sameUserOnly: this.currentConfig.processFilters.sameUserOnly,
+        harnessHost: this.currentConfig.tools.dsh.enabled
+          ? { titleMarker: DSH_WINDOW_TITLE_MARKER, label: DSH_WEB_LABEL }
+          : null,
       });
       return groups.filter((group) => this.matchesProcessFilters(group));
     } catch (error) {
@@ -477,10 +561,13 @@ export class WatchdogController {
     const hosts = groups.filter((group) => group.tool === 'dsh');
     if (hosts.length === 0) {
       this.dshSessions.clear();
+      this.dshHosts.clear();
       return groups;
     }
 
     const sessions = await this.scanDshSessions();
+    if (this.stopping) return groups;
+    await this.resolveDshHosts(hosts, timestamp);
     if (this.stopping) return groups;
     const hostStartedAtMs = hosts.reduce<number | null>((oldest, host) => {
       if (host.creationTimeMs === null) return oldest;
@@ -531,6 +618,101 @@ export class WatchdogController {
       await this.auditGlobal('skip', { reason: `dsh-index: ${errorMessage(error)}` });
       return [];
     }
+  }
+
+  /**
+   * Find and authenticate the harness web host that serves these sessions.
+   *
+   * The host's listening port is not recorded anywhere readable, so its own
+   * loopback sockets are probed for the harness fingerprint. A failed attempt is
+   * retried on a cooldown rather than every poll, because the port lookup spawns
+   * PowerShell and the answer only changes when the host restarts.
+   */
+  private async resolveDshHosts(
+    hosts: readonly DiscoveredProcessSession[],
+    timestamp: number,
+  ): Promise<void> {
+    const live = new Set(hosts.map((host) => host.rootPid));
+    for (const pid of [...this.dshHosts.keys()]) {
+      if (!live.has(pid)) this.dshHosts.delete(pid);
+    }
+    if (!this.currentConfig.tools.dsh.allowApiInput) return;
+    // A dry run never writes, so the credential is not read; the origin is still
+    // located so the interface can be shown and opened.
+    const mayWrite = !this.currentConfig.dryRun;
+
+    for (const host of hosts) {
+      let entry = this.dshHosts.get(host.rootPid);
+      if (entry === undefined) {
+        entry = { client: this.dshHostClientFactory(), attemptedAtMs: null };
+        this.dshHosts.set(host.rootPid, entry);
+      }
+      if (entry.client.origin !== null) continue;
+      if (entry.attemptedAtMs !== null && timestamp - entry.attemptedAtMs < DSH_HOST_RETRY_MS) {
+        continue;
+      }
+      entry.attemptedAtMs = timestamp;
+
+      const candidates: string[] = [];
+      const configured = process.env.DSH_WEB_URL?.trim();
+      if (configured !== undefined && configured.length > 0) candidates.push(configured);
+      for (const port of await this.dshPortLister(host.rootPid)) {
+        candidates.push(`http://127.0.0.1:${port}`);
+      }
+      if (this.stopping) return;
+      for (const candidate of candidates) {
+        const accepted = mayWrite
+          ? await entry.client.adopt(candidate)
+          : await entry.client.probe(candidate);
+        if (accepted) {
+          await this.auditGlobal('skip', {
+            reason: 'dsh-host-adopted',
+            origin: entry.client.origin,
+            pid: host.rootPid,
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  /**
+   * Decide how one harness session may be written to: the harness session API
+   * when this host authenticated and the watchdog is allowed to write, and
+   * monitor-only with a precise reason otherwise.
+   */
+  private configureDshTransport(session: RuntimeSession): void {
+    if (session.dshSession === null) {
+      session.transport = null;
+      session.validatedTransportKind = null;
+      session.transportKind = 'monitor-only';
+      session.transportError = 'DeepSeek Harness session is no longer live';
+      return;
+    }
+
+    const reason = !this.currentConfig.tools.dsh.allowApiInput
+      ? DSH_INPUT_DISABLED_REASON
+      : this.currentConfig.dryRun
+        ? DSH_DRY_RUN_REASON
+        : null;
+    const client = this.dshHosts.get(session.group.rootPid)?.client ?? null;
+    if (reason !== null || client === null || client.origin === null) {
+      session.transport = null;
+      session.validatedTransportKind = null;
+      session.transportKind = 'monitor-only';
+      session.transportError = reason ?? DSH_API_UNAVAILABLE_REASON;
+      return;
+    }
+
+    session.transport ??= new DshWebTransport({
+      pid: session.group.rootPid,
+      sessionId: session.dshSession.sessionId,
+      client,
+      isIdle: () => session.dshSession?.turnOpen === false,
+    });
+    session.validatedTransportKind = 'dsh-web';
+    session.transportKind = 'dsh-web';
+    session.transportError = undefined;
   }
 
   private prepareDsh(session: RuntimeSession, group: DiscoveredProcessSession): void {
@@ -637,15 +819,8 @@ export class WatchdogController {
         ? null
         : this.dshSessions.get(session.group.logicalId) ?? null;
       session.dshSession = current;
-      if (current === null) {
-        session.conversationId = null;
-        session.transportKind = 'monitor-only';
-        session.transportError = 'DeepSeek Harness session is no longer live';
-      } else {
-        session.conversationId = current.sessionId;
-        session.transportKind = 'monitor-only';
-        session.transportError = DSH_MONITOR_ONLY_REASON;
-      }
+      session.conversationId = current?.sessionId ?? null;
+      this.configureDshTransport(session);
       return;
     }
 
@@ -765,6 +940,16 @@ export class WatchdogController {
       session.goal = decision.goal;
       session.conversationId = decision.threadId;
     } else if (session.group.tool === 'dsh') {
+      // A session with an unfinished step is never interrupted: the harness
+      // would queue the text behind a running agent, and a continuation is only
+      // meaningful once the agent has actually stopped.
+      if (session.dshSession === null || session.dshSession.turnOpen) {
+        session.engine.recordTransportError(session.id, timestamp);
+        await this.record(session, 'skip', {
+          reason: session.dshSession === null ? 'harness-session-gone' : 'harness-step-running',
+        });
+        return;
+      }
       prompt = this.currentConfig.tools.dsh.normalPrompt;
     } else {
       prompt = this.currentConfig.tools.claude.normalPrompt;
@@ -810,12 +995,16 @@ export class WatchdogController {
       }
     }
     if (session.group.tool === 'dsh') {
-      return { ok: false, error: DSH_MONITOR_ONLY_REASON };
+      if (session.transport === null || session.transportKind !== 'dsh-web') {
+        return { ok: false, error: session.transportError ?? DSH_MONITOR_ONLY_REASON };
+      }
+      const result = await session.transport.write(session.group.rootPid, prompt);
+      return result.ok ? { ok: true } : { ok: false, error: result.error.message };
     }
     if (session.transportKind === 'claude-stop-hook') {
       return this.armClaudeLease(session, prompt);
     }
-    if (session.transport === null || !['classic-console', 'pty'].includes(session.transportKind)) {
+    if (session.transport === null || (session.transportKind !== 'classic-console' && session.transportKind !== 'pty')) {
       return { ok: false, error: session.transportError ?? 'no trusted transport' };
     }
     const result = await session.transport.write(session.group.rootPid, prompt);
@@ -945,6 +1134,7 @@ export class WatchdogController {
         sessionCwd: session.dshSession?.cwd ?? null,
         runningTurn: session.dshSession?.turnOpen ?? false,
       } : {}),
+      host: session.group.host ?? null,
       ...(session.transportError === undefined ? {} : { transportError: session.transportError }),
     });
   }
@@ -1035,6 +1225,15 @@ function defaultDshHome(): string {
   return configured !== undefined && configured.trim().length > 0
     ? configured
     : DEFAULT_DSH_HOME;
+}
+
+/**
+ * The harness WebUI keeps the selected session in its own client state and
+ * documents no session deep link, so the interface is opened at its root rather
+ * than with a query the harness would ignore.
+ */
+function harnessInterfaceUrl(origin: string): string {
+  return origin;
 }
 
 function processIdentityChanged(
