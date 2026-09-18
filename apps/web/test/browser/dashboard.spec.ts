@@ -142,6 +142,23 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.screenshot({ path: testInfo.outputPath('appearance-1280x900.png'), fullPage: true });
   });
 
+  test('keeps the appearance previews readable on a narrow mobile viewport', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 360, height: 780 });
+    await page.goto('/');
+    await page.getByRole('button', { name: '打开菜单' }).click();
+    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByRole('tab', { name: '通用' }).click();
+
+    const panel = page.locator('.appearance-panel');
+    await expect(panel).toBeVisible();
+    await expect(panel.getByRole('radiogroup', { name: '外观主题' })).toBeVisible();
+    const panelBox = await panel.boundingBox();
+    expect(panelBox).not.toBeNull();
+    expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(360);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath('appearance-mobile-360x780.png'), fullPage: true });
+  });
+
   test('keeps the environment cards readable on a narrow mobile viewport', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/');
