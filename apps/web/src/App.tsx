@@ -2,6 +2,7 @@ import {
   Activity,
   Bot,
   CircleAlert,
+  CircleArrowUp,
   CirclePause,
   CirclePlay,
   Copy,
@@ -441,9 +442,9 @@ function Timeline({ events }: { events: AuditEvent[] }) {
  * The local environment panel.
  *
  * Mirrors what CC Switch shows for a Windows install: one card per agent CLI
- * with the installed and published version, a state badge, and the exact npm
- * command that upgrades it. Nothing here installs anything: the panel reports,
- * and the manual-command block is copyable text a person runs themselves.
+ * with the installed and published version, a state badge, and a one-press
+ * upgrade. The install runs on the service, which serializes global npm runs;
+ * the manual-command block stays for anyone who prefers to run it themselves.
  */
 
 const ENVIRONMENT_STATE_LABEL: Record<ToolState, string> = {
@@ -453,7 +454,14 @@ const ENVIRONMENT_STATE_LABEL: Record<ToolState, string> = {
   unknown: '未知',
 };
 
-function EnvironmentToolCard({ tool }: { tool: EnvironmentToolView }) {
+function EnvironmentToolCard({ tool, upgrading, busy, onUpgrade }: {
+  tool: EnvironmentToolView;
+  /** True while this exact tool is the one npm is installing. */
+  upgrading: boolean;
+  /** True while any install is running; the service serializes them anyway. */
+  busy: boolean;
+  onUpgrade: () => void;
+}) {
   return (
     <article className={`tool-card tool-card--${tool.state}`} data-testid={`tool-${tool.id}`}>
       <header>
@@ -471,6 +479,20 @@ function EnvironmentToolCard({ tool }: { tool: EnvironmentToolView }) {
         <div><dt>最新版本</dt><dd>{tool.latest ?? '--'}</dd></div>
       </dl>
       {tool.state === 'outdated' && <code className="tool-card__command">{tool.installCommand}</code>}
+      {tool.state === 'outdated' && (
+        <div className="tool-card__actions">
+          <button
+            className="button button--primary"
+            type="button"
+            aria-label={`升级 ${tool.label}`}
+            disabled={busy}
+            onClick={onUpgrade}
+          >
+            {upgrading ? <RefreshCw className="spin" size={15} /> : <CircleArrowUp size={15} />}
+            {upgrading ? '升级中' : '升级'}
+          </button>
+        </div>
+      )}
     </article>
   );
 }
@@ -479,6 +501,10 @@ function EnvironmentPanel(props: {
   environment: EnvironmentView | null;
   refreshing: boolean;
   onRefresh: () => Promise<void>;
+  /** Id of the tool npm is installing right now, or 'all' for a bulk run. */
+  upgrading: string | null;
+  onUpgrade: (id: string) => Promise<void>;
+  onUpgradeAll: () => Promise<void>;
 }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -503,20 +529,42 @@ function EnvironmentPanel(props: {
     <section className="settings-section settings-section--wide environment-panel">
       <div className="section-title">
         <div><span className="eyebrow">Environment</span><h2>本地环境检查</h2></div>
-        <button
-          className="button button--secondary"
-          type="button"
-          aria-label="刷新本地环境"
-          disabled={props.refreshing}
-          onClick={() => void props.onRefresh()}
-        >
-          {props.refreshing ? <RefreshCw className="spin" size={16} /> : <RefreshCw size={16} />}
-          刷新
-        </button>
+        <div className="section-title__actions">
+          {report.upgrades.length > 0 && (
+            <button
+              className="button button--primary"
+              type="button"
+              aria-label="全部升级"
+              disabled={props.upgrading !== null || props.refreshing}
+              onClick={() => void props.onUpgradeAll()}
+            >
+              {props.upgrading === 'all' ? <RefreshCw className="spin" size={16} /> : <CircleArrowUp size={16} />}
+              全部升级 ({report.upgrades.length})
+            </button>
+          )}
+          <button
+            className="button button--secondary"
+            type="button"
+            aria-label="刷新本地环境"
+            disabled={props.refreshing || props.upgrading !== null}
+            onClick={() => void props.onRefresh()}
+          >
+            {props.refreshing ? <RefreshCw className="spin" size={16} /> : <RefreshCw size={16} />}
+            刷新
+          </button>
+        </div>
       </div>
       <div className="environment-panel__body">
         <div className="tool-grid">
-          {report.tools.map((tool) => <EnvironmentToolCard key={tool.id} tool={tool} />)}
+          {report.tools.map((tool) => (
+            <EnvironmentToolCard
+              key={tool.id}
+              tool={tool}
+              upgrading={props.upgrading === tool.id}
+              busy={props.upgrading !== null}
+              onUpgrade={() => void props.onUpgrade(tool.id)}
+            />
+          ))}
         </div>
         <div className="manual-commands">
           <button
@@ -628,7 +676,10 @@ function SettingsPanel(props: {
   profiles: CodexProfilesView | null;
   environment: EnvironmentView | null;
   environmentRefreshing: boolean;
+  environmentUpgrading: string | null;
   onRefreshEnvironment: () => Promise<void>;
+  onUpgradeTool: (id: string) => Promise<void>;
+  onUpgradeAllTools: () => Promise<void>;
   theme: ThemePreference;
   onThemeChange: (theme: ThemePreference) => void;
   onApplyProfile: (fields: CodexProfileFieldView[]) => Promise<void>;
@@ -813,7 +864,14 @@ function SettingsPanel(props: {
         </section>
       )}
       {activeTab === 'about' && (
-        <EnvironmentPanel environment={props.environment} refreshing={props.environmentRefreshing} onRefresh={props.onRefreshEnvironment} />
+        <EnvironmentPanel
+          environment={props.environment}
+          refreshing={props.environmentRefreshing}
+          upgrading={props.environmentUpgrading}
+          onRefresh={props.onRefreshEnvironment}
+          onUpgrade={props.onUpgradeTool}
+          onUpgradeAll={props.onUpgradeAllTools}
+        />
       )}
     </form>
   );
@@ -839,6 +897,8 @@ export default function App({ api: suppliedApi }: AppProps) {
   const [codexProfiles, setCodexProfiles] = useState<CodexProfilesView | null>(null);
   const [environment, setEnvironment] = useState<EnvironmentView | null>(null);
   const [environmentRefreshing, setEnvironmentRefreshing] = useState(false);
+  // 'all' while a bulk run is in flight, otherwise the tool id, otherwise null.
+  const [environmentUpgrading, setEnvironmentUpgrading] = useState<string | null>(null);
   const [applyingProfile, setApplyingProfile] = useState(false);
   const [config, setConfig] = useState(fallbackConfig);
   const [sessions, setSessions] = useState<SessionView[]>(fallbackSessions);
@@ -960,6 +1020,37 @@ export default function App({ api: suppliedApi }: AppProps) {
       setNotice(error instanceof Error ? error.message : '刷新失败');
     } finally { setEnvironmentRefreshing(false); }
   };
+  /**
+   * Install one agent CLI, then re-read the report.
+   *
+   * The panel must show what actually got installed, so the service's fresh
+   * scan replaces the optimistic view instead of the button just disappearing.
+   */
+  const upgradeTool = async (id: string) => {
+    setEnvironmentUpgrading(id); setNotice(null);
+    try {
+      const result = await api.upgradeTool(id);
+      setEnvironment(await api.environment());
+      setNotice(result.ok ? `${id} 升级完成` : `${id} 升级失败：${result.error ?? '未知错误'}`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '升级失败');
+    } finally { setEnvironmentUpgrading(null); }
+  };
+
+  const upgradeAllTools = async () => {
+    setEnvironmentUpgrading('all'); setNotice(null);
+    try {
+      const outcome = await api.upgradeAllTools();
+      setEnvironment(await api.environment());
+      const failed = outcome.results.filter((result) => !result.ok);
+      setNotice(failed.length === 0
+        ? `${outcome.results.length} 个工具已升级`
+        : `${outcome.results.length - failed.length} 个成功，${failed.length} 个失败`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '全部升级失败');
+    } finally { setEnvironmentUpgrading(null); }
+  };
+
   const saveConfig = async (nextConfig: WatchdogConfig) => {
     setSaving(true); setNotice(null);
     try {
@@ -1104,7 +1195,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{events.length} 条</span></div><Timeline events={events} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} onThemeChange={setThemePreference} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} onThemeChange={setThemePreference} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
       </main>
     </div>
   );

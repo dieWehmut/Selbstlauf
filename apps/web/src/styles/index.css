@@ -303,6 +303,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .tool-card__versions dt { color: var(--faint); font: 10px var(--mono); text-transform: uppercase; }
 .tool-card__versions dd { margin: 4px 0 0; font: 13px var(--mono); color: var(--text); }
 .tool-card__command { display: block; padding: 8px 10px; border-radius: var(--radius-xs); background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--accent-strong); font: 11px/1.5 var(--mono); overflow-wrap: anywhere; }
+.tool-card__actions { display: flex; justify-content: flex-end; }
+.section-title__actions { display: flex; align-items: center; gap: 8px; }
 .manual-commands { display: grid; gap: 10px; }
 .manual-commands__toggle { display: flex; align-items: center; gap: 9px; width: 100%; padding: 12px 14px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); font-size: 13px; text-align: left; transition: border-color .15s ease, color .15s ease; }
 .manual-commands__toggle:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent-strong); }

@@ -55,6 +55,26 @@ describe('static Pages demo API', () => {
     expect(after.alternatives.base_url).toContain('https://external-api-platform.hkgai.net/v1');
   });
 
+  it('models an install so the demo upgrade button reports a new version', async () => {
+    const api = createStaticDemoApi();
+    const before = await api.environment();
+    expect(before.upgrades).toContain('claude');
+
+    const result = await api.upgradeTool('claude');
+    expect(result.ok).toBe(true);
+    const after = await api.environment();
+    expect(after.upgrades).not.toContain('claude');
+    expect(after.tools.find((tool) => tool.id === 'claude')?.installed).toBe('2.1.276');
+
+    const all = await api.upgradeAllTools();
+    expect(all.ok).toBe(true);
+    expect(all.results.map((entry) => entry.id)).toEqual(['gemini', 'opencode', 'openclaw']);
+    expect((await api.environment()).upgrades).toEqual([]);
+
+    // An unknown id is refused instead of quietly succeeding.
+    expect((await api.upgradeTool('nope')).ok).toBe(false);
+  });
+
   it('models explicit Claude Hook installation, disable, and uninstall in memory', async () => {
     const api = createStaticDemoApi();
     expect(await api.claudeHook()).toEqual({

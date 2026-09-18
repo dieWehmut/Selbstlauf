@@ -37,6 +37,11 @@ function api(): WatchdogApi {
     applyCodexProfile: vi.fn(async () => ({ ok: true, changes: [] })),
     environment: vi.fn(async () => environment),
     refreshEnvironment: vi.fn(async () => environment),
+    upgradeTool: vi.fn(async (id: string) => ({ id, ok: true, output: 'added 1 package' })),
+    upgradeAllTools: vi.fn(async () => ({
+      ok: true,
+      results: environment.upgrades.map((id) => ({ id, ok: true, output: 'added 1 package' })),
+    })),
     installClaudeHook: vi.fn(async () => ({ installed: true, enabled: false, restartRequired: true, manualReviewRequired: false })),
     uninstallClaudeHook: vi.fn(async () => ({ installed: false, enabled: false, restartRequired: false, manualReviewRequired: false })),
     disableClaudeHook: vi.fn(async () => ({ installed: true, enabled: false, restartRequired: true, manualReviewRequired: false })),
@@ -119,6 +124,19 @@ function stoppedApi(): WatchdogApi {
     fireEvent.click(screen.getByRole('button', { name: '复制安装命令' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0][0]).toContain('npm i -g @openai/codex@latest');
+
+    // Every outdated card offers its own install button.
+    expect(screen.getByRole('button', { name: '升级 Claude Code' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '升级 Gemini CLI' })).toBeInTheDocument();
+    // A current tool is not offered a pointless reinstall.
+    expect(screen.queryByRole('button', { name: '升级 Codex' })).toBeNull();
+
+    // Pressing one installs exactly that tool and re-reads the report.
+    fireEvent.click(screen.getByRole('button', { name: '升级 Claude Code' }));
+    await waitFor(() => expect(fake.upgradeTool).toHaveBeenCalledWith('claude'));
+    // The bulk button upgrades everything the report marks outdated.
+    fireEvent.click(screen.getByRole('button', { name: '全部升级' }));
+    await waitFor(() => expect(fake.upgradeAllTools).toHaveBeenCalled());
 
     // Refreshing asks the service to re-probe rather than reusing its cache.
     fireEvent.click(screen.getByRole('button', { name: '刷新本地环境' }));

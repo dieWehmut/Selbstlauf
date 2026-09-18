@@ -56,29 +56,42 @@ const initialHealth: HealthView = {
  *
  * The demo never probes a real machine, so this mirrors what a typical Windows
  * install reports: a few agents behind their published release, Codex current,
- * and one agent that is not installed at all.
+ * and one agent that is not installed at all. The upgrade actions move those
+ * versions too, so the Pages build shows the same working buttons as the app.
  */
-function environmentReport(): EnvironmentView {
-  const tools: EnvironmentToolView[] = [
-    { id: 'claude', label: 'Claude Code', packageName: '@anthropic-ai/claude-code', installed: '2.1.274', latest: '2.1.276', state: 'outdated', installCommand: 'npm i -g @anthropic-ai/claude-code@latest' },
-    { id: 'codex', label: 'Codex', packageName: '@openai/codex', installed: '0.155.0', latest: '0.155.0', state: 'current', installCommand: 'npm i -g @openai/codex@latest' },
-    { id: 'gemini', label: 'Gemini CLI', packageName: '@google/gemini-cli', installed: '0.50.0', latest: '0.60.0', state: 'outdated', installCommand: 'npm i -g @google/gemini-cli@latest' },
-    { id: 'grok', label: 'Grok Build', packageName: '@xai-official/grok', installed: null, latest: '1.0.34', state: 'missing', installCommand: 'npm i -g @xai-official/grok@latest' },
-    { id: 'opencode', label: 'OpenCode', packageName: 'opencode-ai', installed: '1.17.15', latest: '1.18.31', state: 'outdated', installCommand: 'npm i -g opencode-ai@latest' },
-    { id: 'openclaw', label: 'OpenClaw', packageName: 'openclaw', installed: '2026.3.28', latest: '2026.9.4', state: 'outdated', installCommand: 'npm i -g openclaw@latest' },
-  ];
+const demoToolSeed: EnvironmentToolView[] = [
+  { id: 'claude', label: 'Claude Code', packageName: '@anthropic-ai/claude-code', installed: '2.1.274', latest: '2.1.276', state: 'outdated', installCommand: 'npm i -g @anthropic-ai/claude-code@latest' },
+  { id: 'codex', label: 'Codex', packageName: '@openai/codex', installed: '0.155.0', latest: '0.155.0', state: 'current', installCommand: 'npm i -g @openai/codex@latest' },
+  { id: 'gemini', label: 'Gemini CLI', packageName: '@google/gemini-cli', installed: '0.50.0', latest: '0.60.0', state: 'outdated', installCommand: 'npm i -g @google/gemini-cli@latest' },
+  { id: 'grok', label: 'Grok Build', packageName: '@xai-official/grok', installed: null, latest: '1.0.34', state: 'missing', installCommand: 'npm i -g @xai-official/grok@latest' },
+  { id: 'opencode', label: 'OpenCode', packageName: 'opencode-ai', installed: '1.17.15', latest: '1.18.31', state: 'outdated', installCommand: 'npm i -g opencode-ai@latest' },
+  { id: 'openclaw', label: 'OpenClaw', packageName: 'openclaw', installed: '2026.3.28', latest: '2026.9.4', state: 'outdated', installCommand: 'npm i -g openclaw@latest' },
+];
+
+function buildEnvironmentReport(tools: readonly EnvironmentToolView[]): EnvironmentView {
   return {
     tools,
     upgrades: tools.filter((tool) => tool.state === 'outdated').map((tool) => tool.id),
     missing: tools.filter((tool) => tool.state === 'missing').map((tool) => tool.id),
     manualCommands: tools.map((tool) => tool.installCommand),
-    checkedAtMs: now,
+    checkedAtMs: Date.now(),
   };
+}
+
+/**
+ * Model one install: a demo upgrade moves the installed version to the
+ * published one, so the card flips to current exactly like a real install.
+ */
+function upgradedTools(tools: readonly EnvironmentToolView[], id: string): EnvironmentToolView[] {
+  return tools.map((tool) => tool.id === id && tool.latest !== null
+    ? { ...tool, installed: tool.latest, state: 'current' as const }
+    : tool);
 }
 
 export function createStaticDemoApi(): WatchdogApi {
   let currentConfig = structuredClone(initialConfig);
   let currentSessions = structuredClone(initialSessions);
+  let currentTools = structuredClone(demoToolSeed);
   const currentHealth = structuredClone(initialHealth);
   let startupInstalled = false;
   let codexProfileFields = [
@@ -142,8 +155,19 @@ export function createStaticDemoApi(): WatchdogApi {
       return { ok: true, changes };
     },
     claudeHook: async () => hookStatus(),
-    environment: async () => environmentReport(),
-    refreshEnvironment: async () => environmentReport(),
+    environment: async () => buildEnvironmentReport(structuredClone(currentTools)),
+    refreshEnvironment: async () => buildEnvironmentReport(structuredClone(currentTools)),
+    upgradeTool: async (id) => {
+      const tool = currentTools.find((entry) => entry.id === id);
+      if (tool === undefined) return { id, ok: false, error: `unknown tool: ${id}` };
+      currentTools = upgradedTools(currentTools, id);
+      return { id, ok: true, output: 'added 1 package' };
+    },
+    upgradeAllTools: async () => {
+      const outdated = currentTools.filter((tool) => tool.state === 'outdated');
+      for (const tool of outdated) currentTools = upgradedTools(currentTools, tool.id);
+      return { ok: true, results: outdated.map((tool) => ({ id: tool.id, ok: true, output: 'added 1 package' })) };
+    },
     installClaudeHook: async () => {
       hookInstallation = { installed: true, restartRequired: true, manualReviewRequired: false };
       return hookStatus();

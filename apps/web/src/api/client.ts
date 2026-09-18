@@ -146,6 +146,19 @@ export interface EnvironmentView {
   readonly checkedAtMs: number;
 }
 
+/** One install outcome exactly as the service reports it. */
+export interface UpgradeResultView {
+  readonly id: string;
+  readonly ok: boolean;
+  readonly output?: string;
+  readonly error?: string;
+}
+
+export interface UpgradeAllView {
+  readonly ok: boolean;
+  readonly results: readonly UpgradeResultView[];
+}
+
 
 export type WatchdogEvent =
   | { readonly kind: 'audit'; readonly event: AuditEvent }
@@ -177,6 +190,8 @@ export interface WatchdogApi {
   applyCodexProfile(fields: readonly CodexProfileFieldView[]): Promise<CodexProfileApplyView>;
   environment(): Promise<EnvironmentView>;
   refreshEnvironment(): Promise<EnvironmentView>;
+  upgradeTool(id: string): Promise<UpgradeResultView>;
+  upgradeAllTools(): Promise<UpgradeAllView>;
   claudeHook(): Promise<ClaudeHookStatusView>;
   installClaudeHook(): Promise<ClaudeHookStatusView>;
   uninstallClaudeHook(): Promise<ClaudeHookStatusView>;
@@ -240,6 +255,11 @@ export function createApi(): WatchdogApi {
     }),
     environment: () => request<EnvironmentView>('/environment'),
     refreshEnvironment: () => request<EnvironmentView>('/environment/refresh', { method: 'POST' }),
+    upgradeTool: (id) => request<UpgradeResultView>('/environment/upgrade', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
+    upgradeAllTools: () => request<UpgradeAllView>('/environment/upgrade-all', { method: 'POST' }),
     claudeHook: () => request<ClaudeHookStatusView>('/claude-hook'),
     installClaudeHook: () => request<ClaudeHookStatusView>('/claude-hook/install', { method: 'POST' }),
     uninstallClaudeHook: () => request<ClaudeHookStatusView>('/claude-hook/uninstall', { method: 'POST' }),
