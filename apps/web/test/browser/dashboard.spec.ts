@@ -90,6 +90,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '设置' }).click();
 
+    await page.getByRole('tab', { name: '关于' }).click();
     const panel = page.locator('.environment-panel');
     await expect(panel.getByRole('heading', { name: '本地环境检查' })).toBeVisible();
 
@@ -123,6 +124,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
 
+    await page.getByRole('tab', { name: '关于' }).click();
     const panel = page.locator('.environment-panel');
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId('tool-claude')).toBeVisible();

@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   ListTree,
   Menu,
+  Monitor,
   Moon,
   Network,
   PanelLeftClose,
@@ -48,7 +49,25 @@ import {
 } from './api/client';
 
 type Page = 'overview' | 'timeline' | 'settings';
+/** What the person chose; 'system' resolves against the OS preference. */
+type ThemePreference = 'light' | 'dark' | 'system';
 type Theme = 'light' | 'dark';
+
+/** Settings sections, in the order the reference panel presents them. */
+type SettingsTabId = 'general' | 'monitor' | 'about';
+
+const SETTINGS_TABS: readonly { readonly id: SettingsTabId; readonly label: string }[] = Object.freeze([
+  Object.freeze({ id: 'general' as const, label: '通用' }),
+  Object.freeze({ id: 'monitor' as const, label: '监控' }),
+  Object.freeze({ id: 'about' as const, label: '关于' }),
+]);
+const THEME_QUERY = '(prefers-color-scheme: light)';
+
+/** Resolve a stored preference to the colour scheme actually applied. */
+function resolveTheme(preference: ThemePreference, prefersLight: boolean): Theme {
+  if (preference === 'system') return prefersLight ? 'light' : 'dark';
+  return preference;
+}
 
 const fallbackConfig: WatchdogConfig = {
   enabled: true,
@@ -610,6 +629,8 @@ function SettingsPanel(props: {
   environment: EnvironmentView | null;
   environmentRefreshing: boolean;
   onRefreshEnvironment: () => Promise<void>;
+  theme: ThemePreference;
+  onThemeChange: (theme: ThemePreference) => void;
   onApplyProfile: (fields: CodexProfileFieldView[]) => Promise<void>;
   applyingProfile: boolean;
   saving: boolean;
@@ -625,6 +646,9 @@ function SettingsPanel(props: {
   onUninstall: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(() => structuredClone(props.config));
+  // Monitoring is the working view, so it is what the page opens on; the
+  // tab bar is how a person reaches appearance, locale, and about.
+  const [activeTab, setActiveTab] = useState<SettingsTabId>('monitor');
   const [includeFilters, setIncludeFilters] = useState(() => props.config.processFilters.include.join(', '));
   const [excludeFilters, setExcludeFilters] = useState(() => props.config.processFilters.exclude.join(', '));
   useEffect(() => {
@@ -647,6 +671,66 @@ function SettingsPanel(props: {
 
   return (
     <form className="settings-grid" onSubmit={submit}>
+      <div className="settings-tabs" role="tablist" aria-label="设置分区">
+        {SETTINGS_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            className={tab.id === activeTab ? 'settings-tab is-active' : 'settings-tab'}
+            type="button"
+            role="tab"
+            aria-selected={tab.id === activeTab}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {activeTab === 'general' && (
+        <>
+          <section className="settings-section settings-section--wide">
+            <div className="section-title"><div><span className="eyebrow">Appearance</span><h2>外观主题</h2></div><Sun size={20} /></div>
+            <p className="section-hint">选择应用的外观主题，立即生效。</p>
+            <div className="segmented" role="group" aria-label="外观主题">
+              {([
+                { id: 'light' as const, label: '浅色', icon: <Sun size={16} /> },
+                { id: 'dark' as const, label: '深色', icon: <Moon size={16} /> },
+                { id: 'system' as const, label: '跟随系统', icon: <Monitor size={16} /> },
+              ]).map((option) => (
+                <label key={option.id} className={props.theme === option.id ? 'segmented__option is-active' : 'segmented__option'}>
+                  <input
+                    type="radio"
+                    name="appearance"
+                    value={option.id}
+                    aria-label={option.label}
+                    checked={props.theme === option.id}
+                    onChange={() => props.onThemeChange(option.id)}
+                  />
+                  {option.icon}
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </section>
+          <section className="settings-section settings-section--wide">
+            <div className="section-title"><div><span className="eyebrow">Locale</span><h2>界面语言</h2></div><Settings2 size={20} /></div>
+            <p className="section-hint">切换后立即预览界面语言，保存后永久生效。</p>
+            <div className="segmented segmented--labels" role="group" aria-label="界面语言">
+              {['简体中文', '繁體中文', 'English', '日本語'].map((language) => (
+                <button
+                  key={language}
+                  className={language === '简体中文' ? 'segmented__option is-active' : 'segmented__option'}
+                  type="button"
+                  aria-pressed={language === '简体中文'}
+                >
+                  {language}
+                </button>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
+      {activeTab === 'monitor' && (
+        <>
       <section className="settings-section">
         <div className="section-title"><div><span className="eyebrow">Timing</span><h2>检测节奏</h2></div><Gauge size={20} /></div>
         <div className="field-grid">
@@ -712,8 +796,25 @@ function SettingsPanel(props: {
         <div className="switch-row"><div><strong>仅监控当前用户进程</strong><span>关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入</span></div><label className="switch"><input aria-label="仅监控当前用户进程" type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
       </section>
       <CodexEndpointsPanel profiles={props.profiles} onApply={props.onApplyProfile} applying={props.applyingProfile} />
-      <EnvironmentPanel environment={props.environment} refreshing={props.environmentRefreshing} onRefresh={props.onRefreshEnvironment} />
       <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}保存配置</button><button className="button button--secondary" type="button" onClick={() => void props.onInstall()} disabled={props.saving}><CirclePlay size={17} />安装 Watchdog</button><button className="button button--secondary" type="button" onClick={() => void props.onToggleStartup()} disabled={props.saving}><Power size={17} />{props.startupInstalled ? '移除启动项' : '安装启动项'}</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? '停止 Watchdog' : '启动 Watchdog'}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />卸载 Watchdog</button></div>
+        </>
+      )}
+      {activeTab === 'about' && (
+        <section className="settings-section settings-section--wide">
+          <div className="section-title"><div><span className="eyebrow">About</span><h2>关于</h2></div><CircleAlert size={20} /></div>
+          <p className="section-hint">查看版本信息与更新状态。</p>
+          <div className="about-card">
+            <img src={brandIcon} alt="" width={44} height={44} />
+            <div className="about-card__id">
+              <strong>Selbstlauf</strong>
+              <span className="state-chip state-chip--ready"><span className="state-chip__dot" />版本 0.1.0</span>
+            </div>
+          </div>
+        </section>
+      )}
+      {activeTab === 'about' && (
+        <EnvironmentPanel environment={props.environment} refreshing={props.environmentRefreshing} onRefresh={props.onRefreshEnvironment} />
+      )}
     </form>
   );
 }
@@ -724,7 +825,12 @@ export default function App({ api: suppliedApi }: AppProps) {
   const api = useMemo(() => suppliedApi ?? createApi(), [suppliedApi]);
   const staticDemo = import.meta.env.VITE_STATIC_DEMO === 'true';
   const [page, setPage] = useState<Page>('overview');
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('watchdog-theme') as Theme) || 'dark');
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
+    const stored = localStorage.getItem('watchdog-theme');
+    return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark';
+  });
+  const [prefersLight, setPrefersLight] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(THEME_QUERY).matches);
+  const theme = resolveTheme(themePreference, prefersLight);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const [health, setHealth] = useState<HealthView>({ ok: false, running: false, dryRun: true, lastPollAtMs: null });
@@ -744,8 +850,23 @@ export default function App({ api: suppliedApi }: AppProps) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem('watchdog-theme', theme);
   }, [theme]);
+
+  // The stored value is the preference, so "system" survives a reload and
+  // re-resolves against whatever the OS reports then.
+  useEffect(() => {
+    localStorage.setItem('watchdog-theme', themePreference);
+  }, [themePreference]);
+
+  // Follow the OS while "system" is selected, and stop listening otherwise.
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const query = window.matchMedia(THEME_QUERY);
+    const apply = () => setPrefersLight(query.matches);
+    apply();
+    query.addEventListener?.('change', apply);
+    return () => query.removeEventListener?.('change', apply);
+  }, []);
 
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
@@ -968,7 +1089,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       <aside id="watchdog-sidebar" className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="brand"><span className="brand__mark" data-testid="brand-mark"><img src={brandIcon} alt="" width={34} height={34} /></span><div><strong>Selbstlauf</strong><span>continuation watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
         <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { setPage(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
-        <div className="sidebar__footer"><div className="service-mini"><span className={`status-light ${connected ? 'is-online' : ''}`} /><div><strong>{connected ? '服务在线' : '离线预览'}</strong><span>{sessions.length} 个进程</span></div></div><button className="nav-button" type="button" title={theme === 'dark' ? '切换亮色' : '切换暗色'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{theme === 'dark' ? '亮色' : '暗色'}</span></button><button className="compact-toggle icon-button" type="button" title={sidebarCompact ? '展开侧栏' : '收起侧栏'} aria-label={sidebarCompact ? '展开侧栏' : '收起侧栏'} onClick={() => setSidebarCompact(!sidebarCompact)}>{sidebarCompact ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
+        <div className="sidebar__footer"><div className="service-mini"><span className={`status-light ${connected ? 'is-online' : ''}`} /><div><strong>{connected ? '服务在线' : '离线预览'}</strong><span>{sessions.length} 个进程</span></div></div><button className="nav-button" type="button" title={theme === 'dark' ? '切换亮色' : '切换暗色'} onClick={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{theme === 'dark' ? '亮色' : '暗色'}</span></button><button className="compact-toggle icon-button" type="button" title={sidebarCompact ? '展开侧栏' : '收起侧栏'} aria-label={sidebarCompact ? '展开侧栏' : '收起侧栏'} onClick={() => setSidebarCompact(!sidebarCompact)}>{sidebarCompact ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
       </aside>
 
       <main className="workspace">
@@ -983,7 +1104,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{events.length} 条</span></div><Timeline events={events} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} onThemeChange={setThemePreference} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
       </main>
     </div>
   );

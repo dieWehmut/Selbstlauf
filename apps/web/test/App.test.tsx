@@ -68,10 +68,37 @@ function stoppedApi(): WatchdogApi {
   return fake;
 }
 
+  it('organizes settings into tabs and follows the system theme', async () => {
+    render(<App api={api()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+
+    // The settings page opens on the general tab and can switch sections.
+    const tabs = await screen.findByRole('tablist', { name: '设置分区' });
+    // Monitoring is the working view and opens first.
+    expect(within(tabs).getByRole('tab', { name: '监控' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
+    expect(within(tabs).getByRole('tab', { name: '关于' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByText('本地环境检查')).toBeInTheDocument();
+
+    // The appearance control offers light, dark, and follow-system.
+    fireEvent.click(within(tabs).getByRole('tab', { name: '通用' }));
+    const appearance = await screen.findByRole('group', { name: '外观主题' });
+    fireEvent.click(within(appearance).getByRole('radio', { name: '跟随系统' }));
+    // A system preference resolves through the media query, not a stored literal.
+    expect(localStorage.getItem('watchdog-theme')).toBe('system');
+  });
+
+
+
+
   it('reports the local environment and offers the install commands', async () => {
     const fake = api();
     render(<App api={fake} />);
     fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+
+    // The environment check lives on the About tab, beside the version card.
+    const tabs = await screen.findByRole('tablist', { name: '设置分区' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
 
     // The panel names each agent with its installed and published version.
     expect(await screen.findByText('Claude Code')).toBeInTheDocument();
@@ -87,7 +114,7 @@ function stoppedApi(): WatchdogApi {
     expect(block.textContent).toContain('npm i -g @openai/codex@latest');
 
     // The block can be copied as one runnable script.
-    const writeText = vi.fn(async () => undefined);
+    const writeText = vi.fn(async (_text: string) => undefined);
     Object.assign(navigator, { clipboard: { writeText } });
     fireEvent.click(screen.getByRole('button', { name: '复制安装命令' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));

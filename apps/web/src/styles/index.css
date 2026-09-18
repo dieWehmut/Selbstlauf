@@ -313,3 +313,24 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .tool-grid { grid-template-columns: 1fr; }
 }
 .manual-commands__actions { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+
+/* ---------- Settings tabs and segmented controls ---------- */
+.settings-tabs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px; padding: 5px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--panel); }
+.settings-tab { flex: 1 1 96px; padding: 10px 14px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--muted); font-size: 13px; transition: background .15s ease, border-color .15s ease, color .15s ease; }
+.settings-tab:hover { color: var(--text); background: var(--panel-raised); }
+.settings-tab.is-active { border-color: color-mix(in srgb, var(--accent) 38%, transparent); color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 13%, var(--panel)); }
+.section-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.segmented { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px; padding: 4px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--panel-soft); }
+.segmented__option { display: flex; align-items: center; gap: 7px; padding: 9px 18px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; transition: background .15s ease, border-color .15s ease, color .15s ease; }
+.segmented__option:hover { color: var(--text); }
+.segmented__option.is-active { border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.segmented__option input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented--labels .segmented__option { flex: 1 1 108px; justify-content: center; }
+.about-card { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding: 18px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--panel-soft); }
+.about-card img { border-radius: var(--radius-sm); }
+.about-card__id { display: grid; gap: 7px; }
+.about-card__id strong { font-size: 17px; }
+@media (max-width: 700px) {
+  .settings-tab { flex: 1 1 60px; padding: 9px 8px; font-size: 12px; }
+  .segmented__option { flex: 1 1 100%; justify-content: center; }
+}
