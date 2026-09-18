@@ -85,9 +85,9 @@ function stoppedApi(): WatchdogApi {
     expect(within(tabs).getByRole('tab', { name: '关于' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByText('本地环境检查')).toBeInTheDocument();
 
-    // The appearance control offers light, dark, and follow-system.
+    // The appearance control offers light, dark, and follow-system previews.
     fireEvent.click(within(tabs).getByRole('tab', { name: '通用' }));
-    const appearance = await screen.findByRole('group', { name: '外观主题' });
+    const appearance = await screen.findByRole('radiogroup', { name: '外观主题' });
     fireEvent.click(within(appearance).getByRole('radio', { name: '跟随系统' }));
     // A system preference resolves through the media query, not a stored literal.
     expect(localStorage.getItem('watchdog-theme')).toBe('system');
@@ -95,6 +95,39 @@ function stoppedApi(): WatchdogApi {
 
 
 
+
+  it('previews each theme and applies a custom palette to the document', async () => {
+    // The tab test above leaves 'system' stored; this test starts from dark.
+    localStorage.setItem('watchdog-theme', 'dark');
+    localStorage.removeItem('watchdog-palette');
+    render(<App api={api()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    const tabs = await screen.findByRole('tablist', { name: '设置分区' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: '通用' }));
+
+    // All three previews are offered, and the stored preference marks one.
+    const previews = await screen.findByRole('radiogroup', { name: '外观主题' });
+    expect(within(previews).getByRole('radio', { name: '跟随系统' })).toHaveAttribute('aria-checked', 'false');
+    expect(within(previews).getByRole('radio', { name: '深色' })).toHaveAttribute('aria-checked', 'true');
+
+    // The diff shows the stock values beside the values in effect.
+    expect(screen.getByTestId('theme-diff').textContent).toContain('#0d1216');
+
+    // Picking an accent repaints the document root, which every rule derives from.
+    fireEvent.change(screen.getByRole('combobox', { name: '强调色' }), { target: { value: '#e05c93' } });
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#e05c93'));
+    // The override is per scheme and survives a reload.
+    expect(JSON.parse(localStorage.getItem('watchdog-palette') ?? '{}').dark.accent).toBe('#e05c93');
+
+    // Switching scheme shows the other scheme's untouched defaults.
+    fireEvent.click(within(previews).getByRole('radio', { name: '浅色' }));
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#a56a08'));
+
+    // Resetting returns the scheme to the stock palette.
+    fireEvent.click(within(previews).getByRole('radio', { name: '深色' }));
+    fireEvent.click(await screen.findByRole('button', { name: '恢复默认' }));
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#e6b65b'));
+  });
 
   it('reports the local environment and offers the install commands', async () => {
     const fake = api();

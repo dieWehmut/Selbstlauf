@@ -70,6 +70,64 @@ function resolveTheme(preference: ThemePreference, prefersLight: boolean): Theme
   return preference;
 }
 
+/** A per-theme palette override chosen in the appearance section. */
+interface ThemePalette {
+  readonly accent: string;
+  readonly background: string;
+  readonly foreground: string;
+}
+
+/** The palette each theme starts from; also what reset returns to. */
+const DEFAULT_PALETTES: Record<Theme, ThemePalette> = {
+  dark: { accent: '#e6b65b', background: '#0d1216', foreground: '#e9eef0' },
+  light: { accent: '#a56a08', background: '#eef2f1', foreground: '#1c262b' },
+};
+
+/** Ready-made accents, so the common pick needs no colour wheel. */
+const ACCENT_PRESETS: readonly { readonly label: string; readonly value: string }[] = [
+  { label: '粉色', value: '#e05c93' },
+  { label: '天蓝', value: '#4c9cd4' },
+  { label: '翠绿', value: '#5aa97c' },
+  { label: '石墨', value: '#8a949b' },
+];
+
+const PALETTE_STORAGE_KEY = 'watchdog-palette';
+const HEX_COLOR = /^#[0-9a-f]{6}$/iu;
+
+/** Accept only a complete #rrggbb palette, so a bad import cannot half-apply. */
+function isThemePalette(value: unknown): value is ThemePalette {
+  if (value === null || typeof value !== 'object') return false;
+  const entry = value as Partial<Record<keyof ThemePalette, unknown>>;
+  return (['accent', 'background', 'foreground'] as const).every((key) =>
+    typeof entry[key] === 'string' && HEX_COLOR.test(entry[key] as string));
+}
+
+/** Load the saved overrides; a missing or corrupt entry just means "default". */
+function loadPaletteOverrides(): Partial<Record<Theme, ThemePalette>> {
+  try {
+    const stored = globalThis.localStorage.getItem(PALETTE_STORAGE_KEY);
+    if (stored === null) return {};
+    const parsed = JSON.parse(stored) as Partial<Record<Theme, unknown>>;
+    const overrides: Partial<Record<Theme, ThemePalette>> = {};
+    for (const theme of ['light', 'dark'] as const) {
+      if (isThemePalette(parsed[theme])) overrides[theme] = parsed[theme] as ThemePalette;
+    }
+    return overrides;
+  } catch {
+    return {};
+  }
+}
+
+/** Mix a #rrggbb colour toward another; derives the readable accent shade. */
+function mixColor(from: string, to: string, amount: number): string {
+  const channel = (offset: number) => {
+    const a = Number.parseInt(from.slice(offset, offset + 2), 16);
+    const b = Number.parseInt(to.slice(offset, offset + 2), 16);
+    return Math.round(a + (b - a) * amount).toString(16).padStart(2, '0');
+  };
+  return `#${channel(1)}${channel(3)}${channel(5)}`;
+}
+
 const fallbackConfig: WatchdogConfig = {
   enabled: true,
   dryRun: true,
@@ -670,6 +728,187 @@ function CodexEndpointsPanel(props: {
   );
 }
 
+/**
+ * The appearance section.
+ *
+ * Mirrors the reference's appearance page: three theme previews, a diff of the
+ * variables each theme resolves to, and the accent picker. The previews are
+ * drawn from the same palette the app uses, so picking one is not a leap of
+ * faith about what the app will look like.
+ */
+const THEME_OPTIONS: readonly { readonly id: ThemePreference; readonly label: string; readonly ariaLabel: string }[] = [
+  { id: 'system', label: '系统', ariaLabel: '跟随系统' },
+  { id: 'light', label: '浅色', ariaLabel: '浅色' },
+  { id: 'dark', label: '深色', ariaLabel: '深色' },
+];
+
+/** The vars each preview card paints itself from. */
+function previewPalette(theme: Theme, palettes: Record<Theme, ThemePalette>): ThemePalette {
+  return palettes[theme];
+}
+
+function ThemePreviewCard(props: {
+  readonly id: ThemePreference;
+  readonly label: string;
+  /** Fuller name for assistive tech; the visible caption stays short. */
+  readonly ariaLabel: string;
+  readonly scheme: Theme;
+  readonly selected: boolean;
+  readonly palette: ThemePalette;
+  /** For the system card: the light and dark palettes it shows side by side. */
+  readonly systems?: readonly [ThemePalette, ThemePalette];
+  readonly onSelect: () => void;
+}) {
+  // A system card shows both schemes at once, split down the middle.
+  const [left, right] = props.systems ?? [props.palette, props.palette];
+  const card = (scheme: Theme, palette: ThemePalette) => (
+    <span className="theme-preview__half" data-scheme={scheme} style={{ background: palette.background }}>
+      <span className="theme-preview__bar" style={{ background: palette.accent }} />
+      <span className="theme-preview__line" style={{ background: palette.foreground, opacity: .55 }} />
+      <span className="theme-preview__line theme-preview__line--short" style={{ background: palette.foreground, opacity: .32 }} />
+      <span className="theme-preview__block" style={{ background: mixColor(palette.background, palette.foreground, scheme === 'dark' ? 0.14 : 0.06) }} />
+    </span>
+  );
+  return (
+    <button
+      className={props.selected ? 'theme-preview is-active' : 'theme-preview'}
+      type="button"
+      role="radio"
+      aria-checked={props.selected}
+      aria-label={props.ariaLabel}
+      onClick={props.onSelect}
+    >
+      <span className="theme-preview__canvas">
+        {props.id === 'system'
+          ? <>{card('light', left)}{card('dark', right)}</>
+          : card(props.scheme, props.palette)}
+      </span>
+      <span className="theme-preview__label">{props.label}</span>
+    </button>
+  );
+}
+
+function ThemeDiffPreview(props: {
+  readonly palette: ThemePalette;
+  readonly activeTheme: Theme;
+}) {
+  // The left pane is always the stock palette, so the comparison reads as a diff.
+  const before = DEFAULT_PALETTES[props.activeTheme];
+  const after = props.palette;
+  const rows: readonly { readonly key: string; readonly label: string; readonly from: string; readonly to: string }[] = [
+    { key: 'surface', label: 'surface', from: before.background, to: after.background },
+    { key: 'accent', label: 'accent', from: before.accent, to: after.accent },
+    { key: 'contrast', label: 'foreground', from: before.foreground, to: after.foreground },
+  ];
+  return (
+    <div className="theme-diff" data-testid="theme-diff">
+      <div className="theme-diff__pane">
+        <span className="theme-diff__pane-title">当前主题</span>
+        <pre>{rows.map((row) => `${row.label}: "${row.from}"`).join('\n')}</pre>
+      </div>
+      <span className="theme-diff__arrow" aria-hidden="true">→</span>
+      <div className="theme-diff__pane theme-diff__pane--after">
+        <span className="theme-diff__pane-title">修改后</span>
+        <pre>{rows.map((row) => `${row.label}: "${row.to}"`).join('\n')}</pre>
+      </div>
+    </div>
+  );
+}
+
+function AppearancePanel(props: {
+  readonly preference: ThemePreference;
+  readonly activeTheme: Theme;
+  readonly palette: ThemePalette;
+  readonly palettes: Record<Theme, ThemePalette>;
+  readonly customized: boolean;
+  readonly onPreferenceChange: (theme: ThemePreference) => void;
+  readonly onPaletteChange: (patch: Partial<ThemePalette>) => void;
+  readonly onPaletteReset: () => void;
+  readonly onImport: () => Promise<void>;
+  readonly onCopy: () => Promise<void>;
+}) {
+  const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>('idle');
+  const copy = async () => {
+    setCopyState('idle');
+    try {
+      await props.onCopy();
+      setCopyState('done');
+      window.setTimeout(() => setCopyState('idle'), 2_000);
+    } catch {
+      setCopyState('failed');
+    }
+  };
+  return (
+    <section className="settings-section settings-section--wide appearance-panel">
+      <div className="section-title"><div><span className="eyebrow">Appearance</span><h2>外观</h2></div><Sun size={20} /></div>
+      <p className="section-hint">选择应用的外观主题，立即生效。</p>
+      <div className="theme-previews" role="radiogroup" aria-label="外观主题">
+        {THEME_OPTIONS.map((option) => (
+          <ThemePreviewCard
+            key={option.id}
+            id={option.id}
+            label={option.label}
+            ariaLabel={option.ariaLabel}
+            scheme={option.id === 'system' ? props.activeTheme : option.id}
+            selected={props.preference === option.id}
+            palette={previewPalette(option.id === 'system' ? props.activeTheme : option.id, props.palettes)}
+            systems={[props.palettes.light, props.palettes.dark]}
+            onSelect={() => props.onPreferenceChange(option.id)}
+          />
+        ))}
+      </div>
+      <ThemeDiffPreview palette={props.palette} activeTheme={props.activeTheme} />
+      <div className="appearance-actions">
+        <label className="appearance-color">
+          <span>强调色</span>
+          <select
+            aria-label="强调色"
+            value={props.palette.accent}
+            onChange={(event) => props.onPaletteChange({ accent: event.target.value })}
+          >
+            {[...new Set([props.palette.accent, ...ACCENT_PRESETS.map((preset) => preset.value)])].map((value) => (
+              <option key={value} value={value}>
+                {ACCENT_PRESETS.find((preset) => preset.value === value)?.label ?? '当前'}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="appearance-color">
+          <span>背景</span>
+          <input
+            type="color"
+            aria-label="背景"
+            value={props.palette.background}
+            onChange={(event) => props.onPaletteChange({ background: event.target.value })}
+          />
+          <code>{props.palette.background}</code>
+        </label>
+        <label className="appearance-color">
+          <span>前景</span>
+          <input
+            type="color"
+            aria-label="前景"
+            value={props.palette.foreground}
+            onChange={(event) => props.onPaletteChange({ foreground: event.target.value })}
+          />
+          <code>{props.palette.foreground}</code>
+        </label>
+      </div>
+      <div className="theme-actions">
+        <button className="text-button" type="button" onClick={() => void props.onImport()}>
+          <Copy size={14} /> 导入
+        </button>
+        <button className="text-button" type="button" onClick={() => void copy()}>
+          <Copy size={14} /> {copyState === 'done' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制主题'}
+        </button>
+        {props.customized && (
+          <button className="text-button" type="button" onClick={props.onPaletteReset}>恢复默认</button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function SettingsPanel(props: {
   config: WatchdogConfig;
   hookStatus: ClaudeHookStatusView;
@@ -681,7 +920,19 @@ function SettingsPanel(props: {
   onUpgradeTool: (id: string) => Promise<void>;
   onUpgradeAllTools: () => Promise<void>;
   theme: ThemePreference;
+  /** The scheme the preference actually resolves to right now. */
+  activeTheme: Theme;
+  /** The palette in effect for the active scheme. */
+  palette: ThemePalette;
+  /** Both schemes' effective palettes, for the preview cards. */
+  palettes: Record<Theme, ThemePalette>;
+  /** True when that palette is a person's override rather than the default. */
+  customized: boolean;
   onThemeChange: (theme: ThemePreference) => void;
+  onPaletteChange: (patch: Partial<ThemePalette>) => void;
+  onPaletteReset: () => void;
+  onImportTheme: () => Promise<void>;
+  onCopyTheme: () => Promise<void>;
   onApplyProfile: (fields: CodexProfileFieldView[]) => Promise<void>;
   applyingProfile: boolean;
   saving: boolean;
@@ -738,30 +989,18 @@ function SettingsPanel(props: {
       </div>
       {activeTab === 'general' && (
         <>
-          <section className="settings-section settings-section--wide">
-            <div className="section-title"><div><span className="eyebrow">Appearance</span><h2>外观主题</h2></div><Sun size={20} /></div>
-            <p className="section-hint">选择应用的外观主题，立即生效。</p>
-            <div className="segmented" role="group" aria-label="外观主题">
-              {([
-                { id: 'light' as const, label: '浅色', icon: <Sun size={16} /> },
-                { id: 'dark' as const, label: '深色', icon: <Moon size={16} /> },
-                { id: 'system' as const, label: '跟随系统', icon: <Monitor size={16} /> },
-              ]).map((option) => (
-                <label key={option.id} className={props.theme === option.id ? 'segmented__option is-active' : 'segmented__option'}>
-                  <input
-                    type="radio"
-                    name="appearance"
-                    value={option.id}
-                    aria-label={option.label}
-                    checked={props.theme === option.id}
-                    onChange={() => props.onThemeChange(option.id)}
-                  />
-                  {option.icon}
-                  {option.label}
-                </label>
-              ))}
-            </div>
-          </section>
+          <AppearancePanel
+            preference={props.theme}
+            activeTheme={props.activeTheme}
+            palette={props.palette}
+            palettes={props.palettes}
+            customized={props.customized}
+            onPreferenceChange={props.onThemeChange}
+            onPaletteChange={props.onPaletteChange}
+            onPaletteReset={props.onPaletteReset}
+            onImport={props.onImportTheme}
+            onCopy={props.onCopyTheme}
+          />
           <section className="settings-section settings-section--wide">
             <div className="section-title"><div><span className="eyebrow">Locale</span><h2>界面语言</h2></div><Settings2 size={20} /></div>
             <p className="section-hint">切换后立即预览界面语言，保存后永久生效。</p>
@@ -887,6 +1126,9 @@ export default function App({ api: suppliedApi }: AppProps) {
     const stored = localStorage.getItem('watchdog-theme');
     return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark';
   });
+  // Per-scheme palette overrides, so a custom dark palette survives a switch
+  // to light and back.
+  const [paletteOverrides, setPaletteOverrides] = useState<Partial<Record<Theme, ThemePalette>>>(() => loadPaletteOverrides());
   const [prefersLight, setPrefersLight] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(THEME_QUERY).matches);
   const theme = resolveTheme(themePreference, prefersLight);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -908,9 +1150,36 @@ export default function App({ api: suppliedApi }: AppProps) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Each scheme keeps its own palette, so a preview card shows that scheme's
+  // colours rather than whatever scheme happens to be active.
+  const palettes: Record<Theme, ThemePalette> = {
+    light: paletteOverrides.light ?? DEFAULT_PALETTES.light,
+    dark: paletteOverrides.dark ?? DEFAULT_PALETTES.dark,
+  };
+  const palette = palettes[theme];
+  const paletteCustomized = paletteOverrides[theme] !== undefined;
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  /**
+   * Paint the chosen palette onto the document root.
+   *
+   * Inline custom properties win over the [data-theme] blocks, so one set of
+   * values covers everything the stylesheet already derives from them.
+   */
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--accent', palette.accent);
+    root.style.setProperty('--accent-strong', mixColor(palette.accent, theme === 'dark' ? '#ffffff' : '#000000', 0.28));
+    root.style.setProperty('--bg', palette.background);
+    root.style.setProperty('--text', palette.foreground);
+  }, [palette, theme]);
+
+  useEffect(() => {
+    localStorage.setItem(PALETTE_STORAGE_KEY, JSON.stringify(paletteOverrides));
+  }, [paletteOverrides]);
 
   // The stored value is the preference, so "system" survives a reload and
   // re-resolves against whatever the OS reports then.
@@ -1049,6 +1318,45 @@ export default function App({ api: suppliedApi }: AppProps) {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '全部升级失败');
     } finally { setEnvironmentUpgrading(null); }
+  };
+
+  /**
+   * Change one field of the palette for the scheme in effect.
+   *
+   * The override belongs to that scheme, so switching to light keeps the
+   * custom dark accent where it was set.
+   */
+  const changePalette = (patch: Partial<ThemePalette>) => {
+    setPaletteOverrides((current) => ({
+      ...current,
+      [theme]: { ...(current[theme] ?? DEFAULT_PALETTES[theme]), ...patch },
+    }));
+  };
+
+  const resetPalette = () => {
+    setPaletteOverrides((current) => {
+      const next = { ...current };
+      delete next[theme];
+      return next;
+    });
+  };
+
+  const importTheme = async () => {
+    setNotice(null);
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = JSON.parse(text) as unknown;
+      if (!isThemePalette(parsed)) throw new TypeError('剪贴板里不是有效的主题配置');
+      setPaletteOverrides((current) => ({ ...current, [theme]: parsed }));
+      setNotice('主题已导入');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '导入失败');
+    }
+  };
+
+  const copyTheme = async () => {
+    await navigator.clipboard.writeText(JSON.stringify(palette, null, 2));
+    setNotice('主题已复制');
   };
 
   const saveConfig = async (nextConfig: WatchdogConfig) => {
@@ -1195,7 +1503,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{events.length} 条</span></div><Timeline events={events} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} onThemeChange={setThemePreference} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
       </main>
     </div>
   );

@@ -316,6 +316,35 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 .manual-commands__actions { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 
+/* ---------- Appearance: theme previews and palette editor ---------- */
+.theme-previews { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+.theme-preview { display: grid; gap: 10px; padding: 0; border: 0; background: transparent; text-align: center; }
+.theme-preview__canvas { position: relative; display: flex; height: 132px; overflow: hidden; border: 2px solid var(--line-soft); border-radius: var(--radius); transition: border-color .16s ease, box-shadow .16s ease; }
+.theme-preview:hover .theme-preview__canvas { border-color: var(--line-strong); }
+.theme-preview.is-active .theme-preview__canvas { border-color: color-mix(in srgb, var(--accent) 62%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.theme-preview__half { position: relative; flex: 1 1 50%; display: grid; align-content: start; gap: 7px; padding: 14px 12px; }
+.theme-preview__half + .theme-preview__half { border-left: 1px solid color-mix(in srgb, var(--line) 45%, transparent); }
+.theme-preview__bar { display: block; width: 62%; height: 8px; border-radius: var(--radius-pill); }
+.theme-preview__line { display: block; width: 100%; height: 6px; border-radius: var(--radius-pill); }
+.theme-preview__line--short { width: 74%; }
+.theme-preview__block { position: absolute; inset: auto 12px 12px 12px; height: 34px; border-radius: var(--radius-xs); opacity: .92; }
+.theme-preview__label { color: var(--muted); font-size: 12px; }
+.theme-preview.is-active .theme-preview__label { color: var(--accent-strong); }
+.theme-diff { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; margin-top: 18px; padding: 14px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--panel-soft); }
+.theme-diff__pane { display: grid; gap: 8px; min-width: 0; }
+.theme-diff__pane-title { color: var(--faint); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.theme-diff__pane pre { margin: 0; padding: 10px 12px; overflow-x: auto; border-radius: var(--radius-xs); font: 11px/1.7 var(--mono); }
+.theme-diff__pane:not(.theme-diff__pane--after) pre { border: 1px solid color-mix(in srgb, var(--red) 26%, transparent); background: color-mix(in srgb, var(--red) 7%, transparent); color: var(--muted); }
+.theme-diff__pane--after pre { border: 1px solid color-mix(in srgb, var(--green) 30%, transparent); background: color-mix(in srgb, var(--green) 7%, transparent); color: var(--text); }
+.theme-diff__arrow { align-self: center; color: var(--faint); font-size: 15px; }
+.appearance-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; }
+.appearance-color { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.appearance-color select { min-height: 32px; padding: 0 10px; border: 1px solid var(--line-soft); border-radius: var(--radius-xs); color: var(--text); background: var(--panel-raised); font-size: 12px; }
+.appearance-color input[type='color'] { width: 34px; height: 32px; padding: 2px; border: 1px solid var(--line-soft); border-radius: var(--radius-xs); background: var(--panel-raised); }
+.appearance-color code { color: var(--faint); font: 11px var(--mono); }
+.theme-actions { display: flex; gap: 16px; margin-top: 14px; }
+.theme-actions .text-button { display: inline-flex; align-items: center; gap: 6px; }
+
 /* ---------- Settings tabs and segmented controls ---------- */
 .settings-tabs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px; padding: 5px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--panel); }
 .settings-tab { flex: 1 1 96px; padding: 10px 14px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--muted); font-size: 13px; transition: background .15s ease, border-color .15s ease, color .15s ease; }
@@ -335,4 +364,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 @media (max-width: 700px) {
   .settings-tab { flex: 1 1 60px; padding: 9px 8px; font-size: 12px; }
   .segmented__option { flex: 1 1 100%; justify-content: center; }
+}
+@media (max-width: 700px) {
+  .theme-previews { grid-template-columns: 1fr; }
+  .theme-diff { grid-template-columns: 1fr; }
+  .theme-diff__arrow { display: none; }
+  .appearance-actions { flex-direction: column; align-items: flex-start; }
 }

@@ -118,6 +118,30 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.screenshot({ path: testInfo.outputPath('environment-desktop-1280x900.png'), fullPage: true });
   });
 
+  test('shows theme previews and applies a custom accent', async ({ page }, testInfo) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: '打开菜单' }).click();
+    await page.getByRole('button', { name: '设置' }).click();
+    await page.getByRole('tab', { name: '通用' }).click();
+
+    // The three previews paint from the live palette, not a static image.
+    const previews = page.getByRole('radiogroup', { name: '外观主题' });
+    await expect(previews.getByRole('radio', { name: '跟随系统' })).toBeVisible();
+    await expect(previews.getByRole('radio', { name: '深色' })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('theme-diff')).toBeVisible();
+
+    // Choosing an accent repaints the app immediately.
+    await page.getByRole('combobox', { name: '强调色' }).selectOption({ label: '粉色' });
+    const accent = await page.evaluate(() => document.documentElement.style.getPropertyValue('--accent'));
+    expect(accent).toBe('#e05c93');
+
+    const panelBox = await page.locator('.appearance-panel').boundingBox();
+    expect(panelBox).not.toBeNull();
+    expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(1280);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath('appearance-1280x900.png'), fullPage: true });
+  });
+
   test('keeps the environment cards readable on a narrow mobile viewport', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/');
