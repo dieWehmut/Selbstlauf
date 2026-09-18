@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { ConfigStore } from '../src/store/config-store.js';
 import { AuditStore } from '../src/store/audit-store.js';
 import { CodexConfigProfiles } from '../src/codex/profile-store.js';
+import { EnvironmentCheck } from '../src/environment/environment-check.js';
 import {
   WatchdogHttpServer,
   type SessionController,
@@ -33,6 +34,7 @@ const session: SessionSnapshot = {
 async function makeServer(
   overrides: Partial<SessionController> = {},
   status?: () => { readonly lastPollAtMs: number | null },
+  environment?: EnvironmentCheck,
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'watchdog-http-'));
   const controller: SessionController = {
@@ -49,6 +51,7 @@ async function makeServer(
     auditStore,
     sessions: controller,
     status,
+    ...(environment === undefined ? {} : { environment }),
     port: 0,
   });
   await service.start();
@@ -70,6 +73,60 @@ async function request(base: string, path: string, options: { method?: string; b
   return { response, text, json: text.length === 0 ? null : JSON.parse(text) };
 }
 
+test('serves the local environment report and refreshes it on demand', async (t) => {
+  let scans = 0;
+  const check = new EnvironmentCheck({
+    readInstalled: async () => {
+      scans += 1;
+      return [
+        { id: 'claude', installed: '2.1.274' },
+        { id: 'codex', installed: '0.155.0' },
+        { id: 'gemini', installed: null },
+        { id: 'grok', installed: null },
+        { id: 'opencode', installed: null },
+        { id: 'openclaw', installed: null },
+      ];
+    },
+    readLatest: async () => new Map([
+      ['@anthropic-ai/claude-code', '2.1.276'],
+      ['@openai/codex', '0.155.0'],
+    ]),
+    now: () => 5_000,
+  });
+  const { service } = await makeServer({}, undefined, check);
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const report = await request(base, '/api/environment');
+  assert.equal(report.response.status, 200);
+  assert.equal(report.json.tools.length, 6);
+  const claude = report.json.tools.find((tool: { id: string }) => tool.id === 'claude');
+  assert.equal(claude.state, 'outdated');
+  assert.equal(claude.installCommand, 'npm i -g @anthropic-ai/claude-code@latest');
+  assert.deepEqual(report.json.upgrades, ['claude']);
+  assert.equal(report.json.manualCommands.length, 6);
+  assert.equal(scans, 1);
+
+  // A refresh re-probes; the cached read stays free.
+  await request(base, '/api/environment');
+  assert.equal(scans, 1);
+  const refreshed = await request(base, '/api/environment/refresh', { method: 'POST', origin: base });
+  assert.equal(refreshed.response.status, 200);
+  assert.equal(scans, 2);
+});
+
+test('rejects a cross-origin environment refresh', async (t) => {
+  const check = new EnvironmentCheck({
+    readInstalled: async () => [],
+    readLatest: async () => new Map(),
+  });
+  const { service } = await makeServer({}, undefined, check);
+  t.after(() => service.stop());
+  const base = service.url();
+
+  const rejected = await request(base, '/api/environment/refresh', { method: 'POST', origin: 'https://evil.example' });
+  assert.equal(rejected.response.status, 403);
+});
 test('serves health, sessions, validated config, and controls on loopback', async (t) => {
   let changedDryRun: boolean | undefined;
   const { service, controller } = await makeServer({

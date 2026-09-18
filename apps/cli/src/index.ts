@@ -10,6 +10,7 @@ import { WatchdogController } from './runtime/watchdog-controller.js';
 import { WatchdogInstallation } from './lifecycle/installation.js';
 import { ClaudeLeaseStore } from './claude/lease-store.js';
 import { CodexConfigProfiles } from './codex/profile-store.js';
+import { EnvironmentCheck } from './environment/environment-check.js';
 import {
   CLAUDE_HOOK_OWNER,
   ClaudeHookInstallation,
@@ -51,6 +52,8 @@ export async function startWatchdogProcess(
   const codexProfiles = new CodexConfigProfiles({
     configPath: options.codexConfigPath ?? defaultCodexConfigPath(),
   });
+  // One shared check so the panel reuses its scan across browsers and polls.
+  const environment = new EnvironmentCheck();
 
   const installation = new WatchdogInstallation({
     stateDirectory,
@@ -78,6 +81,7 @@ export async function startWatchdogProcess(
     port: options.port ?? readPort(process.env.WATCHDOG_PORT),
     staticDirectory: options.staticDirectory ?? process.env.WATCHDOG_STATIC_DIR ?? defaultStaticDirectory(),
     codexProfiles,
+    environment,
   });
   let uninstallProcess: (() => Promise<void>) | null = null;
   server.setLifecycle({

@@ -6,6 +6,7 @@ import type { AuditEvent, SessionSnapshot, WatchdogConfig } from '../domain/type
 import type { AuditStore } from '../store/audit-store.js';
 import type { ConfigStore } from '../store/config-store.js';
 import type { CodexConfigProfiles } from '../codex/profile-store.js';
+import type { EnvironmentCheck } from '../environment/environment-check.js';
 type Awaitable<T> = T | Promise<T>;
 
 export interface InjectionResult {
@@ -66,6 +67,7 @@ export interface WatchdogHttpServerOptions {
   readonly configStore: ConfigStore;
   readonly auditStore: AuditStore;
   readonly codexProfiles?: CodexConfigProfiles;
+  readonly environment?: EnvironmentCheck;
   readonly sessions: SessionController;
   readonly status?: () => Awaitable<WatchdogStatus>;
   readonly host?: string;
@@ -88,6 +90,7 @@ export class WatchdogHttpServer {
   private readonly configStore: ConfigStore;
   private readonly auditStore: AuditStore;
   private readonly codexProfiles?: CodexConfigProfiles;
+  private readonly environment?: EnvironmentCheck;
   private readonly sessions: SessionController;
   private readonly status: () => Awaitable<WatchdogStatus>;
   private readonly host: string;
@@ -108,6 +111,7 @@ export class WatchdogHttpServer {
     this.configStore = options.configStore;
     this.auditStore = options.auditStore;
     this.codexProfiles = options.codexProfiles;
+    this.environment = options.environment;
     this.sessions = options.sessions;
     this.status = options.status ?? (() => ({ lastPollAtMs: null }));
     this.host = options.host ?? '127.0.0.1';
@@ -311,6 +315,17 @@ export class WatchdogHttpServer {
     if (method === 'GET' && url.pathname === '/api/codex/profiles') {
       if (this.codexProfiles === undefined) throw new HttpError(501, 'Codex profile store is not configured');
       return this.json(response, 200, await this.codexProfiles.describe());
+    }
+    if (method === 'GET' && url.pathname === '/api/environment') {
+      if (this.environment === undefined) throw new HttpError(501, 'environment check is not configured');
+      return this.json(response, 200, await this.environment.report());
+    }
+    if (method === 'POST' && url.pathname === '/api/environment/refresh') {
+      if (this.environment === undefined) throw new HttpError(501, 'environment check is not configured');
+      const report = await this.environment.report({ refresh: true });
+      await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'environment-refresh' } });
+      this.publish('environment', report);
+      return this.json(response, 200, report);
     }
     if (method === 'PUT' && url.pathname === '/api/codex/profiles') {
       if (this.codexProfiles === undefined) throw new HttpError(501, 'Codex profile store is not configured');
