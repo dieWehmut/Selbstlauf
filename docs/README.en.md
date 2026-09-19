@@ -424,12 +424,12 @@ a path. The Pages demo models the same buttons in memory and installs nothing.
 
 ### Appearance
 
-The General tab offers the theme choice: one preview card each for system, light,
-and dark, then a code diff showing the surface, accent, and contrast values in
-effect beside the stock ones. Below that the page lists one row per setting: the
-accent picker, background and foreground color inputs, the interface font and
-weight, the content font (which can simply follow the interface), a translucent
-sidebar switch, and a contrast slider.
+The **外观** entry in the settings rail offers the theme choice: one preview card
+each for system, light, and dark, then a code diff showing the surface, accent,
+and contrast values in effect beside the stock ones. Below that the page lists
+one row per setting: the accent picker, background and foreground color inputs,
+the interface font and weight, the content font (which can simply follow the
+interface), a translucent sidebar switch, and a contrast slider.
 
 Contrast sets how far surfaces and borders sit from the page background; a higher
 value lifts panels more clearly. A translucent sidebar lets the page show through
@@ -437,6 +437,59 @@ so the layout reads as one surface. Overrides are stored per color scheme, so a
 custom dark palette survives a switch to light and back, and reset restores the
 built-in palette for the current scheme. All of this is client-side and never
 writes server state.
+
+### Settings sections
+
+Settings now navigate from a grouped rail instead of a tab strip: **返回应用** and
+a **搜索设置** field that filters the list by name, then every section under the
+**个人** and **集成** headings.
+
+- **个人**: 常规, 通知, 导入, 个人资料, 外观, 家长控制, Trusted contact, 语音,
+  配置, 个性化, 宠物, 键盘快捷键, 使用情况和计费, 账户.
+- **集成**: 电脑操控, 应用快照, 插件, 浏览器.
+
+The figures on 使用情况和计费, 账户 and 应用快照 are computed from the current
+sessions and environment report rather than being placeholders. 电脑操控's
+**允许打开运行位置** switch really disables the matching buttons in the process
+table, 个人资料's display name appears in the sidebar brand block, and 通知's
+event-retention limit really caps the timeline. Enabling 家长控制 requires the PIN
+again before a config save; that PIN is stored obfuscated and is explicitly not a
+security boundary, which the code comments and the UI both say.
+
+### Window title bar and tray
+
+The desktop app draws its own title bar over native window buttons: a sidebar
+toggle, back and forward arrows, then the **文件 / 编辑 / 视图 / 帮助** menus, with
+the system minimise, maximise-restore and close buttons reserved at the right.
+The second row is the unchanged page heading and action area.
+
+Closing the window hides it to the system tray instead of quitting, and does not
+stop the watchdog service. **Only the tray menu's 退出 actually quits:**
+
+- Left click on the tray icon shows and focuses the main window, restoring it if
+  it was minimised.
+- Right click offers 打开主界面, 设置 (straight to the settings page), 开机自启 (a
+  checkbox whose state comes back from the service), 关于 Selbstlauf (straight to
+  账户) and 退出.
+
+On a machine with no tray the window closes normally, so the app can never become
+a hidden process with no window and no tray. Enabling 开机自启 registers the
+per-user logon task from the install directory.
+
+### Icon assets
+
+Every icon — the installer, the desktop and start-menu shortcuts, the window and
+taskbar, the WebUI favicon and the sidebar brand mark — comes from one source
+image:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\desktop\generate-icon-assets.ps1
+```
+
+The script uses only built-in GDI+ to derive a 7-frame ICO
+(16/24/32/48/64/128/256) and the PNG set from
+`assets/selbstlauf-icon-source.png`. It is idempotent, and `-Source` accepts a
+different image.
 
 ## WebUI demo site
 
