@@ -1,0 +1,272 @@
+/* ---------- Desktop settings sections ----------
+   Only what the shared sheets do not already cover: the small field/result
+   helpers these sections introduce, the density overrides, the pet ornament,
+   and the shortcuts table. Everything is built from existing design tokens. */
+
+.settings-rail-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font: 11px/1.6 var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.pref-field {
+  display: block;
+  min-width: 0;
+}
+
+.pref-field__label {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pref-number {
+  width: 96px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-whisper);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--panel-soft);
+  font: 12px var(--mono);
+  text-align: right;
+}
+
+.settings-section textarea {
+  width: 100%;
+  min-height: 76px;
+  padding: 10px 13px;
+  border: 1px solid var(--line-whisper);
+  border-radius: var(--radius-sm);
+  outline: none;
+  resize: vertical;
+  color: var(--text);
+  background: var(--panel-soft);
+  font: 12px/1.6 var(--mono);
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+.settings-section textarea:focus {
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.settings-section select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--line-whisper);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--panel-soft);
+  font: 12px var(--mono);
+}
+
+.pref-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.pref-result {
+  margin: 14px 0 0;
+  white-space: normal;
+}
+
+.pref-pin-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.pref-rows {
+  display: grid;
+  margin-top: 18px;
+}
+
+.pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 2px;
+  border-top: 1px solid var(--line-whisper);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.pref-row:first-child {
+  border-top: 0;
+}
+
+.pref-row__value {
+  color: var(--muted);
+  font: 12px var(--mono);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.pref-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.pref-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  color: var(--text);
+  background: var(--panel-soft);
+  font-size: 12px;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+
+.pref-swatch:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent-strong);
+}
+
+.pref-swatch.is-active {
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.pref-swatch__dot {
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--line-soft);
+  border-radius: 50%;
+}
+
+.pref-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.pref-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-whisper);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  color: var(--text);
+  font: 12px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.pref-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.pref-inline input {
+  flex: 1 1 auto;
+}
+
+.pref-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.pref-links a {
+  text-decoration: none;
+}
+
+/* ---------- Density ---------- */
+:root[data-density='compact'] .settings-section { padding: 15px 16px; }
+:root[data-density='compact'] .appearance-row { padding: 10px 2px; }
+:root[data-density='compact'] .process-table td { padding: 10px 16px; }
+
+/* ---------- The desktop pet ornament ---------- */
+.workspace-pet {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  width: 46px;
+  height: 46px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  box-shadow: var(--shadow-soft);
+  pointer-events: none;
+  opacity: .72;
+  transition: transform .45s ease, opacity .45s ease, box-shadow .45s ease;
+}
+
+.workspace-pet--square { border-radius: var(--radius-xs); }
+.workspace-pet--ring {
+  background: transparent;
+  border-width: 6px;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.workspace-pet--dot { border-radius: var(--radius-pill); }
+
+.workspace-pet.is-pulsing {
+  transform: scale(1.28);
+  opacity: 1;
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* ---------- Shortcuts ---------- */
+.shortcuts-table {
+  width: 100%;
+  margin-top: 18px;
+  border-collapse: collapse;
+}
+
+.shortcuts-table th {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--faint);
+  font: 10px var(--mono);
+  font-weight: 400;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.shortcuts-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-whisper);
+  color: var(--text);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+.shortcuts-table tbody tr:last-child td { border-bottom: 0; }
+
+.shortcut-keys {
+  display: inline-block;
+  padding: 3px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-xs);
+  color: var(--accent-strong);
+  background: var(--panel-soft);
+  font: 11px var(--mono);
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .pref-pin-fields { grid-template-columns: 1fr; }
+  .pref-actions .button { flex: 1 1 100%; }
+  .workspace-pet { right: 14px; bottom: 14px; }
+}
