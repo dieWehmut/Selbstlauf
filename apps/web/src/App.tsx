@@ -30,6 +30,7 @@ import {
   Terminal,
   Trash2,
   Unplug,
+  UserCheck,
   Webhook,
   X,
 } from 'lucide-react';
@@ -51,6 +52,49 @@ import {
   type WatchdogEvent,
   type WatchdogConfig,
 } from './api/client';
+import { SettingsRail, SETTINGS_SECTION_IDS } from './settings/SettingsRail';
+import {
+  AccountSection,
+  BrowserSection,
+  ComputerControlSection,
+  ImportSection,
+  NotificationsSection,
+  ParentalSection,
+  PersonalizationSection,
+  PetSection,
+  PluginsSection,
+  ProfileSection,
+  ShortcutsSection,
+  SnapshotsSection,
+  TrustedContactSection,
+  UsageSection,
+  VoiceSection,
+  describeTrustedContact,
+} from './settings/sections';
+import {
+  NOTIFICATIONS_DEFAULTS,
+  PARENTAL_DEFAULTS,
+  PREF_KEYS,
+  PROFILE_DEFAULTS,
+  TRUSTED_CONTACT_DEFAULTS,
+  hashPin,
+  isNotificationsPref,
+  isParentalPref,
+  isProfilePref,
+  isTrustedContactPref,
+  readPref,
+  writePref,
+  type ProfilePref,
+} from './settings/desktop-prefs';
+
+/** Shown by the account section and the sidebar; tracks the package version. */
+const APP_VERSION = '0.2.0';
+
+/** 电脑操控's single switch. */
+function isRevealPref(value: unknown): value is { allowReveal: boolean } {
+  return typeof value === 'object' && value !== null
+    && typeof (value as { allowReveal?: unknown }).allowReveal === 'boolean';
+}
 
 type Page = 'overview' | 'timeline' | 'settings';
 /** What the person chose; 'system' resolves against the OS preference. */
@@ -78,8 +122,8 @@ interface DesktopShellBridge {
 interface DesktopBridge {
   readonly shell?: Partial<DesktopShellBridge>;
   readonly settings?: {
-    get(): Promise<{ closeToTray?: boolean }>;
-    set(patch: { closeToTray?: boolean }): Promise<unknown>;
+    get(): Promise<{ closeToTray?: boolean; preferredTerminal?: string | null }>;
+    set(patch: { closeToTray?: boolean; preferredTerminal?: string }): Promise<unknown>;
   };
   /** Named commands from the menu bar and the tray. */
   onCommand?(listener: (payload: { command?: string; section?: string }) => void): () => void;
@@ -91,14 +135,32 @@ function desktopBridge(): DesktopBridge | null {
   return bridge !== null && typeof bridge === 'object' ? (bridge as DesktopBridge) : null;
 }
 
-/** Settings sections, in the order the reference panel presents them. */
-type SettingsTabId = 'general' | 'monitor' | 'about';
+/**
+ * The settings navigation.
+ *
+ * The reference console groups its settings into two labelled categories, so the
+ * rail replaces the earlier flat three-tab strip. Section content lives in
+ * `./settings/sections`; this file only decides which section is in view and
+ * hands each one its live data.
+ */
+export const DEFAULT_SETTINGS_SECTION = 'general';
 
-const SETTINGS_TABS: readonly { readonly id: SettingsTabId; readonly label: string }[] = Object.freeze([
-  Object.freeze({ id: 'general' as const, label: '通用' }),
-  Object.freeze({ id: 'monitor' as const, label: '监控' }),
-  Object.freeze({ id: 'about' as const, label: '关于' }),
-]);
+/**
+ * The trusted contact summary shown beside the notification switches.
+ *
+ * The contact is edited on its own rail entry, so this is the read-only line the
+ * reference console puts next to the notifications.
+ */
+function TrustedContactSummarySection() {
+  const contact = readPref(PREF_KEYS.trustedContact, TRUSTED_CONTACT_DEFAULTS, isTrustedContactPref);
+  return (
+    <section className="settings-section settings-section--wide">
+      <div className="section-title"><div><span className="eyebrow">Contact</span><h2>Trusted contact</h2></div><UserCheck size={20} /></div>
+      <p className="section-hint">{describeTrustedContact(contact)}</p>
+    </section>
+  );
+}
+
 const THEME_QUERY = '(prefers-color-scheme: light)';
 
 /** Resolve a stored preference to the colour scheme actually applied. */
@@ -491,9 +553,11 @@ interface SessionActionsProps {
   onPause: (session: SessionView) => void;
   onInject: (session: SessionView) => void;
   onFocus: (session: SessionView) => void;
+  /** 电脑操控 can switch the reveal action off for the whole app. */
+  allowReveal?: boolean;
 }
 
-function SessionActions({ session, busy, onPause, onInject, onFocus }: SessionActionsProps) {
+function SessionActions({ session, busy, onPause, onInject, onFocus, allowReveal = true }: SessionActionsProps) {
   const waiting = busy === session.id;
   return (
     <div className="row-actions">
@@ -502,7 +566,7 @@ function SessionActions({ session, busy, onPause, onInject, onFocus }: SessionAc
         type="button"
         title="打开运行位置"
         aria-label={`打开运行位置 PID ${session.rootPid}`}
-        disabled={waiting || !session.alive || session.host === null || session.host === undefined}
+        disabled={waiting || !allowReveal || !session.alive || session.host === null || session.host === undefined}
         onClick={() => onFocus(session)}
       >
         <SquareArrowOutUpRight size={17} />
@@ -551,6 +615,7 @@ function ProcessTable(props: {
   onPause: (session: SessionView) => void;
   onInject: (session: SessionView) => void;
   onFocus: (session: SessionView) => void;
+  allowReveal?: boolean;
 }) {
   return (
     <>
@@ -570,7 +635,7 @@ function ProcessTable(props: {
                 <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle">{session.conversationId ?? '未关联'}</span></td>
                 <td><strong>{duration(session.quietForMs ?? (session.lastActivityAtMs ? Date.now() - session.lastActivityAtMs : null))}</strong><DecisionChip decision={session.lastDecision} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
-                <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} /></td>
+                <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} /></td>
               </tr>
             ))}
           </tbody>
@@ -586,7 +651,7 @@ function ProcessTable(props: {
               <div><dt>静默</dt><dd>{duration(session.quietForMs ?? 0)}</dd></div>
               <div className="session-card__prompt"><dt>下一输入</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
             </dl>
-            <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} /></footer>
+            <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} /></footer>
           </article>
         ))}
       </div>
@@ -1151,11 +1216,36 @@ function SettingsPanel(props: {
   onUninstallClaudeHook: () => Promise<void>;
   onDisableClaudeHook: () => Promise<void>;
   onUninstall: () => Promise<void>;
+  /** Live data the rail sections read. */
+  sessions: readonly SessionView[];
+  events: readonly AuditEvent[];
+  connected: boolean;
+  /** Which rail entry is in view; owned by the app so the tray can target one. */
+  activeSection: string;
+  onSectionChange: (id: string) => void;
+  /** Leave the settings page (the rail's 返回应用). */
+  onBack: () => void;
+  /** Apply a theme/config blob read from the clipboard by the import section. */
+  onImportThemeText: (text: string) => Promise<void>;
+  onImportConfigText: (text: string) => Promise<void>;
+  /** Lets the sidebar brand block adopt the imported 显示名称. */
+  onDisplayNameChange: (name: string) => void;
+  allowReveal: boolean;
+  onAllowRevealChange: (allowed: boolean) => void;
+  closeToTray: boolean | null;
+  onCloseToTrayChange: (value: boolean) => void;
+  preferredTerminal: string | null;
+  onPreferredTerminalChange: (value: string) => void;
+  desktopBridgeAvailable: boolean;
+  parentalLocked: boolean;
+  onParentalLockChange: (locked: boolean) => void;
+  /** Origin this WebUI is served from. */
+  origin: string;
 }) {
   const [draft, setDraft] = useState(() => structuredClone(props.config));
-  // Monitoring is the working view, so it is what the page opens on; the
-  // tab bar is how a person reaches appearance, locale, and about.
-  const [activeTab, setActiveTab] = useState<SettingsTabId>('monitor');
+  // The rail is the navigation; the app owns which section is in view so a tray
+  // command can open the settings page directly on a named section.
+  const activeSection = props.activeSection;
   const [includeFilters, setIncludeFilters] = useState(() => props.config.processFilters.include.join(', '));
   const [excludeFilters, setExcludeFilters] = useState(() => props.config.processFilters.exclude.join(', '));
   useEffect(() => {
@@ -1176,23 +1266,16 @@ function SettingsPanel(props: {
     });
   };
 
+  /** The config save bar, shared by the sections that edit the service config. */
+  const saveBar = (
+    <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}保存配置</button><button className="button button--secondary" type="button" onClick={() => void props.onInstall()} disabled={props.saving}><CirclePlay size={17} />安装 Watchdog</button><button className="button button--secondary" type="button" onClick={() => void props.onToggleStartup()} disabled={props.saving}><Power size={17} />{props.startupInstalled ? '移除启动项' : '安装启动项'}</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? '停止 Watchdog' : '启动 Watchdog'}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />卸载 Watchdog</button></div>
+  );
+
   return (
-    <form className="settings-grid" onSubmit={submit}>
-      <div className="settings-tabs" role="tablist" aria-label="设置分区">
-        {SETTINGS_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            className={tab.id === activeTab ? 'settings-tab is-active' : 'settings-tab'}
-            type="button"
-            role="tab"
-            aria-selected={tab.id === activeTab}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-      {activeTab === 'general' && (
+    <form className="settings-shell" onSubmit={submit}>
+      <SettingsRail active={activeSection} onSelect={props.onSectionChange} onBack={props.onBack} />
+      <div className="settings-content">
+      {activeSection === 'appearance' && (
         <>
           <AppearancePanel
             preference={props.theme}
@@ -1225,8 +1308,12 @@ function SettingsPanel(props: {
           </section>
         </>
       )}
-      {activeTab === 'monitor' && (
+      {activeSection === 'general' && (
         <>
+      <section className="settings-section settings-section--wide">
+        <div className="section-title"><div><span className="eyebrow">Watchdog</span><h2>常规</h2></div><Gauge size={20} /></div>
+        <p className="section-hint">检测节奏、续写提示词与进程范围，保存后立即生效。</p>
+      </section>
       <section className="settings-section">
         <div className="section-title"><div><span className="eyebrow">Timing</span><h2>检测节奏</h2></div><Gauge size={20} /></div>
         <div className="field-grid">
@@ -1292,32 +1379,67 @@ function SettingsPanel(props: {
         <div className="switch-row"><div><strong>仅监控当前用户进程</strong><span>关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入</span></div><label className="switch"><input aria-label="仅监控当前用户进程" type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
       </section>
       <CodexEndpointsPanel profiles={props.profiles} onApply={props.onApplyProfile} applying={props.applyingProfile} />
-      <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}保存配置</button><button className="button button--secondary" type="button" onClick={() => void props.onInstall()} disabled={props.saving}><CirclePlay size={17} />安装 Watchdog</button><button className="button button--secondary" type="button" onClick={() => void props.onToggleStartup()} disabled={props.saving}><Power size={17} />{props.startupInstalled ? '移除启动项' : '安装启动项'}</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? '停止 Watchdog' : '启动 Watchdog'}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />卸载 Watchdog</button></div>
+      {saveBar}
         </>
       )}
-      {activeTab === 'about' && (
-        <section className="settings-section settings-section--wide">
-          <div className="section-title"><div><span className="eyebrow">About</span><h2>关于</h2></div><CircleAlert size={20} /></div>
-          <p className="section-hint">查看版本信息与更新状态。</p>
-          <div className="about-card">
-            <img src={brandIcon} alt="" width={44} height={44} />
-            <div className="about-card__id">
-              <strong>Selbstlauf</strong>
-              <span className="state-chip state-chip--ready"><span className="state-chip__dot" />版本 0.1.0</span>
-            </div>
-          </div>
-        </section>
+      {activeSection === 'notifications' && (
+        <>
+          <NotificationsSection />
+          <TrustedContactSummarySection />
+        </>
       )}
-      {activeTab === 'about' && (
-        <EnvironmentPanel
-          environment={props.environment}
-          refreshing={props.environmentRefreshing}
-          upgrading={props.environmentUpgrading}
-          onRefresh={props.onRefreshEnvironment}
-          onUpgrade={props.onUpgradeTool}
-          onUpgradeAll={props.onUpgradeAllTools}
+      {activeSection === 'import' && (
+        <ImportSection onImportTheme={props.onImportThemeText} onImportConfig={props.onImportConfigText} />
+      )}
+      {activeSection === 'profile' && (
+        <ProfileSection onDisplayNameChange={props.onDisplayNameChange} />
+      )}
+      {activeSection === 'parental' && (
+        <ParentalSection locked={props.parentalLocked} onLockChange={props.onParentalLockChange} />
+      )}
+      {activeSection === 'trusted-contact' && <TrustedContactSection />}
+      {activeSection === 'voice' && <VoiceSection />}
+      {activeSection === 'personalization' && (
+        <PersonalizationSection accent={props.palette.accent} onAccentChange={(accent) => props.onPaletteChange({ accent })} />
+      )}
+      {activeSection === 'pet' && <PetSection sessionCount={props.sessions.length} />}
+      {activeSection === 'shortcuts' && <ShortcutsSection />}
+      {activeSection === 'usage' && <UsageSection sessions={props.sessions} events={props.events} />}
+      {activeSection === 'account' && (
+        <>
+          <AccountSection connected={props.connected} running={props.running} version={APP_VERSION} />
+          <EnvironmentPanel
+            environment={props.environment}
+            refreshing={props.environmentRefreshing}
+            upgrading={props.environmentUpgrading}
+            onRefresh={props.onRefreshEnvironment}
+            onUpgrade={props.onUpgradeTool}
+            onUpgradeAll={props.onUpgradeAllTools}
+          />
+        </>
+      )}
+      {activeSection === 'computer-control' && (
+        <ComputerControlSection
+          allowReveal={props.allowReveal}
+          onAllowRevealChange={props.onAllowRevealChange}
+          startupInstalled={props.startupInstalled}
+          onToggleStartup={props.onToggleStartup}
+          busy={props.saving}
+          closeToTray={props.closeToTray}
+          onCloseToTrayChange={props.onCloseToTrayChange}
+          preferredTerminal={props.preferredTerminal}
+          onPreferredTerminalChange={props.onPreferredTerminalChange}
+          desktopBridgeAvailable={props.desktopBridgeAvailable}
         />
       )}
+      {activeSection === 'snapshots' && (
+        <SnapshotsSection sessions={props.sessions} environment={props.environment} />
+      )}
+      {activeSection === 'plugins' && <PluginsSection />}
+      {activeSection === 'browser' && (
+        <BrowserSection theme={props.activeTheme} origin={props.origin} />
+      )}
+      </div>
     </form>
   );
 }
@@ -1549,6 +1671,13 @@ export default function App({ api: suppliedApi }: AppProps) {
       return { back: [...stack.back, page], forward: rest };
     });
   };
+
+  /** Open the settings page on a named section (used by the rail and the tray). */
+  const openSettings = (section?: string) => {
+    if (section !== undefined && SETTINGS_SECTION_IDS.includes(section)) setSettingsSection(section);
+    navigate('settings');
+    setSidebarOpen(false);
+  };
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
     const stored = localStorage.getItem('watchdog-theme');
     return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark';
@@ -1560,6 +1689,17 @@ export default function App({ api: suppliedApi }: AppProps) {
   const theme = resolveTheme(themePreference, prefersLight);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCompact, setSidebarCompact] = useState(false);
+  /** Which settings rail entry is in view; the tray can open one by name. */
+  const [settingsSection, setSettingsSection] = useState<string>(DEFAULT_SETTINGS_SECTION);
+  /** The name the sidebar brand block shows once 个人资料 sets one. */
+  const [displayName, setDisplayName] = useState(() => readPref<ProfilePref>(PREF_KEYS.profile, PROFILE_DEFAULTS, isProfilePref).displayName);
+  /** Parental control: while locked, saving the config requires the PIN again. */
+  const [parentalLocked, setParentalLocked] = useState(() => readPref(PREF_KEYS.parental, PARENTAL_DEFAULTS, isParentalPref).enabled);
+  /** 电脑操控: whether the process table may reveal a session's window. */
+  const [allowReveal, setAllowReveal] = useState(() => readPref(PREF_KEYS.computerControl, { allowReveal: true }, isRevealPref).allowReveal);
+  /** Desktop-shell preferences, mirrored from the main process when available. */
+  const [closeToTray, setCloseToTray] = useState<boolean | null>(null);
+  const [preferredTerminal, setPreferredTerminal] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthView>({ ok: false, running: false, dryRun: true, lastPollAtMs: null });
   const [startupInstalled, setStartupInstalled] = useState(false);
   const [hookStatus, setHookStatus] = useState<ClaudeHookStatusView>(fallbackHookStatus);
@@ -1622,11 +1762,83 @@ export default function App({ api: suppliedApi }: AppProps) {
         return;
       }
       if (payload.command === 'open-settings') {
-        navigate('settings');
-        setSidebarOpen(false);
+        openSettings(payload.section);
       }
     });
   }, [bridge]);
+
+  /**
+   * Mirror the desktop shell's own preferences.
+   *
+   * `closeToTray` and `preferredTerminal` live in the main process because they
+   * drive the window lifecycle, so they are read once and written back through
+   * the bridge. In a plain browser the bridge is absent and both stay null, which
+   * is exactly what makes the matching rows render disabled instead of lying.
+   */
+  useEffect(() => {
+    const settings = bridge?.settings;
+    if (settings === undefined) return undefined;
+    let active = true;
+    void (async () => {
+      try {
+        const current = await settings.get();
+        if (!active) return;
+        setCloseToTray(current.closeToTray ?? null);
+        setPreferredTerminal(current.preferredTerminal ?? null);
+      } catch {
+        // An older bridge without these fields leaves the rows disabled.
+      }
+    })();
+    return () => { active = false; };
+  }, [bridge]);
+
+  const changeCloseToTray = (value: boolean) => {
+    setCloseToTray(value);
+    void bridge?.settings?.set({ closeToTray: value }).catch(() => setNotice('关闭行为保存失败'));
+  };
+
+  const changePreferredTerminal = (value: string) => {
+    setPreferredTerminal(value);
+    void bridge?.settings?.set({ preferredTerminal: value }).catch(() => setNotice('首选终端保存失败'));
+  };
+
+  const changeAllowReveal = (allowed: boolean) => {
+    setAllowReveal(allowed);
+    writePref(PREF_KEYS.computerControl, { allowReveal: allowed });
+  };
+
+  /**
+   * Keyboard shortcuts, exactly the set the 键盘快捷键 section documents.
+   *
+   * Ctrl+1..3 switch page. They are ignored while a text field has focus, so the
+   * bindings cannot steal a typing or IME shortcut. Adding a binding here means
+   * adding the matching row to `SHORTCUTS` in `./settings/sections`.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      const shortcutPages: Record<string, Page> = { '1': 'overview', '2': 'timeline', '3': 'settings' };
+      const next = shortcutPages[event.key];
+      if (next === undefined) return;
+      event.preventDefault();
+      navigate(next);
+      setSidebarOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [page]);
+
+  /**
+   * Notification preferences.
+   *
+   * Read on every render rather than held in state: the panel toggles them on a
+   * different page, and this way the timeline limit and the notice strip follow
+   * a change without the app having to be remounted.
+   */
+  const notifications = readPref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref);
+  const visibleEvents = useMemo(() => events.slice(0, notifications.timelineLimit), [events, notifications.timelineLimit]);
 
   /**
    * Run a title bar menu item.
@@ -1804,6 +2016,12 @@ export default function App({ api: suppliedApi }: AppProps) {
   };
 
   const focusSession = async (session: SessionView) => {
+    // 电脑操控 can switch the reveal action off; the buttons are disabled too, so
+    // this is the belt-and-braces half of the same rule.
+    if (!allowReveal) {
+      setNotice('“打开运行位置”已在 电脑操控 中被关闭');
+      return;
+    }
     setBusy(session.id); setNotice(null);
     try {
       const result = await api.focus(session.id);
@@ -1899,7 +2117,42 @@ export default function App({ api: suppliedApi }: AppProps) {
     setNotice('主题已复制');
   };
 
+  /**
+   * Apply a theme blob the import section read from the clipboard.
+   *
+   * The section owns reading and parsing; applying it stays here so it uses the
+   * same palette-override path as the appearance panel's own import button.
+   */
+  const importThemeText = async (text: string) => {
+    const parsed = JSON.parse(text) as unknown;
+    if (!isThemePalette(parsed)) throw new TypeError('剪贴板里不是有效的主题配置');
+    setPaletteOverrides((current) => ({ ...current, [theme]: normalizePalette(parsed, DEFAULT_PALETTES[theme]) }));
+    setNotice('主题已导入');
+  };
+
+  /** Apply a config blob from the clipboard through the normal save path. */
+  const importConfigText = async (text: string) => {
+    await saveConfig(JSON.parse(text) as WatchdogConfig);
+  };
+
+  /**
+   * Save the service config.
+   *
+   * When 家长控制 is on this first demands the PIN: the read view is never
+   * hidden, only the ability to persist an edited draft. The supplied PIN is
+   * obfuscated with the same function the section used, so the plaintext only
+   * ever exists in the prompt.
+   */
   const saveConfig = async (nextConfig: WatchdogConfig) => {
+    if (parentalLocked) {
+      const stored = readPref(PREF_KEYS.parental, PARENTAL_DEFAULTS, isParentalPref);
+      const supplied = window.prompt('家长控制已启用，请输入 PIN 以保存配置');
+      if (supplied === null) return;
+      if (stored.pinHash === null || hashPin(supplied) !== stored.pinHash) {
+        setNotice('PIN 不正确，未保存配置');
+        return;
+      }
+    }
     setSaving(true); setNotice(null);
     try {
       const saved = await api.updateConfig(nextConfig);
@@ -2038,7 +2291,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       />
       <button className={`mobile-overlay ${sidebarOpen ? 'is-open' : ''}`} type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)} />
       <aside id="watchdog-sidebar" className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-        <div className="brand"><span className="brand__mark" data-testid="brand-mark"><img src={brandIcon} alt="" width={34} height={34} /></span><div><strong>Selbstlauf</strong><span>continuation watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
+        <div className="brand"><span className="brand__mark" data-testid="brand-mark"><img src={brandIcon} alt="" width={34} height={34} /></span><div><strong>{displayName.trim().length > 0 ? displayName : 'Selbstlauf'}</strong><span>continuation watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
         <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { navigate(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
         <div className="sidebar__footer"><div className="service-mini"><span className={`status-light ${connected ? 'is-online' : ''}`} /><div><strong>{connected ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong><span>{sessions.length} 个进程</span></div></div><button className="nav-button" type="button" title={theme === 'dark' ? '切换亮色' : '切换暗色'} onClick={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{theme === 'dark' ? '亮色' : '暗色'}</span></button><button className="compact-toggle icon-button" type="button" title={sidebarCompact ? '展开侧栏' : '收起侧栏'} aria-label={sidebarCompact ? '展开侧栏' : '收起侧栏'} onClick={() => setSidebarCompact(!sidebarCompact)}>{sidebarCompact ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
       </aside>
@@ -2050,12 +2303,12 @@ export default function App({ api: suppliedApi }: AppProps) {
 
         {page === 'overview' && <div className="page-content">
           <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{sessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>服务状态</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : connected ? '已停止' : '离线'}</strong></div></section>
-          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : staticDemo ? '样例数据' : '等待连接'}</span></div><ProcessTable sessions={sessions} config={config} busy={busy} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
-          <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => navigate('timeline')}>查看全部</button></div><Timeline events={events.slice(0, 5)} /></section>
+          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : staticDemo ? '样例数据' : '等待连接'}</span></div><ProcessTable sessions={sessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
+          <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => navigate('timeline')}>查看全部</button></div><Timeline events={visibleEvents.slice(0, 5)} /></section>
         </div>}
 
-        {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{events.length} 条</span></div><Timeline events={events} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} /></div>}
+        {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={sessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} parentalLocked={parentalLocked} onParentalLockChange={setParentalLocked} origin={window.location.origin} /></div>}
       </main>
     </div>
   );
