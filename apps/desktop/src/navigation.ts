@@ -18,6 +18,23 @@ export const DEFAULT_WINDOW_POLICY = Object.freeze({
   backgroundColor: '#0b1120',
 });
 
+/**
+ * The custom title bar contract, shared with the renderer.
+ *
+ * `height` is the number of device-independent pixels the OS window controls
+ * (minimise / maximise-restore / close) occupy at the top-right of the window;
+ * the renderer reserves that much space on the right of its own title bar row
+ * and keeps everything else draggable. The colours describe the overlay strip
+ * itself so the native buttons sit on the same surface as the page.
+ */
+export const TITLE_BAR_OVERLAY = Object.freeze({
+  height: 40,
+  color: '#0b1120',
+  symbolColor: '#e2e8f0',
+});
+
+export type TitleBarOverlay = typeof TITLE_BAR_OVERLAY;
+
 export interface DesktopWebPreferences {
   readonly contextIsolation: true;
   readonly nodeIntegration: false;
@@ -36,6 +53,13 @@ export interface DesktopWindowOptions extends DesktopWebPreferences {
   readonly minHeight: number;
   readonly autoHideMenuBar: true;
   readonly backgroundColor: string;
+  /**
+   * The page draws the whole title bar row, so the OS chrome is hidden but the
+   * native minimise / maximise-restore / close buttons stay real Windows
+   * controls, right-aligned and hit-tested by the OS.
+   */
+  readonly titleBarStyle: 'hidden';
+  readonly titleBarOverlay: TitleBarOverlay;
   /** Absolute path of the branded window/taskbar icon, when one is installed. */
   readonly icon?: string;
 }
@@ -88,6 +112,11 @@ export function createWindowOptions(options: WindowPolicyOptions): DesktopWindow
     minHeight: options.minHeight ?? DEFAULT_WINDOW_POLICY.minHeight,
     autoHideMenuBar: true,
     backgroundColor: DEFAULT_WINDOW_POLICY.backgroundColor,
+    // The window frame is drawn by the page from the second row down; only the
+    // window controls stay native so snapping, Aero Snap, and hit-testing keep
+    // working the way Windows users expect.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: TITLE_BAR_OVERLAY,
     // The window only ever renders the local service bundle, so Node stays out of
     // the renderer and the sandbox stays on.
     contextIsolation: true,
