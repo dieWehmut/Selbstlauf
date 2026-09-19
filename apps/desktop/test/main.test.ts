@@ -17,6 +17,7 @@ import {
   registerShellHandlers,
   resolveDesktopTarget,
   resolveWindowIconPath,
+  verifyPreloadBridge,
   type ElectronShell,
   type ElectronWindow,
 } from '../src/main.js';
@@ -762,4 +763,61 @@ test('the window close hook hides the real window instead of quitting', async ()
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+/**
+ * The renderer verification is the only thing that can catch a silently weaker
+ * renderer: flattening `webPreferences` makes Electron ignore `sandbox`,
+ * `contextIsolation` and `preload` at once, and every unit test on the options
+ * object still passes. These pin both directions, because a check that can only
+ * pass is worse than no check.
+ */
+function windowReporting(report: unknown): { executeJavaScript: (code: string) => Promise<unknown> } {
+  return {
+    executeJavaScript: async () => (typeof report === 'string' ? report : JSON.stringify(report)),
+  };
+}
+
+test('accepts a hardened renderer that has the bridge', async () => {
+  const result = await verifyPreloadBridge(
+    { webContents: windowReporting({ bridge: true, sandboxed: true, nodeLeaked: false, electronLeaked: false }) } as never,
+  );
+  assert.equal(result, true);
+});
+
+test('accepts a renderer where process is absent entirely', async () => {
+  // `null` means the renderer has no `process` at all, which is the strongest
+  // isolation and must not be mistaken for a failure.
+  const result = await verifyPreloadBridge(
+    { webContents: windowReporting({ bridge: true, sandboxed: null, nodeLeaked: false, electronLeaked: false }) } as never,
+  );
+  assert.equal(result, true);
+});
+
+test('reports a missing bridge, an unsandboxed renderer, and leaked globals', async () => {
+  const cases: Array<[Record<string, unknown>, RegExp]> = [
+    [{ bridge: false, sandboxed: true, nodeLeaked: false, electronLeaked: false }, /not available in the renderer/u],
+    [{ bridge: true, sandboxed: false, nodeLeaked: false, electronLeaked: false }, /not sandboxed/u],
+    [{ bridge: true, sandboxed: true, nodeLeaked: true, electronLeaked: false }, /Node globals/u],
+    [{ bridge: true, sandboxed: true, nodeLeaked: false, electronLeaked: true }, /leaked onto the page/u],
+  ];
+  for (const [report, expected] of cases) {
+    const messages: string[] = [];
+    const original = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string) => { messages.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    try {
+      const ok = await verifyPreloadBridge({ webContents: windowReporting(report) } as never);
+      assert.equal(ok, false, `${JSON.stringify(report)} must fail`);
+    } finally {
+      process.stderr.write = original;
+    }
+    assert.ok(
+      messages.some((m) => expected.test(m)),
+      `expected ${expected} for ${JSON.stringify(report)}, got: ${messages.join('')}`,
+    );
+  }
+});
+
+test('a window without executeJavaScript is reported rather than throwing', async () => {
+  assert.equal(await verifyPreloadBridge({ webContents: {} } as never), false);
 });
