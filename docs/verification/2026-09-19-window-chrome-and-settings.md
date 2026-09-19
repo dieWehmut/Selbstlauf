@@ -196,6 +196,41 @@ Final acceptance on that installed build, driving the app's own window:
     service not restarted: true       app still alive: true
     window restorable: true           ACCEPTANCE: PASS
 
+### The release gate now catches this class of bug
+
+`v0.2.0` passed `scripts/desktop/verify-installer.ps1` in full while closing the
+window quit the application and stopped the service, because that script checked
+the install's files, shortcuts, service health, process discovery and logon task —
+but never the icon asset and never the window lifecycle. That is the gap that let
+the defect ship, so both are now asserted against the installed app:
+
+- `resources/build/icon.ico` must exist (an unconditional file check).
+- `WM_CLOSE` is sent to the app's real top-level window, and the run requires it
+  to hide rather than be destroyed, to keep the app and `Electron_NotifyIconHostWindow`
+  alive, to leave `watchdogRunning` true with an unchanged `startedAtMs`, and to be
+  restorable.
+
+The gate was validated in **both** directions rather than assumed:
+
+- Against a deliberately repackaged build with the icon copy removed, it fails with
+  `installed app is missing resources\build\icon.ico`.
+- Against the correct 0.2.1 build it passes, printing `installed app owns a tray`,
+  `closing the installed window hides it to the tray and keeps the watchdog running`
+  and `the hidden window can be restored`.
+
+Two further problems surfaced while proving the gate:
+
+- The script invoked the installer with a bare `/S`. This product is per-user, so
+  an assisted NSIS installer then defaults to an all-users path, asks for
+  elevation, and in a non-interactive session hangs indefinitely instead of
+  failing. Both the installer and the uninstaller now pass `/currentuser` and are
+  bounded by `InstallTimeoutSeconds`.
+- Driving the window needs a real interactive desktop. On a headless runner "no
+  visible window" cannot be told apart from "the tray is broken", so that section
+  is now skipped with a warning when there is no desktop session, and
+  `-SkipWindowLifecycle` makes it explicit. The icon assertion stays
+  unconditional, because that is the check that actually guards the packaging.
+
 ### One cleanup step still needs elevation
 
 This host previously carried a **per-machine** 0.1.0 installation at
