@@ -38,6 +38,12 @@ test('never claims an update when the latest version is unknown', () => {
   assert.equal(decideToolState({ installed: '1.0.0', latest: 'not-a-version' }), 'unknown');
 });
 
+test('never claims a known state when the installed version is unreadable', () => {
+  for (const installed of ['unknown', 'development', '']) {
+    assert.equal(decideToolState({ installed, latest: '2.0.0' }), 'unknown', installed);
+  }
+});
+
 test('treats a newer installed build as current, never as outdated', () => {
   assert.equal(decideToolState({ installed: '2.2.0', latest: '2.1.276' }), 'current');
 });

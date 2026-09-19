@@ -126,3 +126,15 @@ test('a missing Windows npm entry script is reported without guessing a desktop-
   assert.match(result.error ?? '', /npm.*PATH/u);
   assert.equal(invocations.length, 0);
 });
+
+test('the npm-tool fallback requests a version flag instead of sending a prompt', async (t) => {
+  await packagedRuntime(t);
+  const installed = await readInstalledVersions({
+    runNpm: async () => '{}',
+    fileExists: (executable) => executable === 'claude',
+  });
+  assert.equal(installed.find((entry) => entry.id === 'claude')?.installed, 'unknown');
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0].file, 'claude');
+  assert.deepEqual(invocations[0].args, ['--version']);
+});

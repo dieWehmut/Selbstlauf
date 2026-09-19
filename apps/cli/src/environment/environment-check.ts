@@ -101,7 +101,7 @@ function buildReport(
       latest: published,
       // 'unknown' is distinct from 'current' so an offline scan never claims an
       // install is up to date.
-      state: decideToolState({ installed: local === 'unknown' ? '0.0.0' : local, latest: published }),
+      state: decideToolState({ installed: local, latest: published }),
       installCommand: entry.installCommand,
     });
   });

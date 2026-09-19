@@ -1,17 +1,10 @@
 import { execFile } from 'node:child_process';
-import { statSync } from 'node:fs';
-import { delimiter, dirname, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-const execFileAsync = promisify(execFile);
+import { isFile, pathDirectories } from './system-path.js';
 
-function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
+const execFileAsync = promisify(execFile);
 
 /** Use the user's npm installation even when the service runs inside Electron. */
 export async function runNpmCommand(args: readonly string[], timeout: number): Promise<string> {
@@ -20,10 +13,7 @@ export async function runNpmCommand(args: readonly string[], timeout: number): P
   if (process.platform === 'win32') {
     // Windows npm shims require a shell. Resolve their JavaScript entry point
     // and system Node instead, preserving PATH priority and argument boundaries.
-    const path = Object.entries(process.env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
-    const directories = path.split(delimiter)
-      .map((directory) => directory.trim().replace(/^"(.*)"$/u, '$1'))
-      .filter(Boolean);
+    const directories = pathDirectories();
     const npmCli = directories
       .map((directory) => resolve(directory, 'node_modules', 'npm', 'bin', 'npm-cli.js'))
       .find(isFile);

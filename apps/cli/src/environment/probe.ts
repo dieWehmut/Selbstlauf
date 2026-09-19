@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 
 import { AGENT_CATALOG } from './catalog.js';
 import { runNpmCommand } from './npm-runtime.js';
+import { executableExistsOnPath } from './system-path.js';
 
 /**
  * Read what is installed locally and what the registry currently publishes.
@@ -31,10 +31,10 @@ export interface ProbeOptions {
   readonly runNpm?: () => Promise<string>;
   /** Runs `npm view <package> version`; overridable for tests. */
   readonly runNpmView?: (packageName: string) => Promise<string>;
-  /** Runs `<executable> version`; overridable for tests. */
+  /** Runs `<executable> --version`; overridable for tests. */
   readonly runExecutable?: (executable: string) => Promise<string>;
   readonly platform?: NodeJS.Platform;
-  /** Tests the existence of a resolved executable path; overridable for tests. */
+  /** Tests whether a catalog executable is available; overridable for tests. */
   readonly fileExists?: (path: string) => boolean;
 }
 
@@ -102,8 +102,9 @@ export function parseHermesVersion(banner: string): string | null {
  */
 export async function readInstalledVersions(options: ProbeOptions = {}): Promise<InstalledVersion[]> {
   const runNpm = options.runNpm ?? defaultRunNpm;
-  const runExecutable = options.runExecutable ?? ((executable: string) => run(executable, ['version']));
-  const fileExists = options.fileExists ?? ((path: string) => existsSync(path));
+  const runExecutable = options.runExecutable ?? ((executable: string) => run(executable, ['--version']));
+  const fileExists = options.fileExists
+    ?? ((executable: string) => executableExistsOnPath(executable, options.platform ?? process.platform));
 
   let reported = new Map<string, string>();
   try {
