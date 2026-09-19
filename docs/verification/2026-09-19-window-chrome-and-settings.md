@@ -360,6 +360,32 @@ the service live, and the renderer check silent (bridge present, renderer
 sandboxed, no Node globals leaked). `scripts/desktop/verify-installer.ps1` passes
 end to end on its x64 installer.
 
+### Both branches of the close-to-tray switch are now gated
+
+The settings bridge and the behaviour it controls were the last part of the
+renderer bridge that had never been exercised against a real build, so they were
+verified live and then folded into the release gate.
+
+Live evidence, gathered from a temporary probe since removed:
+
+- `settings.get()` returns `{ closeToTray: true, preferredTerminal: null }` when no
+  file exists, and `settings.set()` persists both fields — `get` then reported
+  `{ closeToTray: false, preferredTerminal: 'powershell' }`.
+- `onCommand` is a function, so the menu and tray command channel is reachable.
+- The write landed in `desktop-settings.json` with **no temp file left behind**,
+  which is the atomic temp-and-rename path.
+- With `closeToTray: false` persisted, closing the window quit the app and stopped
+  the service. With the file removed, the same gesture hid the window and kept the
+  service running, and the window restored. Both measured with `WM_CLOSE` against
+  the app's own window.
+
+`scripts/desktop/verify-installer.ps1` now asserts both branches on every release:
+the default must hide and keep the service, and `closeToTray=false` must quit and
+stop it. The check restores the default and restarts the app afterwards, because
+the quit deliberately leaves nothing running and the discovery and logon-task
+checks that follow need a live app — the first draft of this change passed its own
+assertions and then failed several steps later with a connection error.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
