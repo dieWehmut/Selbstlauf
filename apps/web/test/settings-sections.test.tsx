@@ -24,6 +24,9 @@ import {
   TrustedContactSection,
   UsageSection,
   VoiceSection,
+  announceLatest,
+  describeTrustedContact,
+  speakEvent,
 } from '../src/settings/sections';
 
 beforeEach(() => {
@@ -237,6 +240,13 @@ describe('TrustedContactSection', () => {
       expect(stored).toEqual({ name: '运维', email: '', condition: 'always' });
     });
   });
+
+  it('summarises the contact in one line for other sections', () => {
+    expect(describeTrustedContact({ name: '', email: '', condition: 'severe' }))
+      .toBe('未设置联系人 · 未设置邮箱 · 仅严重错误');
+    expect(describeTrustedContact({ name: '运维', email: 'ops@example.com', condition: 'always' }))
+      .toBe('运维 · ops@example.com · 始终');
+  });
 });
 
 describe('Section chrome', () => {
@@ -294,6 +304,49 @@ describe('VoiceSection', () => {
     await waitFor(() => {
       expect(JSON.parse(localStorage.getItem(PREF_KEYS.voice) ?? 'null')).toMatchObject({ voice: 'zh-CN-huihui' });
     });
+  });
+});
+
+describe('speakEvent / announceLatest', () => {
+  const originalSynthesis = Object.getOwnPropertyDescriptor(window, 'speechSynthesis');
+  const originalUtterance = Object.getOwnPropertyDescriptor(window, 'SpeechSynthesisUtterance');
+
+  afterEach(() => {
+    if (originalSynthesis) Object.defineProperty(window, 'speechSynthesis', originalSynthesis);
+    else Reflect.deleteProperty(window, 'speechSynthesis');
+    if (originalUtterance) Object.defineProperty(window, 'SpeechSynthesisUtterance', originalUtterance);
+    else Reflect.deleteProperty(window, 'SpeechSynthesisUtterance');
+  });
+
+  function stubSpeech() {
+    const speak = vi.fn();
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: { getVoices: () => [], speak },
+    });
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+      configurable: true,
+      value: class { text: string; rate = 1; voice: unknown = null; constructor(text: string) { this.text = text; } },
+    });
+    return speak;
+  }
+
+  it('is a no-op when the preference is disabled or the API is missing', () => {
+    const speak = stubSpeech();
+    speakEvent('hello', { enabled: false, rate: 1, voice: null });
+    expect(speak).not.toHaveBeenCalled();
+
+    Reflect.deleteProperty(window, 'speechSynthesis');
+    expect(() => speakEvent('hello', { enabled: true, rate: 1, voice: null })).not.toThrow();
+    expect(() => announceLatest({ enabled: true, rate: 2, voice: null }, { id: 'e', timestampMs: 1, type: 'decision' }))
+      .not.toThrow();
+  });
+
+  it('speaks at the stored rate when enabled', () => {
+    const speak = stubSpeech();
+    speakEvent('需要续写', { enabled: true, rate: 1.5, voice: null });
+    expect(speak).toHaveBeenCalledTimes(1);
+    expect(speak.mock.calls[0][0]).toMatchObject({ text: '需要续写', rate: 1.5 });
   });
 });
 
