@@ -98,6 +98,12 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.click(within(appearance).getByRole('radio', { name: '跟随系统' }));
     // A system preference resolves through the media query, not a stored literal.
     expect(localStorage.getItem('watchdog-theme')).toBe('system');
+
+    const languages = screen.getByRole('group', { name: '界面语言' });
+    expect(within(languages).getByRole('button', { name: '简体中文' })).toHaveAttribute('aria-pressed', 'true');
+    for (const language of ['繁體中文', 'English', '日本語']) {
+      expect(within(languages).getByRole('button', { name: new RegExp(language) })).toBeDisabled();
+    }
   });
 
 
