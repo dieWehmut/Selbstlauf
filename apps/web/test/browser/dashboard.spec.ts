@@ -72,6 +72,16 @@ test.describe('Selbstlauf watchdog workbench', () => {
     const menus = titlebar.locator('.titlebar__menu-button');
     await expect(menus).toHaveCount(4);
     await expect(menus).toHaveText(['文件', '编辑', '视图', '帮助']);
+
+    /**
+     * The menu font size is measured from the reference, not chosen: a full-width
+     * CJK glyph advances exactly the font size, and the reference's labels advance
+     * 14 logical px each. This was 12px, which drew the labels smaller than the
+     * image the layout was asked to match. Pinned here because the number is a
+     * measurement, so changing it should require a new measurement.
+     */
+    const menuFont = await menus.first().evaluate((el) => getComputedStyle(el).fontSize);
+    expect(menuFont).toBe('14px');
     // The panel toggle and the history arrows share the row.
     await expect(titlebar.getByRole('button', { name: '收起侧栏' })).toBeVisible();
     await expect(titlebar.getByRole('button', { name: '后退' })).toBeVisible();
