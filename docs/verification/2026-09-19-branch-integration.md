@@ -51,6 +51,9 @@ audited original history without reintroducing `apps/watchdog`.
   `Selbstlauf.exe` as Node. Probe and upgrade execution share the same runner.
 - Executable fallback detection searches PATH; version probes use `--version`.
   Unreadable versions remain `unknown` and are excluded from bulk upgrades.
+- Slow or failed npm diagnostics no longer block live monitoring or session
+  controls. Real monitoring starts with empty data; examples are restricted to
+  the static Pages demo.
 
 The runtime and installation gate results are recorded separately in
 `2026-09-19-final-verification.md`.
