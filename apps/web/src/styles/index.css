@@ -71,9 +71,9 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
-.app-shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); background: var(--bg); }
+.app-shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); background: var(--bg); }
 .app-shell--compact { grid-template-columns: 76px minmax(0, 1fr); }
-.sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 34px; padding: 24px 16px 18px; border-right: 1px solid var(--line-whisper); background: var(--panel-soft); z-index: 20; transition: background .2s ease, backdrop-filter .2s ease; }
+.sidebar { position: sticky; top: 40px; height: calc(100vh - 40px); display: flex; flex-direction: column; gap: 34px; padding: 24px 16px 18px; border-right: 1px solid var(--line-whisper); background: var(--panel-soft); z-index: 20; transition: background .2s ease, backdrop-filter .2s ease; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px; min-width: 0; }
 .brand__mark { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 34px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
 .brand__mark img { width: 100%; height: 100%; object-fit: cover; }
@@ -111,6 +111,97 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 .workspace::before { content: ''; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--bg) 74%, transparent); pointer-events: none; }
 .topbar { min-height: 94px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line-soft); }
+
+/* ---------- Row 1: the window's own title bar ---------- */
+/* The OS paints nothing but the window buttons here (titleBarStyle: 'hidden'),
+   so this row *is* the title bar. The whole row drags the window; every
+   interactive child below opts back out with `no-drag`, because a drag region
+   swallows clicks. Height matches TITLE_BAR_OVERLAY.height in
+   apps/desktop/src/navigation.ts (40px) so the row lines up with the native
+   buttons rather than sitting a few pixels off them. */
+.titlebar {
+  grid-column: 1 / -1;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--line-whisper);
+  background: var(--panel-soft);
+  -webkit-app-region: drag;
+}
+/* Reserve the gutter the native minimise / maximise-restore / close buttons
+   occupy. 148px is the documented Windows 11 overlay width for three buttons
+   at 100% scale (46px each plus padding); env(titlebar-area-*) would be
+   preferable but is not dependable across Electron versions, so the fixed
+   reserve is the contract and the renderer simply draws nothing there. Only
+   reserved inside the desktop shell, so a browser build keeps normal padding. */
+:root[data-shell='desktop'] .titlebar { padding-right: 148px; }
+.titlebar button,
+.titlebar input,
+.titlebar [role='menu'] { -webkit-app-region: no-drag; }
+.titlebar__button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  color: var(--muted);
+  background: transparent;
+  transition: background .16s ease, color .16s ease;
+}
+.titlebar__button:hover:not(:disabled) { color: var(--text); background: var(--panel-raised); }
+.titlebar__button:disabled { opacity: .38; }
+.titlebar__menus { display: flex; align-items: center; gap: 2px; margin-left: 6px; min-width: 0; }
+.titlebar__menu { position: relative; }
+.titlebar__menu-button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  transition: background .16s ease, color .16s ease;
+}
+.titlebar__menu-button:hover,
+.titlebar__menu-button.is-open { color: var(--text); background: var(--panel-raised); }
+/* The dropdown is drawn by the renderer because the native menu bar is hidden.
+   It floats above the page, so it needs its own surface and elevation. */
+.titlebar__dropdown {
+  position: absolute;
+  top: 32px;
+  left: 0;
+  z-index: 60;
+  display: grid;
+  min-width: 190px;
+  padding: 5px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  box-shadow: var(--shadow-lift);
+}
+.titlebar__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--text);
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+}
+.titlebar__item:hover:not(:disabled) { background: var(--panel-raised); }
+.titlebar__item:disabled { opacity: .42; }
+.titlebar__shortcut { color: var(--faint); font: 10px var(--mono); }
+.titlebar__separator { height: 1px; margin: 5px 4px; background: var(--line-whisper); }
 .topbar__title, .topbar__actions, .section-heading, .section-title, .section-meta, .process-id, .row-actions, .settings-actions, .switch-row, .timeline__title { display: flex; align-items: center; }
 .topbar__title { gap: 13px; }
 .topbar h1 { margin: 5px 0 0; font-size: 22px; letter-spacing: 0; }
@@ -247,6 +338,14 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 @media (max-width: 700px) {
   .workspace { padding: 0 15px 32px; }
   .topbar { min-height: 82px; align-items: center; }
+  /* Narrow widths drop the history arrows and the menu labels so the panel
+     toggle and the existing mobile menu button stay reachable; the row itself
+     keeps its 40px height and never widens the page. The desktop reserve is
+     released too, since the native buttons have no room to spare there. */
+  .titlebar { padding-inline: 8px; }
+  :root[data-shell='desktop'] .titlebar { padding-right: 4px; }
+  .titlebar__menus { display: none; }
+  .titlebar__button:not(:first-child) { display: none; }
   .topbar__actions .button--stop, .topbar__actions .button--start { width: 36px; padding: 0; font-size: 0; }
   .topbar__actions .button--stop svg, .topbar__actions .button--start svg { margin: 0; }
   .metric-strip { grid-template-columns: 1fr 1fr; margin-top: 18px; }

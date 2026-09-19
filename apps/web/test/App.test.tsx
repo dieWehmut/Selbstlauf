@@ -583,3 +583,216 @@ describe('watchdog dashboard', () => {
     expect(document.querySelector('.sidebar')).not.toHaveClass('is-open');
   });
 });
+
+describe('window title bar', () => {
+  const titlebar = () => document.querySelector('.titlebar') as HTMLElement;
+
+  it('renders the panel toggle, history arrows, and the four menus', () => {
+    render(<App api={api()} />);
+    const bar = titlebar();
+    expect(bar).not.toBeNull();
+
+    // The row is the window's title bar, so it offers the sidebar toggle, the
+    // in-app history arrows, and the four menu buttons in reference order.
+    expect(within(bar).getByRole('button', { name: '收起侧栏' })).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: '后退' })).toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: '前进' })).toBeInTheDocument();
+    expect(
+      within(bar)
+        .getAllByRole('button')
+        .filter((button) => ['文件', '编辑', '视图', '帮助'].includes(button.textContent ?? ''))
+        .map((button) => button.textContent),
+    ).toEqual(['文件', '编辑', '视图', '帮助']);
+
+    // The heading stays in the second row; the title bar carries no title text.
+    expect(screen.getByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+    expect(bar.textContent).not.toContain('Selbstlauf');
+  });
+
+  it('drives the existing sidebar compact state from the panel toggle', () => {
+    render(<App api={api()} />);
+    const toggle = within(titlebar()).getByRole('button', { name: '收起侧栏' });
+    fireEvent.click(toggle);
+    // The toggle is wired to the same state the sidebar footer button uses.
+    expect(document.querySelector('.app-shell')).toHaveClass('app-shell--compact');
+    expect(within(titlebar()).getByRole('button', { name: '展开侧栏' })).toBeInTheDocument();
+  });
+
+  it('opens 文件 with 返回应用 and 隐藏到托盘 as menu items', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    // Start somewhere other than the overview so 返回应用 has work to do.
+    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
+
+    fireEvent.click(within(titlebar()).getByRole('button', { name: '文件' }));
+    const menu = screen.getByRole('menu', { name: '文件' });
+    const items = within(menu).getAllByRole('menuitem');
+    expect(items.map((item) => item.textContent?.replace(/Ctrl.*$/u, ''))).toEqual(['返回应用', '隐藏到托盘']);
+    // There is no quit item in the renderer's menus; the tray owns the exit.
+    expect(within(menu).queryByRole('menuitem', { name: '退出' })).toBeNull();
+
+    // 隐藏到托盘 needs the desktop bridge, so a plain browser disables it.
+    expect(within(menu).getByRole('menuitem', { name: '隐藏到托盘' })).toBeDisabled();
+    expect(within(menu).getByRole('menuitem', { name: '隐藏到托盘' })).toHaveAttribute('aria-disabled', 'true');
+
+    // 返回应用 returns to the overview heading and closes the drawer.
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '返回应用' }));
+    expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+    expect(document.querySelector('.sidebar')).not.toHaveClass('is-open');
+  });
+
+  it('shows the standard editing roles and the help links', async () => {
+    render(<App api={api()} />);
+    const bar = titlebar();
+
+    fireEvent.click(within(bar).getByRole('button', { name: '编辑' }));
+    expect(
+      within(screen.getByRole('menu', { name: '编辑' }))
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent?.replace(/Ctrl.*$/u, '')),
+    ).toEqual(['撤销', '重做', '剪切', '复制', '粘贴', '全选']);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    fireEvent.click(within(bar).getByRole('button', { name: '帮助' }));
+    const help = screen.getByRole('menu', { name: '帮助' });
+    expect(within(help).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      '项目主页',
+      '关于 Selbstlauf',
+    ]);
+  });
+
+  it('disables the bridge-backed view items in a plain browser', async () => {
+    render(<App api={api()} />);
+    fireEvent.click(within(titlebar()).getByRole('button', { name: '视图' }));
+    const menu = screen.getByRole('menu', { name: '视图' });
+    for (const label of ['重新加载', '实际大小', '放大', '缩小', '切换全屏']) {
+      const item = within(menu).getByRole('menuitem', { name: new RegExp(label) });
+      expect(item).toBeDisabled();
+      expect(item).toHaveAttribute('aria-disabled', 'true');
+    }
+    // Clicking a disabled item must not throw even though there is no bridge.
+    expect(() => fireEvent.click(within(menu).getByRole('menuitem', { name: /重新加载/u }))).not.toThrow();
+  });
+
+  it('exercises the desktop bridge when one is installed', async () => {
+    const shell = {
+      reload: vi.fn(), toggleFullScreen: vi.fn(), zoom: vi.fn(), quit: vi.fn(),
+      openExternal: vi.fn(async () => undefined),
+    };
+    let deliver: ((payload: { command?: string; section?: string }) => void) | undefined;
+    Object.assign(window, {
+      selbstlaufDesktop: {
+        shell,
+        onCommand: (listener: (payload: { command?: string; section?: string }) => void) => {
+          deliver = listener;
+          return () => undefined;
+        },
+      },
+    });
+    const view = render(<App api={api()} />);
+    try {
+      // The desktop shell is marked on the document, which is what scopes the
+      // reserved gutter for the native window buttons.
+      await waitFor(() => expect(document.documentElement.dataset.shell).toBe('desktop'));
+      expect(within(titlebar()).getByRole('button', { name: '收起侧栏' })).toBeInTheDocument();
+
+      fireEvent.click(within(titlebar()).getByRole('button', { name: '视图' }));
+      const menu = screen.getByRole('menu', { name: '视图' });
+      fireEvent.click(within(menu).getByRole('menuitem', { name: /放大/u }));
+      await waitFor(() => expect(shell.zoom).toHaveBeenCalledWith(1));
+      fireEvent.click(within(titlebar()).getByRole('button', { name: '视图' }));
+      fireEvent.click(within(screen.getByRole('menu', { name: '视图' })).getByRole('menuitem', { name: /缩小/u }));
+      await waitFor(() => expect(shell.zoom).toHaveBeenCalledWith(-1));
+      fireEvent.click(within(titlebar()).getByRole('button', { name: '视图' }));
+      fireEvent.click(within(screen.getByRole('menu', { name: '视图' })).getByRole('menuitem', { name: /重新加载/u }));
+      await waitFor(() => expect(shell.reload).toHaveBeenCalled());
+      fireEvent.click(within(titlebar()).getByRole('button', { name: '视图' }));
+      fireEvent.click(within(screen.getByRole('menu', { name: '视图' })).getByRole('menuitem', { name: /切换全屏/u }));
+      await waitFor(() => expect(shell.toggleFullScreen).toHaveBeenCalled());
+
+      // 帮助 -> 项目主页 goes out through the shell rather than navigating away.
+      fireEvent.click(within(titlebar()).getByRole('button', { name: '帮助' }));
+      fireEvent.click(within(screen.getByRole('menu', { name: '帮助' })).getByRole('menuitem', { name: '项目主页' }));
+      await waitFor(() => expect(shell.openExternal).toHaveBeenCalledWith('https://github.com/dieWehmut/Selbstlauf'));
+
+      // The native menu bar and the tray drive the page through the same channel.
+      act(() => deliver?.({ command: 'open-settings' }));
+      expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
+      act(() => deliver?.({ command: 'back-to-app' }));
+      expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      delete (window as { selbstlaufDesktop?: unknown }).selbstlaufDesktop;
+      delete document.documentElement.dataset.shell;
+    }
+  });
+
+  it('keeps only one menu open at a time and closes on Escape or an outside click', () => {
+    render(<App api={api()} />);
+    const bar = titlebar();
+    fireEvent.click(within(bar).getByRole('button', { name: '文件' }));
+    expect(screen.getByRole('menu', { name: '文件' })).toBeInTheDocument();
+
+    // Opening another menu closes the first.
+    fireEvent.click(within(bar).getByRole('button', { name: '帮助' }));
+    expect(screen.queryByRole('menu', { name: '文件' })).toBeNull();
+    expect(screen.getByRole('menu', { name: '帮助' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    fireEvent.click(within(bar).getByRole('button', { name: '编辑' }));
+    expect(screen.getByRole('menu', { name: '编辑' })).toBeInTheDocument();
+    // A press outside the dropdown dismisses it.
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('walks in-app history with the back and forward arrows', async () => {
+    render(<App api={api()} />);
+    const back = () => within(titlebar()).getByRole('button', { name: '后退' });
+    const forward = () => within(titlebar()).getByRole('button', { name: '前进' });
+
+    // Nothing has been visited yet, so both arrows start unavailable.
+    expect(back()).toBeDisabled();
+    expect(back()).toHaveAttribute('aria-disabled', 'true');
+    expect(forward()).toBeDisabled();
+
+    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
+    expect(back()).toBeEnabled();
+    expect(back()).toHaveAttribute('aria-disabled', 'false');
+    expect(forward()).toBeDisabled();
+
+    // 后退 returns to the previous page and enables 前进.
+    fireEvent.click(back());
+    expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+    expect(back()).toBeDisabled();
+    expect(forward()).toBeEnabled();
+
+    // 前进 re-advances, then the forward stack is empty again.
+    fireEvent.click(forward());
+    expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
+    expect(forward()).toBeDisabled();
+    expect(back()).toBeEnabled();
+  });
+
+  it('clears the forward stack when a new page is visited after going back', async () => {
+    render(<App api={api()} />);
+    const back = () => within(titlebar()).getByRole('button', { name: '后退' });
+    const forward = () => within(titlebar()).getByRole('button', { name: '前进' });
+
+    fireEvent.click((await screen.findAllByRole('button', { name: '事件' }))[0]);
+    expect(await screen.findByRole('heading', { name: '事件记录' })).toBeInTheDocument();
+    fireEvent.click(back());
+    expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+    expect(forward()).toBeEnabled();
+
+    // A fresh navigation forks the history, exactly like a browser.
+    fireEvent.click(screen.getAllByRole('button', { name: '设置' })[0]);
+    expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
+    expect(forward()).toBeDisabled();
+  });
+});

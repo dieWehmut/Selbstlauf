@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_WINDOW_POLICY,
+  TITLE_BAR_OVERLAY,
   applyNavigationPolicy,
   createWindowOptions,
   isServiceUrl,
@@ -59,6 +60,35 @@ test('allows caller overrides without dropping the security defaults', () => {
   assert.equal(options.width, 1024);
   assert.equal(options.sandbox, true);
   assert.equal(options.contextIsolation, true);
+});
+
+test('draws the title bar in the page while the window controls stay native', () => {
+  const options = createWindowOptions({ serviceOrigin: ORIGIN });
+  // Hidden chrome + an overlay gives the renderer the whole top row while the OS
+  // keeps owning (and hit-testing) minimise / maximise-restore / close.
+  assert.equal(options.titleBarStyle, 'hidden');
+  assert.deepEqual(options.titleBarOverlay, TITLE_BAR_OVERLAY);
+  assert.equal(options.titleBarOverlay.height, 40);
+  assert.equal(options.titleBarOverlay.color, '#0b1120');
+  assert.equal(options.titleBarOverlay.symbolColor, '#e2e8f0');
+  // The overlay is frozen so the renderer's reserve cannot drift from the window.
+  assert.equal(Object.isFrozen(TITLE_BAR_OVERLAY), true);
+  // The OS menu bar stays out of the way; the renderer draws its own row.
+  assert.equal(options.autoHideMenuBar, true);
+  // Branding is untouched by the custom chrome.
+  assert.equal(options.title, DEFAULT_WINDOW_POLICY.title);
+});
+
+test('keeps every renderer hardening flag with the custom title bar', () => {
+  const options = createWindowOptions({ serviceOrigin: ORIGIN });
+  assert.equal(options.contextIsolation, true);
+  assert.equal(options.sandbox, true);
+  assert.equal(options.nodeIntegration, false);
+  assert.equal(options.webSecurity, true);
+  assert.equal(options.allowRunningInsecureContent, false);
+  assert.equal(options.webviewTag, false);
+  // The window still waits for its first paint before it is revealed.
+  assert.equal(options.show, false);
 });
 
 interface NavigateEvent {

@@ -8,14 +8,20 @@ import { pathToFileURL } from 'node:url';
 
 import {
   DEFAULT_WINDOW,
+  createRendererSender,
   hostAndLaunch,
+  installApplicationMenu,
   isMainModule,
   launchDesktop,
   placeholderUrl,
+  registerShellHandlers,
   resolveDesktopTarget,
   type ElectronShell,
   type ElectronWindow,
 } from '../src/main.js';
+import { PROJECT_HOMEPAGE, RENDERER_COMMANDS, type MenuItemTemplate } from '../src/menu.js';
+import { SHELL_CHANNELS } from '../src/shell-actions.js';
+import { createLifecycle } from '../src/lifecycle.js';
 
 interface StubWindow {
   readonly loaded: string[];
@@ -26,6 +32,15 @@ interface StubWindow {
 interface ShellStub extends StubWindow {
   readonly shell: ElectronShell;
   readonly windows: Array<Record<string, unknown>>;
+  /** Commands delivered to the renderer over webContents. */
+  readonly sent: Array<{ channel: string; payload: unknown }>;
+  /** The most recently opened window, with its recorded listeners. */
+  readonly windowHandle: {
+    readonly closed: number;
+    readonly close: Array<(event: { preventDefault(): void }) => void>;
+    hidden: number;
+    shown: number;
+  };
 }
 
 /** Minimal Electron stand-in that records what the app asks the window layer to do. */
@@ -34,11 +49,21 @@ function buildShell(options: { isPackaged?: boolean } = {}): ShellStub {
   const navigations: Array<{ url: string; prevented: number }> = [];
   const opened: string[] = [];
   const windows: Array<Record<string, unknown>> = [];
+  const windowHandle = {
+    closed: 0,
+    close: [] as Array<(event: { preventDefault(): void }) => void>,
+    hidden: 0,
+    shown: 0,
+  };
   let openHandler: ((details: { url: string }) => { action: 'deny' }) | null = null;
 
   const webContents = {
+    sent: [] as Array<{ channel: string; payload: unknown }>,
     setWindowOpenHandler: (handler: (details: { url: string }) => { action: 'deny' }) => {
       openHandler = handler;
+    },
+    send: (channel: string, payload: unknown) => {
+      webContents.sent.push({ channel, payload });
     },
     on: (event: string, listener: (detail: { preventDefault(): void }, url: string) => void) => {
       if (event === 'will-navigate') {
@@ -67,19 +92,37 @@ function buildShell(options: { isPackaged?: boolean } = {}): ShellStub {
       public async loadURL(url: string): Promise<void> {
         loaded.push(url);
       }
-      public on(): void {
-        /* no-op */
+      public on(event: string, listener: () => void): void {
+        if (event === 'close') windowHandle.close.push(listener as (event: { preventDefault(): void }) => void);
       }
       public once(): void {
         /* no-op */
       }
       public show(): void {
+        windowHandle.shown += 1;
+      }
+      public hide(): void {
+        windowHandle.hidden += 1;
+      }
+      public focus(): void {
+        /* no-op */
+      }
+      public isMinimized(): boolean {
+        return false;
+      }
+      public restore(): void {
+        /* no-op */
+      }
+      public isDestroyed(): boolean {
+        return false;
+      }
+      public send(): void {
         /* no-op */
       }
     } as unknown as ElectronShell['BrowserWindow'],
   } as unknown as ElectronShell;
 
-  return { shell, windows, loaded, navigations, opened };
+  return { shell, windows, loaded, navigations, opened, windowHandle, sent: webContents.sent };
 }
 
 test('falls back to the placeholder page when no watchdog is recorded', async () => {
@@ -256,6 +299,304 @@ test('refuses to open a window when the bundled distribution is missing', async 
     );
     assert.deepEqual(stub.loaded, []);
     assert.deepEqual(stub.windows, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+interface MenuStub {
+  readonly shell: ElectronShell;
+  readonly installed: unknown[];
+  readonly templates: unknown[][];
+  readonly opened: string[];
+  readonly sent: Array<{ command: string; section?: string }>;
+  readonly hidden: { count: number };
+  /** Invoke a top-level item's click handler by its label. */
+  click(top: string, child: string): void;
+}
+
+function buildMenuShell(): MenuStub {
+  const installed: unknown[] = [];
+  const templates: unknown[][] = [];
+  const opened: string[] = [];
+  const sent: Array<{ command: string; section?: string }> = [];
+  const hidden = { count: 0 };
+  const shell = {
+    Menu: {
+      setApplicationMenu: (menu: unknown) => installed.push(menu),
+      buildFromTemplate: (template: unknown[]) => {
+        templates.push(template);
+        return { template };
+      },
+    },
+  } as unknown as ElectronShell;
+  return {
+    shell,
+    installed,
+    templates,
+    opened,
+    sent,
+    hidden,
+    click(top: string, child: string) {
+      const template = templates.at(-1) as MenuItemTemplate[];
+      const item = template.find((entry) => entry.label === top);
+      const found = item?.submenu?.find((entry) => entry.label === child);
+      assert.ok(found, `${top} -> ${child} exists`);
+      found.click?.();
+    },
+  };
+}
+
+test('installs the four-label application menu after the app is ready', () => {
+  const stub = buildMenuShell();
+  installApplicationMenu(stub.shell, {
+    send: (command: string, section?: string) => {
+      stub.sent.push(section === undefined ? { command } : { command, section });
+    },
+    hide: () => {
+      stub.hidden.count += 1;
+    },
+    openExternal: (url) => stub.opened.push(url),
+  });
+
+  assert.equal(stub.installed.length, 1, 'the menu is handed to Electron once');
+  const template = stub.templates[0] as MenuItemTemplate[];
+  assert.deepEqual(template.map((item) => item.label), ['文件', '编辑', '视图', '帮助']);
+
+  // 返回应用 goes through the injected renderer bridge.
+  stub.click('文件', '返回应用');
+  assert.deepEqual(stub.sent, [{ command: RENDERER_COMMANDS.backToApp }]);
+
+  // 隐藏到托盘 hides; there is no quit item in the window's own menus.
+  stub.click('文件', '隐藏到托盘');
+  assert.equal(stub.hidden.count, 1);
+  assert.equal(
+    template.some((item) => (item.submenu ?? []).some((entry) => entry.role === 'quit')),
+    false,
+    'the tray owns the only quit affordance',
+  );
+
+  // 帮助 -> 项目主页 opens the GitHub homepage through the injected opener.
+  stub.click('帮助', '项目主页');
+  assert.deepEqual(stub.opened, [PROJECT_HOMEPAGE]);
+  assert.equal(PROJECT_HOMEPAGE, 'https://github.com/dieWehmut/Selbstlauf');
+
+  // The view items keep their Electron roles behind the custom title bar.
+  const view = template.find((item) => item.label === '视图')?.submenu ?? [];
+  assert.deepEqual(
+    view.filter((item) => item.type !== 'separator').map((item) => item.role),
+    ['reload', 'resetZoom', 'zoomIn', 'zoomOut', 'togglefullscreen'],
+  );
+});
+
+test('menu installation is a no-op when the shell has no Menu', () => {
+  const stub = buildShell();
+  assert.equal(stub.shell.Menu, undefined);
+  // A stub without menus (or a platform without a menu bar) must not throw.
+  assert.equal(installApplicationMenu(stub.shell, {
+    send: () => undefined,
+    hide: () => undefined,
+    openExternal: () => undefined,
+  }), null);
+});
+
+interface IpcStub {
+  readonly shell: ElectronShell;
+  readonly handlers: Map<string, (event: unknown, ...args: unknown[]) => unknown>;
+  readonly channels: string[];
+  invoke(channel: string, payload?: unknown): unknown;
+}
+
+function buildIpcShell(): IpcStub {
+  const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+  const channels: string[] = [];
+  const shell = {
+    ipcMain: {
+      handle: (channel: string, listener: (event: unknown, ...args: unknown[]) => unknown) => {
+        // A duplicate `handle` throws in Electron; recording the channel keeps
+        // the "registered exactly once" check honest.
+        channels.push(channel);
+        handlers.set(channel, listener);
+      },
+    },
+  } as unknown as ElectronShell;
+  return {
+    shell,
+    handlers,
+    channels,
+    invoke: (channel: string, payload?: unknown) => handlers.get(channel)?.({}, payload),
+  };
+}
+
+function buildShellActionContext(overrides: {
+  readonly openExternal?: (url: string) => Promise<void> | void;
+  readonly quit?: () => void;
+  readonly window?: unknown;
+} = {}) {
+  const window = overrides.window ?? {
+    reload: () => undefined,
+    toggleFullScreen: () => undefined,
+    webContents: { getZoomLevel: () => 0, setZoomLevel: () => undefined },
+  };
+  return {
+    window: () => window as never,
+    quit: overrides.quit ?? (() => undefined),
+    openExternal: overrides.openExternal ?? (() => undefined),
+    settings: async () => ({ closeToTray: true, preferredTerminal: null }),
+    saveSettings: async (patch: unknown) => ({ closeToTray: true, preferredTerminal: null, patch }),
+  };
+}
+
+test('registers the shell handlers exactly once', () => {
+  const stub = buildIpcShell();
+  const registered = registerShellHandlers(stub.shell, buildShellActionContext());
+  assert.equal(registered, true);
+  assert.equal(stub.channels.length, new Set(stub.channels).size, 'no channel is registered twice');
+  assert.deepEqual(
+    [...stub.channels].sort(),
+    [SHELL_CHANNELS.invoke, SHELL_CHANNELS.settingsGet, SHELL_CHANNELS.settingsSet].sort(),
+  );
+});
+
+test('registration is a no-op when ipcMain is missing', () => {
+  const shell = {} as unknown as ElectronShell;
+  assert.equal(registerShellHandlers(shell, buildShellActionContext()), false);
+});
+
+test('a menu command reaches the renderer through the window webContents', () => {
+  const sent: Array<{ channel: string; payload: unknown }> = [];
+  let destroyed = false;
+  const window = {
+    isDestroyed: () => destroyed,
+    webContents: {
+      send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+    },
+  };
+  const send = createRendererSender(() => window as never);
+
+  send('back-to-app');
+  assert.deepEqual(sent, [{ channel: SHELL_CHANNELS.command, payload: { command: 'back-to-app' } }]);
+
+  // A section travels alongside the command, for the tray's settings entries.
+  send('open-settings', 'account');
+  assert.deepEqual(sent.at(-1), {
+    channel: SHELL_CHANNELS.command,
+    payload: { command: 'open-settings', section: 'account' },
+  });
+
+  // A destroyed or not-yet-created window is skipped rather than throwing.
+  destroyed = true;
+  send('back-to-app');
+  assert.equal(sent.length, 2);
+  assert.doesNotThrow(() => createRendererSender(() => null)('back-to-app'));
+});
+
+test('the shell channel performs the action and refuses a non-http(s) URL', async () => {
+  const stub = buildIpcShell();
+  const opened: string[] = [];
+  let quits = 0;
+  let reloads = 0;
+  registerShellHandlers(stub.shell, buildShellActionContext({
+    openExternal: (url) => {
+      opened.push(url);
+    },
+    quit: () => {
+      quits += 1;
+    },
+    window: {
+      reload: () => {
+        reloads += 1;
+      },
+      toggleFullScreen: () => undefined,
+      webContents: { getZoomLevel: () => 0, setZoomLevel: () => undefined },
+    },
+  }));
+
+  await stub.invoke(SHELL_CHANNELS.invoke, { action: 'reload' });
+  assert.equal(reloads, 1);
+  await stub.invoke(SHELL_CHANNELS.invoke, { action: 'quit' });
+  assert.equal(quits, 1);
+  await stub.invoke(SHELL_CHANNELS.invoke, { action: 'openExternal', url: 'https://example.com/doc' });
+  assert.deepEqual(opened, ['https://example.com/doc']);
+
+  // The main process refuses anything that is not absolute http(s), so a
+  // compromised renderer cannot reach the OS with a file: or javascript: URL.
+  for (const url of ['file:///C:/Windows/win.ini', 'javascript:alert(1)', 'ms-settings:']) {
+    assert.throws(() => stub.invoke(SHELL_CHANNELS.invoke, { action: 'openExternal', url }), /non-http\(s\) URL/u);
+  }
+  assert.deepEqual(opened, ['https://example.com/doc']);
+  assert.throws(() => stub.invoke(SHELL_CHANNELS.invoke, { action: 'eval-something' }), /unknown shell action/u);
+});
+
+test('the settings channels read and write the persisted store', async () => {
+  const stub = buildIpcShell();
+  const patches: unknown[] = [];
+  registerShellHandlers(stub.shell, {
+    ...buildShellActionContext(),
+    saveSettings: async (patch: unknown) => {
+      patches.push(patch);
+      return { closeToTray: false, preferredTerminal: null };
+    },
+  });
+  assert.deepEqual(await stub.invoke(SHELL_CHANNELS.settingsGet), { closeToTray: true, preferredTerminal: null });
+  assert.deepEqual(await stub.invoke(SHELL_CHANNELS.settingsSet, { closeToTray: false }), {
+    closeToTray: false,
+    preferredTerminal: null,
+  });
+  assert.deepEqual(patches, [{ closeToTray: false }]);
+});
+
+test('the window close hook hides the real window instead of quitting', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-close-'));
+  await mkdir(join(root, 'service-dist', 'src'), { recursive: true });
+  await mkdir(join(root, 'web-dist'), { recursive: true });
+  await writeFile(join(root, 'service-dist', 'src', 'index.js'), '', 'utf8');
+
+  const stub = buildShell();
+  let stopped = 0;
+  let quit = 0;
+  try {
+    await hostAndLaunch(stub.shell, {
+      appRoot: root,
+      resourcesPath: root,
+      environment: { LOCALAPPDATA: root } as NodeJS.ProcessEnv,
+      startService: async () => ({
+        origin: 'http://127.0.0.1:48500',
+        pid: 4242,
+        reused: false,
+        stop: async () => {
+          stopped += 1;
+        },
+      }),
+      // `hostAndLaunch` hands the window over before loading it, which is where
+      // main installs the close-to-tray hook on the real object.
+      attach: (window) => {
+        const lifecycle = createLifecycle({
+          window: () => window,
+          closeToTray: () => true,
+          hasTray: () => true,
+          shutdown: {
+            stopService: async () => {
+              stopped += 1;
+            },
+            destroyTray: () => undefined,
+            quit: () => {
+              quit += 1;
+            },
+          },
+        });
+        window.on('close', (event) => lifecycle.handleWindowClose(event));
+      },
+    });
+
+    assert.equal(stub.windowHandle.close.length, 1, 'the window carries one close hook');
+    let prevented = 0;
+    stub.windowHandle.close[0]!({ preventDefault: () => { prevented += 1; } });
+    // The X button hides the window; the bundled watchdog keeps running.
+    assert.equal(prevented, 1, 'the default close is cancelled');
+    assert.equal(stub.windowHandle.hidden, 1);
+    assert.equal(stopped, 0, 'hiding the window never stops the service');
+    assert.equal(quit, 0, 'hiding the window never quits the app');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
