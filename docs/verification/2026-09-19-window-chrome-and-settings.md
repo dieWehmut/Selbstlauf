@@ -179,8 +179,22 @@ Release `v0.2.0` was published by `.github/workflows/release-desktop.yml` (the
 `test` and `package` jobs both succeeded) with all three installers attached:
 [github.com/dieWehmut/Selbstlauf/releases/tag/v0.2.0](https://github.com/dieWehmut/Selbstlauf/releases/tag/v0.2.0).
 The published 0.2.0 assets predate `f0af534`, so installing from that release
-still reproduces the close-quits bug; the fix needs a follow-up release, while the
-local install on this host was rebuilt from the fixed source.
+reproduces the close-quits bug.
+
+### 0.2.1 supersedes those assets
+
+`v0.2.1` carries the fix and is the release to install:
+[github.com/dieWehmut/Selbstlauf/releases/tag/v0.2.1](https://github.com/dieWehmut/Selbstlauf/releases/tag/v0.2.1)
+(x64, arm64 and combined installers, all attached). The x64 setup was installed on
+this host and reports `FileVersion 0.2.1`, and the packaged icon is present at
+`resources/build/icon.ico`.
+
+Final acceptance on that installed build, driving the app's own window:
+
+    tray host windows: 1              (Electron_NotifyIconHostWindow)
+    window hidden not destroyed: true service kept running: true
+    service not restarted: true       app still alive: true
+    window restorable: true           ACCEPTANCE: PASS
 
 ### One cleanup step still needs elevation
 
