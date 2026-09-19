@@ -52,7 +52,15 @@ $requiredFiles = @(
     # resolves service-dist and web-dist beside it at runtime.
     'resources\scripts\continuation\start-watchdog.ps1',
     'resources\scripts\continuation\startup-task.ps1',
-    'resources\scripts\continuation\launch-watchdog.mjs'
+    'resources\scripts\continuation\launch-watchdog.mjs',
+    # The window and the tray both load the icon from an absolute path. Without
+    # this file the packaged app cannot construct a tray, and because
+    # `handleWindowClose` only hides when a tray exists (so the app can never
+    # become an invisible process), a missing icon degrades into "closing the
+    # window quits and stops the service". electron-builder's `win.icon` only
+    # brands the executable and does not place the file in resources, so this
+    # entry is the regression gate for that whole chain.
+    'resources\build\icon.ico'
 )
 
 function Assert-Condition {
@@ -128,7 +136,13 @@ Remove-InstallRoot
 Remove-Item -LiteralPath $uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
 foreach ($shortcut in $shortcuts) { Remove-Item -LiteralPath $shortcut -Force -ErrorAction SilentlyContinue }
 
-$process = Start-Process -FilePath $installerPath -ArgumentList '/S' -PassThru -Wait
+# `/currentuser` is required, not optional: this product is per-user
+# (`perMachine: false`), and an assisted NSIS installer invoked with a bare `/S`
+# defaults to an all-users path, so it asks for elevation. In an interactive
+# session that leaves a UAC prompt nobody answers and the verification hangs
+# forever instead of failing.
+$process = Start-Process -FilePath $installerPath -ArgumentList '/S', '/currentuser' -PassThru
+Assert-Condition ($process.WaitForExit($InstallTimeoutSeconds * 1000)) "installer did not finish within $InstallTimeoutSeconds seconds"
 Assert-Condition ($process.ExitCode -eq 0) "installer exited with code $($process.ExitCode)"
 
 Wait-ForCondition -TimeoutSeconds $InstallTimeoutSeconds -Description 'the installed app to appear' -Condition {
@@ -162,6 +176,107 @@ Assert-Condition ($health.watchdogRunning -eq $true) 'bundled watchdog service i
 $index = Invoke-WebRequest -Uri "http://127.0.0.1:$($record.port)/" -TimeoutSec 30 -UseBasicParsing
 Assert-Condition ($index.Content -match 'id="root"') 'bundled WebUI was not served'
 Write-Output "installed app serves its WebUI on port $($record.port)"
+
+# Closing the window must hide it to the tray, not quit the app or stop the
+# service. A stub-level unit test cannot catch this: the previous release passed
+# every unit test and every check above while `WM_CLOSE` on the real window quit
+# the application and stopped the watchdog, because the packaged build was
+# missing the icon and therefore never created a tray. Drive the real window.
+Add-Type @'
+using System;
+using System.Text;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public static class SelbstlaufWindowProbe {
+  [DllImport("user32.dll")] public static extern bool EnumWindows(Probe cb, IntPtr p);
+  [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr h, out int pid);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  public delegate bool Probe(IntPtr h, IntPtr p);
+  public class Entry { public IntPtr Handle; public string Class; public string Title; public bool Visible; }
+  public static List<Entry> ForProcess(int target) {
+    var found = new List<Entry>();
+    EnumWindows((h, p) => {
+      int owner; GetWindowThreadProcessId(h, out owner);
+      if (owner == target) {
+        var cls = new StringBuilder(256); GetClassName(h, cls, cls.Capacity);
+        var title = new StringBuilder(256); GetWindowText(h, title, title.Capacity);
+        found.Add(new Entry { Handle = h, Class = cls.ToString(), Title = title.ToString(), Visible = IsWindowVisible(h) });
+      }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+}
+'@
+
+$WM_CLOSE = 0x0010
+$SW_SHOW = 5
+$windowClient = { param($Method, $Url, $Body)
+    if ($Body) { Invoke-RestMethod -Method $Method -Uri $Url -Body $Body -ContentType 'application/json' -TimeoutSec 30 }
+    else { Invoke-RestMethod -Method $Method -Uri $Url -TimeoutSec 30 }
+}
+
+# The app's own window is the visible, titled top-level window of its process.
+# It is created with `show: false` and revealed on `ready-to-show`, so a freshly
+# started app is briefly window-less; wait for the reveal instead of racing it.
+$appWindow = $null
+$windowDeadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
+while ([DateTime]::UtcNow -lt $windowDeadline -and $null -eq $appWindow) {
+    $appWindows = @()
+    foreach ($process in @(Get-Process -Name 'Selbstlauf' -ErrorAction SilentlyContinue)) {
+        $appWindows += [SelbstlaufWindowProbe]::ForProcess($process.Id)
+    }
+    $appWindow = $appWindows | Where-Object { $_.Visible -and $_.Title.Length -gt 0 } | Select-Object -First 1
+    if ($null -eq $appWindow) { Start-Sleep -Milliseconds 500 }
+}
+Assert-Condition ($null -ne $appWindow) "the installed app exposed no visible window within $StartupTimeoutSeconds seconds"
+
+# Electron only creates this hidden host window when a Tray really exists; it is
+# the mechanical proof that the tray was built (UI Automation cannot see the
+# Windows 11 notification area's icons).
+$trayHosts = @($appWindows | Where-Object { $_.Class -eq 'Electron_NotifyIconHostWindow' })
+Assert-Condition ($trayHosts.Count -gt 0) 'the installed app created no tray (no Electron_NotifyIconHostWindow)'
+Write-Output "installed app owns a tray (window '$($appWindow.Title)')"
+
+$healthBefore = & $windowClient 'Get' "http://127.0.0.1:$($record.port)/api/health" $null
+Assert-Condition ($healthBefore.watchdogRunning -eq $true) 'watchdog was not running before the close test'
+
+# Exactly what the title bar's X and Alt+F4 send.
+[void][SelbstlaufWindowProbe]::SendMessage($appWindow.Handle, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero)
+Start-Sleep -Seconds 3
+
+$stillExists = [SelbstlaufWindowProbe]::IsWindow($appWindow.Handle)
+$stillVisible = [SelbstlaufWindowProbe]::IsWindowVisible($appWindow.Handle)
+$aliveAfter = @(Get-Process -Name 'Selbstlauf' -ErrorAction SilentlyContinue).Count
+$healthAfter = $null
+try { $healthAfter = & $windowClient 'Get' "http://127.0.0.1:$($record.port)/api/health" $null } catch { }
+$appWindowsAfter = @()
+foreach ($process in @(Get-Process -Name 'Selbstlauf' -ErrorAction SilentlyContinue)) {
+    $appWindowsAfter += [SelbstlaufWindowProbe]::ForProcess($process.Id)
+}
+$trayHostsAfter = @($appWindowsAfter | Where-Object { $_.Class -eq 'Electron_NotifyIconHostWindow' })
+
+Assert-Condition ($stillExists) 'closing the window destroyed it instead of hiding it'
+Assert-Condition (-not $stillVisible) 'closing the window left it visible'
+Assert-Condition ($aliveAfter -gt 0) 'closing the window quit the application'
+Assert-Condition ($trayHostsAfter.Count -gt 0) 'closing the window destroyed the tray'
+Assert-Condition ($null -ne $healthAfter) 'the bundled service stopped when the window was closed'
+Assert-Condition ($healthAfter.watchdogRunning -eq $true) 'the bundled watchdog stopped when the window was closed'
+Assert-Condition ($healthAfter.startedAtMs -eq $healthBefore.startedAtMs) 'closing the window restarted the bundled service'
+Write-Output 'closing the installed window hides it to the tray and keeps the watchdog running'
+
+# Put the window back, the way a tray left-click does, so the checks below (and
+# the uninstall step) run against a normal, visible app.
+[void][SelbstlaufWindowProbe]::ShowWindow($appWindow.Handle, $SW_SHOW)
+Start-Sleep -Seconds 2
+Assert-Condition ([SelbstlaufWindowProbe]::IsWindowVisible($appWindow.Handle)) 'the hidden window could not be shown again'
+Write-Output 'the hidden window can be restored'
 
 # A running service with a reachable WebUI is not evidence that it watches
 # anything: the installed provider is a separate asset and the packaged app
@@ -242,7 +357,8 @@ Write-Output 'installed app owns and removes its per-user logon task'
 Stop-SelbstlaufProcess
 & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $installRoot 'resources\scripts\continuation\startup-task.ps1') /Delete /TN $startupTaskName /F 2>$null | Out-Null
 
-$uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru -Wait
+$uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S', '/currentuser' -PassThru
+Assert-Condition ($uninstall.WaitForExit($InstallTimeoutSeconds * 1000)) "uninstaller did not finish within $InstallTimeoutSeconds seconds"
 Assert-Condition ($uninstall.ExitCode -eq 0) "uninstaller exited with code $($uninstall.ExitCode)"
 foreach ($shortcut in $shortcuts) {
     Wait-ForCondition -TimeoutSeconds 180 -Description "the uninstaller to remove $shortcut" -Condition {
