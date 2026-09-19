@@ -106,8 +106,51 @@ needs no third-party tooling and no path outside the repository.
 | `tests/Test-WindowsScripts.ps1` | All 35 passed |
 | `tests/Test-Documentation.ps1` | Passed |
 
+## Release and installation on this host
+
+`npm --workspace apps/desktop run package:win` produced x64, arm64 and combined
+installers at 0.2.0. The x64 setup was installed with `/currentuser`, the
+supported silent form for this per-user product; plain `/S` asks for elevation
+because NSIS defaults an assisted installer to an all-users path.
+
+- Installer: `tmp/desktop-dist/Selbstlauf-Setup-0.2.0-x64.exe`, SHA-256
+  `5630B905B0E0B3919F7AF3E1121CDD91E91358DCBC41D71C5BB47DEA6CB39382`.
+- Installed per-user into `%LOCALAPPDATA%\Programs\Selbstlauf`: 158 files, an
+  `HKCU` uninstall entry at 0.2.0, and desktop + Start Menu shortcuts.
+- The installed executable's own icon was extracted back out and is the supplied
+  artwork, so the new ICO survives packaging.
+- The installed app was launched and served its WebUI on `127.0.0.1:48920`:
+  `watchdogRunning: true`, and it discovered four live sessions (three Codex roots
+  and one DeepSeek Harness root) with their host applications.
+- The served bundle contains the new UI: the `文件 编辑 视图 帮助` row with a
+  working `文件` dropdown (`返回应用`, `隐藏到托盘`), the 18-entry settings rail,
+  and zero page errors.
+- A second launch of the installed executable did **not** start a second service:
+  `startedAtMs` was unchanged and the process count stayed at one app tree, which
+  confirms the single-instance lock.
+
+Release `v0.2.0` was published by `.github/workflows/release-desktop.yml` (the
+`test` and `package` jobs both succeeded) with all three installers attached:
+[github.com/dieWehmut/Selbstlauf/releases/tag/v0.2.0](https://github.com/dieWehmut/Selbstlauf/releases/tag/v0.2.0).
+
+### One cleanup step still needs elevation
+
+This host previously carried a **per-machine** 0.1.0 installation at
+`C:\Users\han\software\Selbstlauf` whose uninstaller requires an elevated
+confirmation. That directory was removed by hand, but two leftovers cannot be
+deleted from an unelevated session and remain:
+
+- `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\1cb81a0d-dabd-5e19-9fd9-86ff38a6ca44` (0.1.0)
+- `C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Selbstlauf.lnk`, which now
+  points at the deleted 0.1.0 path
+
+Both need one administrator action: run the old uninstaller from an elevated
+prompt, or delete that registry key and shortcut. This does not affect the 0.2.0
+installation, whose `HKCU` entry and shortcuts are correct and working.
+
 ## Not verified
 
 The native overlay hit-testing, the real tray icon rendering and a real
-title-bar close are covered by stub-level unit tests only; this run did not
-launch a GUI session. Everything else above was executed.
+title-bar close are covered by stub-level unit tests only; this run drove the
+installed app's web surface and its lifecycle over HTTP rather than clicking the
+tray icon by hand. Everything else above was executed.
