@@ -231,6 +231,44 @@ Two further problems surfaced while proving the gate:
   `-SkipWindowLifecycle` makes it explicit. The icon assertion stays
   unconditional, because that is the check that actually guards the packaging.
 
+### The real window's top edge was still split in two (`v0.2.2`)
+
+Every check above passed and the UI still did not match the reference in the one
+place that matters most: the top edge. A browser tab cannot show it, because the
+native window buttons only exist in the real window. So the installed app's own
+window was captured (`PrintWindow` with `PW_RENDERFULLCONTENT`, which Electron's
+compositor requires) and its pixels were measured:
+
+    page title bar (empty area)   #1A1E22
+    native button strip           #0B1120
+
+Two visibly different strips across one 40px row. `TITLE_BAR_OVERLAY.color` was a
+hardcoded `#0b1120` while the renderer paints the bar from `--panel-soft`, which
+the palette effect derives as `mix(background, #ffffff, 0.004 + contrast/1400)` —
+`#1a1e22` for the built-in dark palette.
+
+Two things were wrong, and the second is the one worth remembering:
+
+1. The static colour did not match, so the initial paint was split.
+2. The dynamic correction could never arrive. `registerShellHandlers` ran *after*
+   `hostAndLaunch` resolved, but the renderer reports its colour as soon as it
+   paints — during load. The report hit `No handler registered`, and the preload's
+   fire-and-forget `ipcRenderer.invoke` swallowed the rejection, so nothing was
+   ever repainted and nothing was ever logged. Isolated by probing the live
+   renderer from the main process: `window.selbstlaufDesktop` is present and the
+   effect reports `#1a1e22`; with a stub bridge the same code path is exercised
+   and produces exactly the painted `rgb(26, 30, 34)`.
+
+Fixed in `730f394`: the overlay colour matches the built-in palette, the handlers
+register before any window opens, `setTitleBarOverlay` is allowed to run without a
+live window, and the renderer reports the colour it actually painted so a custom
+palette or the light theme follows. Re-verified on a fresh install:
+
+    y=20  page=#1A1E22   native-strip=#1A1E22
+
+The whole row now measures one colour, and the capture shows a single continuous
+title bar.
+
 ### One cleanup step still needs elevation
 
 This host previously carried a **per-machine** 0.1.0 installation at
