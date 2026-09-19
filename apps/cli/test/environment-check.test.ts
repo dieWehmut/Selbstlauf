@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { EnvironmentCheck, buildCheckReport } from '../src/environment/environment-check.js';
+import { ToolUpgrader } from '../src/environment/upgrade.js';
 
 test('reports every catalog tool with its state and install command', async () => {
   const check = new EnvironmentCheck({
@@ -65,6 +66,22 @@ test('lists the upgradeable tools and the ones that need a manual install', asyn
   assert.deepEqual(report.upgrades, ['claude']);
   assert.deepEqual(report.missing, ['grok']);
   assert.equal(report.checkedAtMs > 0, true);
+});
+
+test('an unreadable installed version stays unknown and is excluded from bulk upgrades', async () => {
+  const check = new EnvironmentCheck({
+    readInstalled: async () => [{ id: 'claude', installed: 'unknown' }],
+    readLatest: async () => new Map([['@anthropic-ai/claude-code', '2.1.276']]),
+  });
+  const report = await check.report();
+  assert.equal(report.tools.find((entry) => entry.id === 'claude')?.state, 'unknown');
+  assert.deepEqual(report.upgrades, []);
+  assert.equal(report.missing.includes('claude'), false);
+
+  const attempts: Array<readonly string[]> = [];
+  const upgrader = new ToolUpgrader({ check, runNpm: async (args) => { attempts.push(args); return 'ok'; } });
+  assert.deepEqual(await upgrader.upgradeAll(), []);
+  assert.deepEqual(attempts, []);
 });
 
 test('the manual command block covers every catalog tool', async () => {

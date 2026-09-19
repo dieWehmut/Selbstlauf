@@ -121,6 +121,7 @@ export interface ToolVersionInput {
  */
 export function decideToolState(input: ToolVersionInput): ToolState {
   if (input.installed === null) return 'missing';
-  if (input.latest === null || versionSegments(input.latest) === null) return 'unknown';
+  if (versionSegments(input.installed) === null
+    || input.latest === null || versionSegments(input.latest) === null) return 'unknown';
   return compareVersions(input.installed, input.latest) < 0 ? 'outdated' : 'current';
 }

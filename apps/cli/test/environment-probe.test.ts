@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   parseNpmGlobalVersions,
@@ -81,4 +84,24 @@ test('a registry failure leaves the version unknown instead of failing the scan'
     },
   });
   assert.equal(latest.size, 0);
+});
+
+test('a tool on PATH remains present when npm cannot report its version', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'agent path '));
+  await writeFile(join(directory, process.platform === 'win32' ? 'claude.cmd' : 'claude'), 'fixture');
+  const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH';
+  const previousPath = process.env[pathKey];
+  process.env[pathKey] = directory;
+  t.after(async () => {
+    if (previousPath === undefined) delete process.env[pathKey];
+    else process.env[pathKey] = previousPath;
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  const installed = await readInstalledVersions({
+    runNpm: async () => { throw new Error('npm unavailable'); },
+    runExecutable: async () => { throw new Error('version unavailable'); },
+  });
+  assert.equal(installed.find((entry) => entry.id === 'claude')?.installed, 'unknown');
+  assert.equal(installed.find((entry) => entry.id === 'codex')?.installed, null);
 });
