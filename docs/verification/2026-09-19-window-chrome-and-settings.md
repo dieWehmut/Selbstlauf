@@ -269,6 +269,54 @@ palette or the light theme follows. Re-verified on a fresh install:
 The whole row now measures one colour, and the capture shows a single continuous
 title bar.
 
+### The renderer bridge never loaded (`v0.2.3`)
+
+Chasing why the dynamic title-bar colour report never arrived uncovered a much
+larger defect: `window.selbstlaufDesktop` was **undefined in the shipped app**.
+Everything built on it — the `文件 编辑 视图 帮助` menus, the settings store
+behind `关闭时最小化到托盘` and `首选终端`, the tray's `设置` / `关于` commands —
+was silently dead. Nothing logged an error, because every bridge call is
+fire-and-forget, and the unit tests passed because they exercised stub bridges
+rather than the real one.
+
+Two independent defects had to be fixed:
+
+1. **The window options were flattened.** `DesktopWindowOptions` extended
+   `DesktopWebPreferences`, which put `contextIsolation`, `sandbox`, `preload` and
+   the rest on the *top* level. Electron reads them only from `webPreferences`, so
+   it ignored every one of them — the renderer ran on Electron's defaults and got
+   no preload at all. The tests asserted the flattened shape, which is why a
+   security regression of this size looked green.
+
+2. **The preload was an ES module.** Once the options were nested the preload
+   finally loaded, and immediately failed with `Cannot use import statement
+   outside a module`: a sandboxed preload cannot be ESM. It is now
+   `preload.cjs` (CommonJS), with the packaging config, path resolution and
+   installer manifest following.
+
+Both were found only after adding the two diagnostics that should have existed
+from the start, and which are now permanent:
+
+- `webContents.on('preload-error')` writes the failure and its reason to stderr.
+- `verifyPreloadBridge()` checks once after load and reports a missing bridge.
+
+`verifyPreloadBridge` is what produced the decisive line — `preload bridge
+missing: window.selbstlaufDesktop is not available in the renderer` — in both the
+dev tree and the packaged build, and the `preload-error` listener is what then
+gave the exact reason.
+
+Evidence after the fix:
+
+- The installed app starts with **no** bridge or preload error where it
+  previously reported a missing bridge.
+- Serving the installed bundle with a recording stub shows the renderer reporting
+  `#1a1e22`, exactly the painted `rgb(26, 30, 34)`, with `data-shell="desktop"`
+  and the four menu buttons present.
+- `scripts/desktop/verify-installer.ps1` passes end to end on the rebuilt x64
+  installer: WebUI served, tray owned, close hides to the tray and keeps the
+  watchdog running, the window restores, the probe process is discovered and
+  decided on, and the per-user logon task is created and removed.
+
 ### One cleanup step still needs elevation
 
 This host previously carried a **per-machine** 0.1.0 installation at
