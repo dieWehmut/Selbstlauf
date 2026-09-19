@@ -169,7 +169,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   border-radius: var(--radius-xs);
   color: var(--muted);
   background: transparent;
-  font-size: 12px;
+  /* Measured from the reference: its menu glyphs advance 14 logical px each (a
+     full-width CJK advance equals the font size), so its menu text is 14px. This
+     was 12px, which made the labels smaller and their ink shorter — 11px against
+     the reference's 13.5px — and shifted every following element. */
+  font-size: 14px;
   transition: background .16s ease, color .16s ease;
 }
 .titlebar__menu-button:hover,
