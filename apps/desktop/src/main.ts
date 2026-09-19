@@ -70,8 +70,13 @@ export function placeholderUrl(): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(PLACEHOLDER_HTML)}`;
 }
 
+export interface NavigationPolicyTargetWithSend extends NavigationPolicyTarget {
+  /** Deliver a named command to this webContents' renderer. */
+  send?(channel: string, ...args: unknown[]): void;
+}
+
 export interface ElectronWindow {
-  readonly webContents: NavigationPolicyTarget;
+  readonly webContents: NavigationPolicyTargetWithSend;
   loadURL(url: string): Promise<void>;
   on(event: 'closed', listener: () => void): void;
   on(event: 'close', listener: (event: { preventDefault(): void }) => void): void;
@@ -86,8 +91,6 @@ export interface ElectronWindow {
   /** Used by the renderer's full-screen menu item. */
   toggleFullScreen?(): void;
   reload?(): void;
-  /** Deliver a named command to the renderer (menu bar, tray). */
-  send?(channel: string, ...args: unknown[]): void;
 }
 
 /**
@@ -301,6 +304,27 @@ export function registerShellHandlers(
   return true;
 }
 
+/**
+ * Build the "tell the renderer to do something" function.
+ *
+ * Commands travel over the window's `webContents`, which is the surface that
+ * actually owns the renderer process; a window-level send does nothing in
+ * Electron. The window is looked up on every call so a hidden-then-revived or
+ * not-yet-created window is handled without the caller knowing.
+ */
+export function createRendererSender(
+  window: () => ManagedWindow | null,
+): (command: RendererCommand, section?: string) => void {
+  return (command, section) => {
+    const target = window();
+    if (target === null || target.isDestroyed?.() === true) return;
+    target.webContents.send?.(SHELL_CHANNELS.command, {
+      command,
+      ...(section === undefined ? {} : { section }),
+    });
+  };
+}
+
 export async function main(): Promise<void> {
   const shell = (await import('electron' as string)) as unknown as ElectronShell;
   const { app } = shell;
@@ -349,11 +373,7 @@ export async function main(): Promise<void> {
   const stored = await readDesktopSettings(stateDirectory).catch(() => DEFAULT_DESKTOP_SETTINGS);
   closeToTray = stored.closeToTray;
 
-  const sendToRenderer = (command: RendererCommand, section?: string): void => {
-    const target = window;
-    if (target === null || target.isDestroyed?.() === true) return;
-    target.send?.(SHELL_CHANNELS.command, { command, ...(section === undefined ? {} : { section }) });
-  };
+  const sendToRenderer = createRendererSender(() => window);
 
   let hosted: HostedDesktop;
   try {
@@ -430,7 +450,7 @@ export async function main(): Promise<void> {
         }),
       quit: () => void lifecycle.shutdown(),
     },
-    ...(hosted.host === null ? {} : windowIcon(appRoot)),
+    ...windowIcon(appRoot),
   });
 
   // The startup task can be created or removed by the service at any time, so

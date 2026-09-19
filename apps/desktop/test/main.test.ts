@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 import {
   DEFAULT_WINDOW,
+  createRendererSender,
   hostAndLaunch,
   installApplicationMenu,
   isMainModule,
@@ -31,6 +32,8 @@ interface StubWindow {
 interface ShellStub extends StubWindow {
   readonly shell: ElectronShell;
   readonly windows: Array<Record<string, unknown>>;
+  /** Commands delivered to the renderer over webContents. */
+  readonly sent: Array<{ channel: string; payload: unknown }>;
   /** The most recently opened window, with its recorded listeners. */
   readonly windowHandle: {
     readonly closed: number;
@@ -55,8 +58,12 @@ function buildShell(options: { isPackaged?: boolean } = {}): ShellStub {
   let openHandler: ((details: { url: string }) => { action: 'deny' }) | null = null;
 
   const webContents = {
+    sent: [] as Array<{ channel: string; payload: unknown }>,
     setWindowOpenHandler: (handler: (details: { url: string }) => { action: 'deny' }) => {
       openHandler = handler;
+    },
+    send: (channel: string, payload: unknown) => {
+      webContents.sent.push({ channel, payload });
     },
     on: (event: string, listener: (detail: { preventDefault(): void }, url: string) => void) => {
       if (event === 'will-navigate') {
@@ -115,7 +122,7 @@ function buildShell(options: { isPackaged?: boolean } = {}): ShellStub {
     } as unknown as ElectronShell['BrowserWindow'],
   } as unknown as ElectronShell;
 
-  return { shell, windows, loaded, navigations, opened, windowHandle };
+  return { shell, windows, loaded, navigations, opened, windowHandle, sent: webContents.sent };
 }
 
 test('falls back to the placeholder page when no watchdog is recorded', async () => {
@@ -454,6 +461,34 @@ test('registers the shell handlers exactly once', () => {
 test('registration is a no-op when ipcMain is missing', () => {
   const shell = {} as unknown as ElectronShell;
   assert.equal(registerShellHandlers(shell, buildShellActionContext()), false);
+});
+
+test('a menu command reaches the renderer through the window webContents', () => {
+  const sent: Array<{ channel: string; payload: unknown }> = [];
+  let destroyed = false;
+  const window = {
+    isDestroyed: () => destroyed,
+    webContents: {
+      send: (channel: string, payload: unknown) => sent.push({ channel, payload }),
+    },
+  };
+  const send = createRendererSender(() => window as never);
+
+  send('back-to-app');
+  assert.deepEqual(sent, [{ channel: SHELL_CHANNELS.command, payload: { command: 'back-to-app' } }]);
+
+  // A section travels alongside the command, for the tray's settings entries.
+  send('open-settings', 'account');
+  assert.deepEqual(sent.at(-1), {
+    channel: SHELL_CHANNELS.command,
+    payload: { command: 'open-settings', section: 'account' },
+  });
+
+  // A destroyed or not-yet-created window is skipped rather than throwing.
+  destroyed = true;
+  send('back-to-app');
+  assert.equal(sent.length, 2);
+  assert.doesNotThrow(() => createRendererSender(() => null)('back-to-app'));
 });
 
 test('the shell channel performs the action and refuses a non-http(s) URL', async () => {
