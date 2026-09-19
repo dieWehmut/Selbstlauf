@@ -129,9 +129,58 @@ because NSIS defaults an assisted installer to an all-users path.
   `startedAtMs` was unchanged and the process count stayed at one app tree, which
   confirms the single-instance lock.
 
+### Real GUI verification found a shipping bug
+
+The unit tests and the HTTP checks above all passed while the packaged app was
+still broken, so the installed window was driven directly: `WM_CLOSE` was sent to
+the app's real top-level window — the same message the title bar's X and Alt+F4
+produce — and the result was measured.
+
+The first run failed:
+
+    window still exists: False        app processes alive: 0 of 4
+    window visible after close: False service after close: running= (stopped)
+
+Closing the window quit the whole app and stopped the bundled service, the exact
+opposite of the documented behaviour.
+
+**Cause.** Both the window and the tray load the icon from an absolute path, but
+`electron-builder.config.mjs` never copied `build/icon.ico` into `resources`.
+`win.icon` only brands the executable; it does not place the file in resources.
+In a packaged build `resolveWindowIconPath` therefore returned `undefined`,
+`createIcon` produced `null`, and `new Tray(null)` threw, so `installTray`
+degraded to a null tray. With no tray, `lifecycle.handleWindowClose` deliberately
+falls through to a normal close — it is written that way so the app can never
+become an invisible, unreachable process — and `window-all-closed` then stopped
+the service and quit. The trap is that this graceful degradation made a missing
+asset look like a lifecycle decision rather than a packaging defect.
+
+**Fix** (`f0af534`). Copy the icon to `resources/build/icon.ico` as an
+extraResource, and probe the packaged resources path *and* the repository layout
+in `resolveWindowIconPath`. A regression test models the real asymmetry:
+`resourcesPath` holds the icon while `appRoot` (the unpacked asar) has no `build/`
+directory at all.
+
+**Re-verified on this host after reinstalling**, against the real window:
+
+    window still exists: True         window visible after close: False
+    app processes alive: 4 of 4       service after close: running=True, startedAtMs unchanged
+    window visible after restore: True
+
+The tray itself is confirmed by enumeration of the app's own top-level windows,
+which includes `Electron_NotifyIconHostWindow` — the hidden host window Electron
+creates only when a `Tray` really exists. UI Automation cannot see Windows 11's
+tray icons, so that window class is the mechanical evidence.
+
+No 0.2.0 or earlier package shipped the asset, so this defect was present in
+every packaged build; it is fixed in the next release.
+
 Release `v0.2.0` was published by `.github/workflows/release-desktop.yml` (the
 `test` and `package` jobs both succeeded) with all three installers attached:
 [github.com/dieWehmut/Selbstlauf/releases/tag/v0.2.0](https://github.com/dieWehmut/Selbstlauf/releases/tag/v0.2.0).
+The published 0.2.0 assets predate `f0af534`, so installing from that release
+still reproduces the close-quits bug; the fix needs a follow-up release, while the
+local install on this host was rebuilt from the fixed source.
 
 ### One cleanup step still needs elevation
 
@@ -150,7 +199,7 @@ installation, whose `HKCU` entry and shortcuts are correct and working.
 
 ## Not verified
 
-The native overlay hit-testing, the real tray icon rendering and a real
-title-bar close are covered by stub-level unit tests only; this run drove the
-installed app's web surface and its lifecycle over HTTP rather than clicking the
-tray icon by hand. Everything else above was executed.
+The native title-bar overlay's hit-testing and clicking the tray icon by hand
+were not exercised; the tray's existence is proved by the app's
+`Electron_NotifyIconHostWindow`, and hide-on-close by a real `WM_CLOSE` against
+the installed window. Everything else above was executed.

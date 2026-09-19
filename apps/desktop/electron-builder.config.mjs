@@ -59,6 +59,12 @@ export default {
     // app; start-watchdog.ps1 resolves service-dist and web-dist beside it.
     { from: continuationScripts, to: 'scripts/continuation' },
     { from: preload, to: 'preload.mjs' },
+    // The window and tray both load the icon by absolute path, and the tray is
+    // what makes closing the window hide instead of quit. Without this copy the
+    // packaged app cannot build a tray at all, so 关闭即隐藏 silently degrades to
+    // a real quit; electron-builder's `win.icon` only brands the executable, it
+    // does not place the file in resources.
+    ...(existsSync(icon) ? [{ from: icon, to: 'build/icon.ico' }] : []),
   ],
   asar: true,
   win: {

@@ -143,24 +143,42 @@ export interface DesktopWindowRequest {
 
 export interface WindowIconOptions {
   readonly appRoot: string;
+  /** `process.resourcesPath` in a packaged build; absent in a checkout. */
+  readonly resourcesPath?: string;
 }
 
 /**
- * Locate the icon installed with the app.
+ * Locate the branded icon.
  *
- * The asset ships beside the app (`apps/desktop/build` in a checkout,
- * `resources/build` in a packaged install) and is loaded by absolute path,
- * which is the only form Electron accepts without a registered protocol.
- * A build without the asset still opens its window; it just keeps the default.
+ * Electron only loads an icon from an absolute path, so both shipped layouts are
+ * probed in order:
+ *
+ *  - `resources/build/icon.ico` — the packaged install (electron-builder copies
+ *    it there as an extraResource).
+ *  - `<appRoot>/build/icon.ico` — a repository checkout.
+ *
+ * The packaged path used to be missing from the build, which silently cost the
+ * app both its taskbar icon and its tray: without a tray, closing the window
+ * fell through to a real quit instead of hiding. A build without the asset still
+ * opens its window; it just keeps Electron's default mark.
  */
 export function resolveWindowIconPath(options: WindowIconOptions): string | undefined {
-  const candidate = resolve(options.appRoot, 'build', 'icon.ico');
-  return existsSync(candidate) ? candidate : undefined;
+  const resourcesPath = options.resourcesPath;
+  const candidates = [
+    ...(resourcesPath === undefined || resourcesPath.trim().length === 0
+      ? []
+      : [resolve(resourcesPath, 'build', 'icon.ico')]),
+    resolve(options.appRoot, 'build', 'icon.ico'),
+  ];
+  return candidates.find((candidate) => existsSync(candidate));
 }
 
 /** Spreadable form so callers never build an `undefined` icon option. */
-function windowIcon(appRoot: string): { readonly iconPath?: string } {
-  const iconPath = resolveWindowIconPath({ appRoot });
+function windowIcon(appRoot: string, resourcesPath?: string): { readonly iconPath?: string } {
+  const iconPath = resolveWindowIconPath({
+    appRoot,
+    ...(resourcesPath === undefined ? {} : { resourcesPath }),
+  });
   return iconPath === undefined ? {} : { iconPath };
 }
 
@@ -184,13 +202,13 @@ function openWindow(shell: ElectronShell, request: DesktopWindowRequest): Manage
 export async function launchDesktop(
   shell: ElectronShell,
   environment: NodeJS.ProcessEnv = process.env,
-  options: { readonly appRoot?: string } = {},
+  options: { readonly appRoot?: string; readonly resourcesPath?: string } = {},
 ): Promise<ResolvedTarget> {
   await shell.app.whenReady();
   const target = await resolveDesktopTarget(environment);
   const window = openWindow(shell, {
     serviceOrigin: target.url,
-    ...(options.appRoot === undefined ? {} : windowIcon(options.appRoot)),
+    ...(options.appRoot === undefined ? {} : windowIcon(options.appRoot, options.resourcesPath)),
   });
   await window.loadURL(target.url);
   window.on('closed', () => undefined);
@@ -233,7 +251,7 @@ export async function hostAndLaunch(
   const window = openWindow(shell, {
     serviceOrigin: target.url,
     ...(options.preloadPath === undefined ? {} : { preloadPath: options.preloadPath }),
-    ...windowIcon(options.appRoot),
+    ...windowIcon(options.appRoot, options.resourcesPath),
   });
   options.attach?.(window);
   await window.loadURL(target.url);
@@ -393,7 +411,7 @@ export async function main(): Promise<void> {
     const fallback = await resolveDesktopTarget().catch(() => null);
     if (fallback === null || fallback.kind !== 'service') throw error;
     process.stderr.write(`${message}\nfalling back to the recorded watchdog service\n`);
-    const opened = openWindow(shell, { serviceOrigin: fallback.url, preloadPath, ...windowIcon(appRoot) });
+    const opened = openWindow(shell, { serviceOrigin: fallback.url, preloadPath, ...windowIcon(appRoot, resourcesPath) });
     opened.on('close', (event) => lifecycle.handleWindowClose(event));
     window = opened;
     await opened.loadURL(fallback.url);
@@ -450,7 +468,7 @@ export async function main(): Promise<void> {
         }),
       quit: () => void lifecycle.shutdown(),
     },
-    ...windowIcon(appRoot),
+    ...windowIcon(appRoot, resourcesPath),
   });
 
   // The startup task can be created or removed by the service at any time, so
