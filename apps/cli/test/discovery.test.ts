@@ -164,6 +164,37 @@ test('detectProcessTool recognizes configured executable names exactly', () => {
   );
 });
 
+test('detectProcessTool accepts slash-separated package paths and rejects near misses', () => {
+  const base: RawProcessRecord = {
+    pid: 401,
+    parentPid: 100,
+    name: 'node.exe',
+    commandLine: null,
+    executablePath: 'C:\\Program Files\\nodejs\\node.exe',
+    creationTimeMs: Date.UTC(2026, 7, 19),
+    userSid: currentUserSid,
+  };
+  const signatures = [
+    ['node C:/tools/@openai/codex/bin/runner.js', 'codex'],
+    ['node "C:\\tools\\@openai\\codex\\bin\\runner.js"', 'codex'],
+    ['node C:/tools/claude-code/cli.js', 'claude'],
+    ['node C:/tools/codexXjs', null],
+    ['node C:/tools/notclaude-code/cli.js', null],
+    ['node C:/tools/claude-code-helper/cli.js', null],
+    ['node C:/tools/@openai/codex-helper/bin/runner.js', null],
+    ['node C:/tools/prefix@openai/codex/bin/runner.js', null],
+    ['node C:/tools/dsh.cmd', 'dsh'],
+    ['node C:/tools/dsh.ps1', 'dsh'],
+    ['node C:/tools/dshXcmd', null],
+    ['node C:/tools/dshXps1', null],
+  ] as const;
+
+  assert.deepEqual(
+    signatures.map(([commandLine]) => detectProcessTool({ ...base, commandLine })),
+    signatures.map(([, expected]) => expected),
+  );
+});
+
 test('parseWindowsProcessJson converts DMTF dates to epoch milliseconds', () => {
   const [record] = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture[1]));
 

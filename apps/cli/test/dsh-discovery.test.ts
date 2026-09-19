@@ -51,6 +51,37 @@ test('detectProcessTool recognizes a DeepSeek Harness host and its subprocess ru
   );
 });
 
+test('detectProcessTool requires complete DeepSeek Harness entry path tokens', () => {
+  const base: RawProcessRecord = {
+    pid: 704,
+    parentPid: 1,
+    name: 'node.exe',
+    commandLine: null,
+    executablePath: 'C:\\Program Files\\nodejs\\node.exe',
+    creationTimeMs: 1,
+    userSid: currentUserSid,
+  };
+  const entries = [
+    'deepseek-harness/apps/cli/lib/bin.js',
+    'deepseek-harness/packages/subprocess/subprocess-local/lib/runner.js',
+    '@deepseek-ai/dsh/lib/bin.js',
+    '@deepseek-ai/dsh/bin/dsh.js',
+  ];
+
+  for (const entry of entries) {
+    const commandLines = [
+      `node "C:/tools/${entry}"`,
+      `node "C:/tools/prefix${entry}"`,
+      `node "C:/tools/${entry}-helper"`,
+    ];
+    assert.deepEqual(
+      commandLines.map((commandLine) => detectProcessTool({ ...base, commandLine })),
+      ['dsh', null, null],
+      entry,
+    );
+  }
+});
+
 test('detectProcessTool keeps an unrelated shell that only names the harness checkout neutral', () => {
   const record: RawProcessRecord = {
     pid: 710,
