@@ -21,9 +21,42 @@ export const SHELL_CHANNELS = Object.freeze({
 } as const);
 
 /** Every action the renderer is allowed to ask the main process to perform. */
-export const SHELL_ACTIONS = Object.freeze(['reload', 'toggleFullScreen', 'zoom', 'quit', 'openExternal'] as const);
+export const SHELL_ACTIONS = Object.freeze([
+  'reload',
+  'toggleFullScreen',
+  'zoom',
+  'quit',
+  'openExternal',
+  'setTitleBarOverlay',
+] as const);
 
 export type ShellAction = (typeof SHELL_ACTIONS)[number];
+
+/**
+ * A `#rrggbb` colour.
+ *
+ * The overlay action takes a colour from the renderer, so it is validated here
+ * rather than trusted: anything else is refused before it reaches Electron.
+ */
+const HEX_COLOR = /^#[0-9a-f]{6}$/iu;
+
+export function isHexColor(value: unknown): value is string {
+  return typeof value === 'string' && HEX_COLOR.test(value);
+}
+
+/**
+ * The overlay strip the native minimise / maximise / close buttons sit on.
+ *
+ * The title bar's background is theme- and palette-dependent (it is
+ * `--panel-soft`, derived from the background, contrast and accent), so a fixed
+ * colour cannot match it. The renderer therefore reports the colour it actually
+ * painted and this action repaints the native strip to match; otherwise the top
+ * row reads as two different strips.
+ */
+export interface TitleBarOverlayRequest {
+  readonly color: string;
+  readonly symbolColor?: string;
+}
 
 export function isShellAction(value: unknown): value is ShellAction {
   return typeof value === 'string' && (SHELL_ACTIONS as readonly string[]).includes(value);
@@ -56,6 +89,8 @@ export interface ShellActionContext {
   quit(): void;
   /** Hand an absolute http(s) URL to the OS browser. */
   openExternal(url: string): Promise<void> | void;
+  /** Repaint the native window-button strip so it matches the page title bar. */
+  setTitleBarOverlay?(overlay: TitleBarOverlayRequest): void;
 }
 
 export interface ShellActionRequest {
@@ -64,6 +99,9 @@ export interface ShellActionRequest {
   readonly delta?: number;
   /** Only meaningful for `openExternal`. */
   readonly url?: string;
+  /** Only meaningful for `setTitleBarOverlay`. */
+  readonly color?: string;
+  readonly symbolColor?: string;
 }
 
 /** The zoomable surface of a window, whichever shape Electron hands back. */
@@ -103,6 +141,21 @@ export function applyShellAction(context: ShellActionContext, request: ShellActi
       void context.openExternal(url);
       return;
     }
+    case 'setTitleBarOverlay': {
+      // A renderer-supplied colour is validated before it reaches Electron; an
+      // invalid one is dropped rather than repainting the strip with garbage.
+      if (!isHexColor(request.color)) {
+        throw new TypeError(`refusing a non-#rrggbb overlay colour: ${String(request.color)}`);
+      }
+      if (request.symbolColor !== undefined && !isHexColor(request.symbolColor)) {
+        throw new TypeError(`refusing a non-#rrggbb overlay symbol colour: ${String(request.symbolColor)}`);
+      }
+      context.setTitleBarOverlay?.({
+        color: request.color,
+        ...(request.symbolColor === undefined ? {} : { symbolColor: request.symbolColor }),
+      });
+      return;
+    }
     default: {
       const exhaustive: never = request.action;
       throw new TypeError(`unknown shell action: ${String(exhaustive)}`);
@@ -120,7 +173,7 @@ export function parseShellRequest(payload: unknown): ShellActionRequest {
   if (payload === null || typeof payload !== 'object') {
     throw new TypeError('shell request must be an object');
   }
-  const entry = payload as { action?: unknown; delta?: unknown; url?: unknown };
+  const entry = payload as { action?: unknown; delta?: unknown; url?: unknown; color?: unknown; symbolColor?: unknown };
   if (!isShellAction(entry.action)) {
     throw new TypeError(`unknown shell action: ${String(entry.action)}`);
   }
@@ -128,5 +181,7 @@ export function parseShellRequest(payload: unknown): ShellActionRequest {
     action: entry.action,
     ...(entry.delta === undefined ? {} : { delta: Number(entry.delta) }),
     ...(entry.url === undefined ? {} : { url: String(entry.url) }),
+    ...(entry.color === undefined ? {} : { color: String(entry.color) }),
+    ...(entry.symbolColor === undefined ? {} : { symbolColor: String(entry.symbolColor) }),
   };
 }

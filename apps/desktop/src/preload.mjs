@@ -26,6 +26,13 @@ contextBridge.exposeInMainWorld('selbstlaufDesktop', {
     zoom: (delta) => void invoke({ action: 'zoom', delta }),
     quit: () => void invoke({ action: 'quit' }),
     openExternal: (url) => invoke({ action: 'openExternal', url }),
+    // The renderer paints the theme-aware title bar, so it reports the colour it
+    // actually used and the native window-button strip is repainted to match.
+    setTitleBarOverlay: (colors) => void invoke({
+      action: 'setTitleBarOverlay',
+      color: colors?.color,
+      symbolColor: colors?.symbolColor,
+    }),
   }),
   settings: Object.freeze({
     get: () => ipcRenderer.invoke(SHELL_CHANNELS.settingsGet),

@@ -29,8 +29,20 @@ export const DEFAULT_WINDOW_POLICY = Object.freeze({
  */
 export const TITLE_BAR_OVERLAY = Object.freeze({
   height: 40,
-  color: '#0b1120',
-  symbolColor: '#e2e8f0',
+  /**
+   * Matches the title bar the renderer paints.
+   *
+   * The bar is `--panel-soft`, which the app derives from the palette as
+   * `mix(background, #ffffff, 0.004 + contrast/1400)`. For the built-in dark
+   * palette (`#0d1216`, contrast 68) that resolves to `#1a1e22`. This static
+   * value is the starting point so the strip lines up on first paint; the
+   * renderer then reports the exact colour it used (see the
+   * `setTitleBarOverlay` shell action) so a custom palette or the light theme
+   * follows. A fixed `#0b1120` here was measurably wrong: it left the OS window
+   * buttons on a visibly different strip from the rest of the row.
+   */
+  color: '#1a1e22',
+  symbolColor: '#e9eef0',
 });
 
 export type TitleBarOverlay = typeof TITLE_BAR_OVERLAY;
