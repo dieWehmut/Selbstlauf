@@ -88,14 +88,11 @@ function configuredNameMatches(
   });
 }
 
-function containsScriptToken(commandLine: string, scriptName: string): boolean {
-  const command = lower(commandLine);
-  const token = lower(scriptName);
-  return new RegExp(`(?:^|[\\\\/\\s"'])${token}(?:$|[\\\\/\\s"'])`, 'u').test(command);
-}
-
-function containsEntryToken(commandLine: string, token: string): boolean {
-  return lower(commandLine).includes(lower(token));
+function containsPathToken(commandLine: string, token: string): boolean {
+  const command = lower(commandLine).replaceAll('\\', '/');
+  const normalizedToken = lower(token).replaceAll('\\', '/');
+  const escapedToken = normalizedToken.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return new RegExp(`(?:^|[\\s"'/])${escapedToken}(?:$|[\\s"'/])`, 'u').test(command);
 }
 
 /** Return a tool only when the process has one unambiguous known signature. */
@@ -112,19 +109,19 @@ export function detectProcessTool(
 
   const isClaude =
     configuredNameMatches(record, claudeNames) ||
-    commandLine.includes('claude-code') ||
-    containsScriptToken(commandLine, 'claude.ps1');
+    containsPathToken(commandLine, 'claude-code') ||
+    containsPathToken(commandLine, 'claude.ps1');
   const isCodex =
     configuredNameMatches(record, codexNames) ||
-    commandLine.includes('@openai\\codex') ||
-    containsScriptToken(commandLine, 'codex.js') ||
+    containsPathToken(commandLine, '@openai/codex') ||
+    containsPathToken(commandLine, 'codex.js') ||
     processName === 'codex.exe' ||
     executableName === 'codex.exe';
   const isDsh =
     configuredNameMatches(record, dshNames) ||
-    containsScriptToken(commandLine, 'dsh.cmd') ||
-    containsScriptToken(commandLine, 'dsh.ps1') ||
-    DSH_ENTRY_TOKENS.some((token) => containsEntryToken(commandLine, token)) ||
+    containsPathToken(commandLine, 'dsh.cmd') ||
+    containsPathToken(commandLine, 'dsh.ps1') ||
+    DSH_ENTRY_TOKENS.some((token) => containsPathToken(commandLine, token)) ||
     (processName === 'dsh.exe' && executableName === 'dsh.exe');
 
   const matched = [
