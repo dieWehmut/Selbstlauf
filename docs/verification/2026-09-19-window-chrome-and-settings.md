@@ -404,6 +404,30 @@ half the tray actually uses unasserted; it now requires `账户` to be selected 
 `section: 'account'` and requires an unknown section to still open the settings
 page rather than doing nothing.
 
+### The overlay follows the theme, not just the default
+
+The earlier claim that a custom palette "follows" was only verified for the static
+dark default. Driving the renderer to the light scheme and re-measuring the real
+window shows the dynamic path works:
+
+    dark   -> page bar rgb(26, 30, 34)   native strip #1A1E22
+    light  -> page bar rgb(239, 243, 242) native strip #EFF3F2
+
+Both schemes measure as one continuous row, and the capture in light theme shows
+the native buttons on the same light surface as the rest of the title bar. This
+works because the effect re-runs on `[bridge, palette, theme]` and reports the
+colour the browser actually resolved, rather than duplicating the palette formula.
+
+Two process notes from this check, because both nearly produced a wrong answer:
+
+- A stale `PrintWindow` capture made the app look like it was still in light mode
+  after the preference had been cleared. The screenshot timestamp was unchanged
+  and only a forced re-capture showed the truth; the measurement script overwrites
+  its output and a failed overwrite is silent.
+- Testing the light theme wrote a real preference into the app's own storage
+  (`%APPDATA%\@ai-cli-bypass\desktop\Local Storage`). It was cleared again, and a
+  fresh capture confirms the default dark theme is restored on this host.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
