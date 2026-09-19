@@ -548,6 +548,34 @@ Measured after the change with a ratio that cancels the capture scale
     this app : 35 / 46 = 0.761  ->  35.0 logical px
     difference: 0.5 logical px, the resolution of the measurement itself
 
+### The menu font size was also measured from the reference
+
+A full-width CJK glyph advances exactly the font size, which makes the reference's
+label size readable straight off its pixels: its 文件 glyphs start 14 logical px
+apart, so its menu text is **14px**. This app drew **12px**, which showed up in the
+capture as a shorter ink height (11 logical px against the reference's 13.5) and as
+every following element sitting further right than it should.
+
+Fixed in `e2a2262`; a browser test pins the size and records that the number is a
+measurement, so changing it needs a new one. Confirmed by capturing this app's bar
+at `deviceScaleFactor: 2` and comparing it with the reference at the same DPI: the
+menu pitch — button width plus gap, read glyph centre to glyph centre — is 51.75
+logical px in the reference and 52.5 here, inside the anti-aliasing noise.
+
+#### What pixel comparison can and cannot settle
+
+The measurements that are independent of the icon library are all matched: the row
+height (from the background-to-border transition), the font metrics (from CJK glyph
+advances), and the flat background colour.
+
+The remaining position differences come from *ink centres*, which depend on each
+icon's own artwork. The reference uses a different icon set, so comparing ink
+centroids compares two drawings rather than two layouts. Those differences were
+deliberately **not** fitted — adjusting padding to chase another library's glyph
+bearings would move the layout away from the reference's intentions, not toward
+them. This is recorded so the remaining offset is a known, reasoned limit rather
+than an untested claim.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
