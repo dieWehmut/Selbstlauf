@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env pwsh
+#!/usr/bin/env pwsh
 # Install the Selbstlauf desktop setup silently, assert the installed app is
 # complete and able to host its bundled watchdog service, then uninstall it.
 #
@@ -295,6 +295,63 @@ Write-Output 'closing the installed window hides it to the tray and keeps the wa
 Start-Sleep -Seconds 2
 Assert-Condition ([SelbstlaufWindowProbe]::IsWindowVisible($appWindow.Handle)) 'the hidden window could not be shown again'
 Write-Output 'the hidden window can be restored'
+
+# The other branch of the same switch: `closeToTray: false` must really quit.
+#
+# The default (above) hides the window and keeps the service; this half is what
+# 关闭时最小化到托盘 turns off, and it was unreachable until the settings bridge
+# loaded at all. The store is exercised through the app's own file rather than by
+# driving the renderer, so the check stays inside PowerShell.
+$desktopSettingsPath = Join-Path $stateRoot 'desktop-settings.json'
+Set-Content -LiteralPath $desktopSettingsPath -Value '{"closeToTray":false,"preferredTerminal":null}' -Encoding Ascii
+Assert-Condition (Test-Path -LiteralPath $desktopSettingsPath) 'could not write the desktop settings file'
+
+# Restart so the setting is read at startup, the way a person's change applies.
+Stop-SelbstlaufProcess
+Remove-Item -LiteralPath $watchdogPidFile -Force -ErrorAction SilentlyContinue
+$restarted = Start-Process -FilePath $appExe -PassThru
+Wait-ForCondition -TimeoutSeconds $StartupTimeoutSeconds -Description 'the service to come back after the settings change' -Condition {
+    Test-Path -LiteralPath $watchdogPidFile
+}
+$recordAfterRestart = Get-Content -LiteralPath $watchdogPidFile -Raw | ConvertFrom-Json
+$quitWindow = $null
+$quitDeadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
+while ([DateTime]::UtcNow -lt $quitDeadline -and $null -eq $quitWindow) {
+    foreach ($process in @(Get-Process -Name 'Selbstlauf' -ErrorAction SilentlyContinue)) {
+        $quitWindow = [SelbstlaufWindowProbe]::ForProcess($process.Id) |
+            Where-Object { $_.Visible -and $_.Title.Length -gt 0 } | Select-Object -First 1
+        if ($null -ne $quitWindow) { break }
+    }
+    if ($null -eq $quitWindow) { Start-Sleep -Milliseconds 500 }
+}
+Assert-Condition ($null -ne $quitWindow) 'no visible window after restarting with closeToTray=false'
+
+[void][SelbstlaufWindowProbe]::SendMessage($quitWindow.Handle, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero)
+Start-Sleep -Seconds 6
+$quitAlive = @(Get-Process -Name 'Selbstlauf' -ErrorAction SilentlyContinue).Count
+$quitServiceUp = $false
+try {
+    $healthAfterQuit = Invoke-RestMethod -Uri "http://127.0.0.1:$($recordAfterRestart.port)/api/health" -TimeoutSec 8
+    $quitServiceUp = $healthAfterQuit.watchdogRunning -eq $true
+} catch { }
+Assert-Condition ($quitAlive -eq 0) 'closeToTray=false did not quit the application'
+Assert-Condition (-not $quitServiceUp) 'closeToTray=false left the bundled service running'
+Write-Output 'with closeToTray=false, closing the window quits and stops the watchdog'
+
+# Restore the default so the uninstall step below starts from a clean state, and
+# bring the app back up: the quit above deliberately left nothing running, and the
+# discovery and startup-task checks that follow need a live app.
+Remove-Item -LiteralPath $desktopSettingsPath -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $watchdogPidFile -Force -ErrorAction SilentlyContinue
+[void](Start-Process -FilePath $appExe -PassThru)
+Wait-ForCondition -TimeoutSeconds $StartupTimeoutSeconds -Description 'the service to come back after restoring the default setting' -Condition {
+    Test-Path -LiteralPath $watchdogPidFile
+}
+$record = Get-Content -LiteralPath $watchdogPidFile -Raw | ConvertFrom-Json
+Assert-Condition ($null -ne $record.port) 'watchdog pid file has no port after the restart'
+$healthRestored = Invoke-RestMethod -Uri "http://127.0.0.1:$($record.port)/api/health" -TimeoutSec 30
+Assert-Condition ($healthRestored.watchdogRunning -eq $true) 'the service did not come back after restoring the default'
+Write-Output 'restored the default and brought the app back up'
 
 }
 
