@@ -18,6 +18,8 @@
 
 .PARAMETER Source
     Path to the source image. Must exist and be decodable by GDI+.
+    Defaults to assets/selbstlauf-icon-source.png, which is checked in so the
+    assets can be regenerated on a machine that never saw the original file.
 
 .PARAMETER RepositoryRoot
     Repository root that contains apps/desktop and apps/web. Defaults to the repository
@@ -31,7 +33,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Source = 'C:\Users\han\picture\Selbstlauf.png',
+    [string]$Source = '',
     [string]$RepositoryRoot = ''
 )
 
@@ -48,6 +50,9 @@ $PngTargets = @(
     [pscustomobject]@{ RelativePath = 'apps\web\src\assets\brand.png';        Size = 256 }
 )
 $IcoRelativePath = 'apps\desktop\build\icon.ico'
+# The original artwork is checked in, so regeneration never depends on a file
+# that only exists on one person's machine.
+$DefaultSourceRelativePath = 'assets\selbstlauf-icon-source.png'
 
 function Write-Failure {
     param([string]$Message, [int]$Code)
@@ -245,7 +250,7 @@ function Write-IcoAsset {
 # Validate the source
 # ---------------------------------------------------------------------------
 if ([string]::IsNullOrWhiteSpace($Source)) {
-    Write-Failure -Message 'No -Source path was supplied.' -Code 11
+    $Source = Join-Path $RepositoryRoot $DefaultSourceRelativePath
 }
 $Source = [System.IO.Path]::GetFullPath($Source)
 
