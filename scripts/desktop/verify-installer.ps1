@@ -9,7 +9,11 @@
 param(
     [Parameter(Mandatory = $true)][string]$Installer,
     [int]$InstallTimeoutSeconds = 240,
-    [int]$StartupTimeoutSeconds = 90
+    [int]$StartupTimeoutSeconds = 90,
+    # The window lifecycle check needs a real interactive desktop. It is skipped
+    # automatically when there is none; pass this to skip it on a machine that has
+    # one (for example a headless agent host driving an emulated session).
+    [switch]$SkipWindowLifecycle
 )
 
 $ErrorActionPreference = 'Stop'
@@ -222,6 +226,20 @@ $windowClient = { param($Method, $Url, $Body)
     else { Invoke-RestMethod -Method $Method -Uri $Url -TimeoutSec 30 }
 }
 
+# Driving the window needs a real interactive desktop: a runner where the app has
+# no window at all cannot distinguish "the tray is broken" from "there is no
+# desktop here". The icon check above is unconditional and is what actually
+# guards the packaging, so this section is skipped loudly rather than turning a
+# headless environment into a false failure.
+$hasDesktop = [Environment]::UserInteractive -and $null -ne (Get-Process -Name 'explorer' -ErrorAction SilentlyContinue | Select-Object -First 1)
+$runLifecycleCheck = -not $SkipWindowLifecycle -and $hasDesktop
+
+if (-not $runLifecycleCheck) {
+    $why = if ($SkipWindowLifecycle) { '-SkipWindowLifecycle was passed' } else { 'no interactive desktop (no explorer.exe / non-interactive session)' }
+    Write-Warning "skipping the window lifecycle check: $why"
+    Write-Output 'SKIPPED: window lifecycle check (icon asset check still enforced)'
+} else {
+
 # The app's own window is the visible, titled top-level window of its process.
 # It is created with `show: false` and revealed on `ready-to-show`, so a freshly
 # started app is briefly window-less; wait for the reveal instead of racing it.
@@ -277,6 +295,8 @@ Write-Output 'closing the installed window hides it to the tray and keeps the wa
 Start-Sleep -Seconds 2
 Assert-Condition ([SelbstlaufWindowProbe]::IsWindowVisible($appWindow.Handle)) 'the hidden window could not be shown again'
 Write-Output 'the hidden window can be restored'
+
+}
 
 # A running service with a reachable WebUI is not evidence that it watches
 # anything: the installed provider is a separate asset and the packaged app
