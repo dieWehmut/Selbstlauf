@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { Component, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
 import type { SessionView, WatchdogApi, WatchdogEvent } from '../src/api/client';
@@ -71,6 +72,12 @@ function stoppedApi(): WatchdogApi {
   const fake = api();
   fake.health = vi.fn(async () => ({ ok: true, running: false, dryRun: true, lastPollAtMs: Date.now() - 2_000 }));
   return fake;
+}
+
+class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() { return this.state.failed ? <div role="alert">Appearance crashed</div> : this.props.children; }
 }
 
   it('organizes settings into tabs and follows the system theme', async () => {
@@ -147,6 +154,38 @@ function stoppedApi(): WatchdogApi {
     fireEvent.click(within(previews).getByRole('radio', { name: '深色' }));
     fireEvent.click(await screen.findByRole('button', { name: '恢复默认' }));
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#e6b65b'));
+  });
+
+  it.each([
+    ['legacy colors', {}],
+    ['invalid optional settings', { contrast: 'invalid', uiType: null, contentType: false, translucentSidebar: 'yes' }],
+  ])('imports %s with usable default appearance controls', async (_label, optionalSettings) => {
+    localStorage.setItem('watchdog-theme', 'dark');
+    localStorage.removeItem('watchdog-palette');
+    Object.assign(navigator, { clipboard: { readText: async () => JSON.stringify({
+      accent: '#4c9cd4', background: '#102030', foreground: '#f0e0d0', ...optionalSettings,
+    }) } });
+    render(<ImportErrorBoundary><App api={api()} /></ImportErrorBoundary>);
+    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    fireEvent.click(screen.getByRole('tab', { name: '通用' }));
+    fireEvent.click(screen.getByRole('button', { name: '导入' }));
+
+    expect(await screen.findByText('主题已导入')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'UI 字体' })).toHaveValue('system');
+    expect(screen.getByRole('combobox', { name: '内容字体' })).toHaveValue('same');
+    expect(screen.getByRole('slider', { name: '对比度' })).toHaveValue('68');
+    expect(screen.getByRole('checkbox', { name: '半透明侧边栏' })).not.toBeChecked();
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#4c9cd4'));
+    expect(JSON.parse(localStorage.getItem('watchdog-palette') ?? '{}').dark).toEqual({
+      accent: '#4c9cd4', background: '#102030', foreground: '#f0e0d0', contrast: 68,
+      translucentSidebar: false,
+      uiType: { family: 'system', weight: 400 },
+      contentType: { family: 'system', weight: 400, sameAsUi: true },
+    });
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'UI 字体' }), { target: { value: 'mono' } });
+    expect(document.documentElement.style.getPropertyValue('--ui-font')).toBe('var(--mono)');
   });
 
   it('reports the local environment and offers the install commands', async () => {

@@ -1533,7 +1533,8 @@ export default function App({ api: suppliedApi }: AppProps) {
       const text = await navigator.clipboard.readText();
       const parsed = JSON.parse(text) as unknown;
       if (!isThemePalette(parsed)) throw new TypeError('剪贴板里不是有效的主题配置');
-      setPaletteOverrides((current) => ({ ...current, [theme]: parsed }));
+      const imported = normalizePalette(parsed, DEFAULT_PALETTES[theme]);
+      setPaletteOverrides((current) => ({ ...current, [theme]: imported }));
       setNotice('主题已导入');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '导入失败');
