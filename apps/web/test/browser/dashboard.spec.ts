@@ -159,8 +159,10 @@ test.describe('Selbstlauf watchdog workbench', () => {
   });
 
   test('shows theme previews and applies a custom accent', async ({ page }, testInfo) => {
+    // 1280px is above the 960px drawer breakpoint, so the sidebar is part of the
+    // layout and needs no hamburger click (the button is hidden there by design).
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
-    await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
     await page.getByRole('tab', { name: '通用' }).click();
 
@@ -253,5 +255,47 @@ test.describe('Selbstlauf watchdog workbench', () => {
     expect(sectionBox!.x + sectionBox!.width).toBeLessThanOrEqual(360);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath('hook-settings-mobile-360x780.png'), fullPage: true });
+  });
+
+  /**
+   * Regression: the process table is 930px wide inside an `overflow-x: auto`
+   * container, and its header carries an absolutely-positioned `.sr-only`
+   * action label. With no positioned ancestor inside that container the label's
+   * containing block was `.workspace`, so its 1px box escaped the scroll
+   * container and grew the *document* scroll width by exactly the table's right
+   * edge. Between 701px and 929px the page therefore scrolled sideways instead
+   * of the table scrolling inside its own wrapper.
+   */
+  test('scrolls the process table inside its wrapper instead of the page', async ({ page }) => {
+    for (const width of [701, 760, 900, 960]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow, `page overflowed at ${width}px`).toBeLessThanOrEqual(1);
+
+      // The table must still be reachable, i.e. the wrapper really scrolls.
+      const scrollable = await page.locator('.process-table-wrap').evaluate((element) => ({
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+      }));
+      expect(scrollable.scrollWidth).toBeGreaterThan(scrollable.clientWidth);
+    }
+  });
+
+  /**
+   * Regression: `.icon-button` also sets `display` and is declared after
+   * `.mobile-menu`, so it resurrected the drawer's hamburger at every width.
+   */
+  test('shows the drawer hamburger only inside the drawer breakpoint', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: '打开菜单' })).toBeHidden();
+
+    await page.setViewportSize({ width: 960, height: 900 });
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: '打开菜单' })).toBeVisible();
   });
 });

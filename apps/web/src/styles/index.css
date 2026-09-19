@@ -208,8 +208,16 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .eyebrow { display: block; color: var(--faint); font: 10px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
 .topbar__actions { gap: 10px; }
 .poll-age { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; font: 11px var(--mono); }
+/* The drawer's hamburger only exists below the drawer breakpoint. `.icon-button`
+   also sets `display` and is declared later, so a plain `.mobile-menu` rule loses
+   to it; this scoped rule is what actually keeps the button hidden on desktop.
+   It lives in a min-width query so it cannot fight the max-width rule below that
+   reveals the button inside the drawer layout. */
 .mobile-menu { display: none; }
 .icon-button { display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line-whisper); border-radius: var(--radius-sm); color: var(--muted); background: transparent; transition: background .16s ease, border-color .16s ease, color .16s ease; }
+@media (min-width: 961px) {
+  .icon-button.mobile-menu { display: none; }
+}
 .icon-button:hover { border-color: var(--line-strong); color: var(--text); background: var(--panel-raised); }
 .icon-button--accent { color: var(--accent-strong); }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 0 15px; border: 1px solid var(--line-whisper); border-radius: var(--radius-sm); color: var(--text); background: var(--panel-raised); font-size: 12px; font-weight: 600; transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
@@ -234,7 +242,14 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .section-heading h2, .section-title h2 { margin: 5px 0 0; font-size: 17px; letter-spacing: 0; }
 .section-meta { gap: 8px; color: var(--muted); font: 11px var(--mono); }
 .text-button { border: 0; border-radius: var(--radius-xs); color: var(--accent-strong); background: transparent; font-size: 12px; }
-.process-table-wrap { overflow-x: auto; border: 1px solid var(--line-whisper); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow-soft); }
+/* `position: relative` is load-bearing: the table's header carries an
+   `.sr-only` label, which is absolutely positioned. Without a positioned
+   ancestor here its containing block is `.workspace`, so its 1px box escapes
+   this scroll container and extends the *document* scroll width by exactly the
+   table's right edge (the table is 930px wide, so a 701px window scrolled
+   sideways by 133px). Positioning this element keeps the hidden label inside
+   the container that already clips its own overflow. */
+.process-table-wrap { position: relative; overflow-x: auto; border: 1px solid var(--line-whisper); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow-soft); }
 .process-table { width: 100%; border-collapse: collapse; min-width: 930px; }
 .process-table th { padding: 13px 16px; border-bottom: 1px solid var(--line-soft); color: var(--faint); font: 10px var(--mono); font-weight: 400; text-align: left; text-transform: uppercase; letter-spacing: .04em; }
 .process-table td { padding: 16px; border-bottom: 1px solid var(--line-whisper); vertical-align: middle; }
