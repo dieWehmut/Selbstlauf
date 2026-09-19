@@ -517,6 +517,37 @@ same bytes. That is the strongest statement available without ARM64 hardware, an
 it is deliberately stated as "the same code drives it" rather than "it was run" —
 installing and running on ARM64 remains unverified.
 
+### The title bar's height was measured against the reference at last
+
+The top edge was the one requirement stated as "exactly like the image", and every
+check up to here had compared it to an impression of that image rather than to its
+pixels. Measuring the reference settles its scale instead of assuming one:
+
+- its caption glyphs are 20 px wide and adjacent button centres are 92 px apart,
+  both exactly double the Windows 11 metrics (10 px glyphs, 46 px button pitch),
+  so the capture is precisely 2x DPI;
+- its title bar spans 71 physical rows, i.e. **35.5 logical px** — 35 px of
+  content plus the 1 px bottom border;
+- its whole row is one flat colour (`#1D2026`), which the earlier colour fix had
+  already matched in structure.
+
+The app drew **40 px**, about 12% taller. Nothing caught it because the height
+lived in three unrelated literals — the row, the sidebar's sticky offset and the
+sidebar's height — none of them tied to `TITLE_BAR_OVERLAY.height` or to any
+measurement.
+
+Fixed in `933ccfb`: both sides are 36 px, the stylesheet uses one
+`--titlebar-height` token, and a desktop test reads that stylesheet and fails if
+the token and the constant disagree or if `.titlebar` stops using the token, so
+the two halves of the top edge cannot drift apart again.
+
+Measured after the change with a ratio that cancels the capture scale
+(title-bar height / caption-button pitch; the pitch is 46 logical px at any DPI):
+
+    reference: 71 / 92 = 0.772  ->  35.5 logical px
+    this app : 35 / 46 = 0.761  ->  35.0 logical px
+    difference: 0.5 logical px, the resolution of the measurement itself
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
