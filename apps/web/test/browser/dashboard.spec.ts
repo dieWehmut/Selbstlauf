@@ -54,12 +54,14 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
 
-    // The first row is the window's own title bar: 40px, above the page header.
+    // The first row is the window's own title bar, above the page header. 36px is
+    // 35px of content plus the 1px border, which is what the supplied reference
+    // measures once its 2x-DPI capture is converted to logical pixels.
     const titlebar = page.locator('.titlebar');
     await expect(titlebar).toBeVisible();
     const bar = await titlebar.boundingBox();
     expect(bar).not.toBeNull();
-    expect(Math.round(bar!.height)).toBe(40);
+    expect(Math.round(bar!.height)).toBe(36);
     expect(Math.round(bar!.y)).toBe(0);
     // It spans the full window width, sidebar included.
     expect(Math.round(bar!.width)).toBe(1280);
