@@ -117,6 +117,15 @@ interface DesktopShellBridge {
   zoom(delta: number): void;
   quit(): void;
   openExternal(url: string): Promise<void>;
+  /**
+   * Repaint the native window-button strip.
+   *
+   * The title bar is painted from the live palette, so it changes with the
+   * theme, the contrast slider and the accent. Reporting the colour actually
+   * used keeps the OS-drawn buttons on the same surface instead of leaving the
+   * top row split into two strips.
+   */
+  setTitleBarOverlay?(colors: { color: string; symbolColor?: string }): void;
 }
 
 interface DesktopBridge {
@@ -1912,6 +1921,35 @@ export default function App({ api: suppliedApi }: AppProps) {
 
     root.dataset.sidebar = palette.translucentSidebar ? 'translucent' : 'solid';
   }, [palette, theme]);
+
+  /**
+   * Keep the native window-button strip on the same surface as the title bar.
+   *
+   * The bar is `--panel-soft`, which the palette effect above derives from the
+   * background, contrast and accent. Rather than duplicate that formula (and let
+   * the two drift), this reads the colour the browser actually resolved and
+   * reports it; the main process repaints the OS strip to match. In a plain
+   * browser the bridge is absent and this does nothing.
+   */
+  useEffect(() => {
+    const setOverlay = bridge?.shell?.setTitleBarOverlay;
+    if (setOverlay === undefined || typeof document === 'undefined') return;
+    const bar = document.querySelector('.titlebar');
+    if (bar === null) return;
+    const background = window.getComputedStyle(bar).backgroundColor;
+    const channels = /rgba?\((\d+),\s*(\d+),\s*(\d+)/u.exec(background);
+    if (channels === null) return;
+    const color = `#${[1, 2, 3]
+      .map((index) => Number(channels[index]).toString(16).padStart(2, '0'))
+      .join('')}`;
+    // The glyph colour follows the text token so the buttons stay legible on
+    // both the dark and the light palette.
+    const foreground = window.getComputedStyle(document.documentElement).getPropertyValue('--text').trim();
+    setOverlay({
+      color,
+      ...(HEX_COLOR.test(foreground) ? { symbolColor: foreground } : {}),
+    });
+  }, [bridge, palette, theme]);
 
   useEffect(() => {
     localStorage.setItem(PALETTE_STORAGE_KEY, JSON.stringify(paletteOverrides));

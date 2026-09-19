@@ -393,6 +393,40 @@ export async function main(): Promise<void> {
 
   const sendToRenderer = createRendererSender(() => window);
 
+  /**
+   * Register the shell IPC handlers before any window opens.
+   *
+   * The renderer reports its title-bar colour as soon as it paints, which happens
+   * while the window is still loading — before `hostAndLaunch` resolves. Register
+   * afterwards and that first report hits "No handler registered", which the
+   * preload's fire-and-forget call swallows, leaving the native button strip on
+   * its stale colour and splitting the top row into two visibly different strips.
+   * `window` is read through a closure, so registering early is safe: the box is
+   * populated by the time a report arrives.
+   */
+  registerShellHandlers(shell, {
+    window: () => window,
+    quit: () => void lifecycle.shutdown(),
+    openExternal: (url) => shell.shell.openExternal(url),
+    settings: () => readDesktopSettings(stateDirectory).catch(() => DEFAULT_DESKTOP_SETTINGS),
+    saveSettings: async (patch) => {
+      const saved = await updateDesktopSettings(stateDirectory, patch);
+      closeToTray = saved.closeToTray;
+      return saved;
+    },
+    // The title bar is painted from the live palette, so its colour changes with
+    // the theme, the contrast slider and the accent. A fixed overlay colour
+    // cannot match it; the renderer reports what it painted and the native strip
+    // follows.
+    setTitleBarOverlay: (colors) => {
+      window?.setTitleBarOverlay?.({
+        color: colors.color,
+        ...(colors.symbolColor === undefined ? {} : { symbolColor: colors.symbolColor }),
+        height: TITLE_BAR_OVERLAY.height,
+      });
+    },
+  });
+
   let hosted: HostedDesktop;
   try {
     hosted = await hostAndLaunch(shell, {
@@ -422,18 +456,6 @@ export async function main(): Promise<void> {
 
   const origin = hosted.target.url;
   const startupClient = { origin };
-
-  registerShellHandlers(shell, {
-    window: () => window,
-    quit: () => void lifecycle.shutdown(),
-    openExternal: (url) => shell.shell.openExternal(url),
-    settings: () => readDesktopSettings(stateDirectory).catch(() => DEFAULT_DESKTOP_SETTINGS),
-    saveSettings: async (patch) => {
-      const saved = await updateDesktopSettings(stateDirectory, patch);
-      closeToTray = saved.closeToTray;
-      return saved;
-    },
-  });
 
   const revealWindow = () => showWindow(window);
 

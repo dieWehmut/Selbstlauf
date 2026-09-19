@@ -515,6 +515,48 @@ test('registration is a no-op when ipcMain is missing', () => {
   assert.equal(registerShellHandlers(shell, buildShellActionContext()), false);
 });
 
+/**
+ * The title bar is painted from the live palette, so the native window-button
+ * strip must follow it; a fixed overlay colour left the row split into two
+ * visibly different strips (measured on a real window as #0B1120 against a
+ * #1A1E22 bar).
+ *
+ * The renderer reports its colour as soon as it paints, which can arrive while the
+ * window is still being wired up, so this action must not be gated behind a live
+ * window the way the other actions are.
+ */
+test('applies a renderer-supplied title bar colour even before a window exists', () => {
+  const stub = buildIpcShell();
+  const applied: Array<{ color: string; symbolColor?: string }> = [];
+  registerShellHandlers(stub.shell, {
+    ...buildShellActionContext(),
+    window: () => null,
+    setTitleBarOverlay: (colors) => applied.push(colors),
+  });
+
+  stub.invoke(SHELL_CHANNELS.invoke, { action: 'setTitleBarOverlay', color: '#1a1e22', symbolColor: '#e9eef0' });
+  assert.deepEqual(applied, [{ color: '#1a1e22', symbolColor: '#e9eef0' }], 'the strip is repainted with no window');
+
+  // A malformed colour is refused rather than repainting the strip with garbage.
+  assert.throws(
+    () => stub.invoke(SHELL_CHANNELS.invoke, { action: 'setTitleBarOverlay', color: 'red' }),
+    /non-#rrggbb overlay colour/u,
+  );
+  assert.equal(applied.length, 1, 'nothing was repainted for the bad colour');
+});
+
+test('a window-dependent action still refuses to run without a window', () => {
+  const stub = buildIpcShell();
+  let reloads = 0;
+  registerShellHandlers(stub.shell, {
+    ...buildShellActionContext(),
+    window: () => null,
+  });
+  const result = stub.invoke(SHELL_CHANNELS.invoke, { action: 'reload' });
+  assert.equal(result, null, 'a missing window yields null rather than throwing');
+  assert.equal(reloads, 0);
+});
+
 test('a menu command reaches the renderer through the window webContents', () => {
   const sent: Array<{ channel: string; payload: unknown }> = [];
   let destroyed = false;
