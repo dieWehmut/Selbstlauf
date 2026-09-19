@@ -1,5 +1,7 @@
 import {
   Activity,
+  ArrowLeft,
+  ArrowRight,
   Bot,
   CircleAlert,
   CircleArrowUp,
@@ -13,6 +15,7 @@ import {
   Monitor,
   Moon,
   Network,
+  PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
@@ -53,6 +56,40 @@ type Page = 'overview' | 'timeline' | 'settings';
 /** What the person chose; 'system' resolves against the OS preference. */
 type ThemePreference = 'light' | 'dark' | 'system';
 type Theme = 'light' | 'dark';
+
+/**
+ * The desktop shell bridge, when the page is running inside Electron.
+ *
+ * The renderer draws its own `文件 编辑 视图 帮助` row because the native menu
+ * bar is hidden behind the custom title bar, so these are the window operations
+ * those menus drive. Everything is optional: in a plain browser (the Vite dev
+ * server, the static Pages demo) the object is absent and the corresponding
+ * menu items render disabled rather than throwing.
+ */
+interface DesktopShellBridge {
+  reload(): void;
+  toggleFullScreen(): void;
+  /** +1 zooms in, -1 zooms out, 0 returns to 100%. */
+  zoom(delta: number): void;
+  quit(): void;
+  openExternal(url: string): Promise<void>;
+}
+
+interface DesktopBridge {
+  readonly shell?: Partial<DesktopShellBridge>;
+  readonly settings?: {
+    get(): Promise<{ closeToTray?: boolean }>;
+    set(patch: { closeToTray?: boolean }): Promise<unknown>;
+  };
+  /** Named commands from the menu bar and the tray. */
+  onCommand?(listener: (payload: { command?: string; section?: string }) => void): () => void;
+}
+
+function desktopBridge(): DesktopBridge | null {
+  if (typeof window === 'undefined') return null;
+  const bridge = (window as { selbstlaufDesktop?: unknown }).selbstlaufDesktop;
+  return bridge !== null && typeof bridge === 'object' ? (bridge as DesktopBridge) : null;
+}
 
 /** Settings sections, in the order the reference panel presents them. */
 type SettingsTabId = 'general' | 'monitor' | 'about';
@@ -1287,10 +1324,231 @@ function SettingsPanel(props: {
 
 export interface AppProps { api?: WatchdogApi }
 
+/** The four menu labels, in the order the reference layout presents them. */
+const MENU_LABELS = ['文件', '编辑', '视图', '帮助'] as const;
+type MenuLabel = (typeof MENU_LABELS)[number];
+
+/** One row of a dropdown. `role` items without a click are display-only. */
+interface MenuEntry {
+  readonly label: string;
+  /** Items the desktop bridge performs; absent means "renderer action". */
+  readonly action?: keyof DesktopShellBridge | 'back-to-app' | 'hide' | 'about';
+  /** A zoom step for the `zoom` action. */
+  readonly delta?: number;
+  readonly url?: string;
+  /** True when the item needs a live desktop bridge to do anything. */
+  readonly needsBridge?: boolean;
+  readonly disabled?: boolean;
+  readonly shortcut?: string;
+}
+
+const MENU_ITEMS: Record<MenuLabel, readonly (MenuEntry | 'separator')[]> = {
+  文件: [
+    { label: '返回应用', action: 'back-to-app' },
+    'separator',
+    // The desktop app hides to the tray; a plain browser has nothing to hide
+    // into, so the item is disabled there rather than doing nothing silently.
+    { label: '隐藏到托盘', action: 'hide', needsBridge: true },
+  ],
+  编辑: [
+    { label: '撤销', shortcut: 'Ctrl+Z' },
+    { label: '重做', shortcut: 'Ctrl+Y' },
+    'separator',
+    { label: '剪切', shortcut: 'Ctrl+X' },
+    { label: '复制', shortcut: 'Ctrl+C' },
+    { label: '粘贴', shortcut: 'Ctrl+V' },
+    { label: '全选', shortcut: 'Ctrl+A' },
+  ],
+  视图: [
+    { label: '重新加载', action: 'reload', needsBridge: true, shortcut: 'Ctrl+R' },
+    'separator',
+    { label: '实际大小', action: 'zoom', delta: 0, needsBridge: true, shortcut: 'Ctrl+0' },
+    { label: '放大', action: 'zoom', delta: 1, needsBridge: true, shortcut: 'Ctrl+=' },
+    { label: '缩小', action: 'zoom', delta: -1, needsBridge: true, shortcut: 'Ctrl+-' },
+    'separator',
+    { label: '切换全屏', action: 'toggleFullScreen', needsBridge: true, shortcut: 'F11' },
+  ],
+  帮助: [
+    { label: '项目主页', url: 'https://github.com/dieWehmut/Selbstlauf' },
+    { label: '关于 Selbstlauf', action: 'about' },
+  ],
+};
+
+/**
+ * The renderer's own title bar row.
+ *
+ * With `titleBarStyle: 'hidden'` the OS paints nothing but the window buttons,
+ * so this row *is* the title bar: the whole row is a drag region and every
+ * interactive child opts back out with `no-drag`, otherwise clicks would be
+ * swallowed as window drags. The right edge reserves the gutter the native
+ * minimise / maximise-restore / close buttons occupy (see the CSS comment).
+ */
+function TitleBar(props: {
+  readonly sidebarCompact: boolean;
+  readonly onToggleSidebar: () => void;
+  readonly canGoBack: boolean;
+  readonly canGoForward: boolean;
+  readonly onBack: () => void;
+  readonly onForward: () => void;
+  readonly bridge: DesktopBridge | null;
+  readonly onAction: (entry: MenuEntry) => void;
+}) {
+  const [openMenu, setOpenMenu] = useState<MenuLabel | null>(null);
+  const shell = props.bridge?.shell;
+
+  // Clicking anywhere outside, or pressing Escape, dismisses the open dropdown.
+  useEffect(() => {
+    if (openMenu === null) return undefined;
+    const close = () => setOpenMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenMenu(null);
+    };
+    // `mousedown` rather than `click`, so the menu closes on the press that
+    // starts outside it instead of waiting for a full click.
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [openMenu]);
+
+  const open = openMenu === null ? null : MENU_ITEMS[openMenu];
+
+  return (
+    <div className="titlebar" role="toolbar" aria-label="窗口工具栏">
+      <button
+        className="titlebar__button"
+        type="button"
+        title={props.sidebarCompact ? '展开侧栏' : '收起侧栏'}
+        aria-label={props.sidebarCompact ? '展开侧栏' : '收起侧栏'}
+        onClick={props.onToggleSidebar}
+      >
+        {props.sidebarCompact ? <PanelLeftOpen size={17} /> : <PanelLeft size={17} />}
+      </button>
+      <button
+        className="titlebar__button"
+        type="button"
+        title="后退"
+        aria-label="后退"
+        disabled={!props.canGoBack}
+        aria-disabled={!props.canGoBack}
+        onClick={props.onBack}
+      >
+        <ArrowLeft size={17} />
+      </button>
+      <button
+        className="titlebar__button"
+        type="button"
+        title="前进"
+        aria-label="前进"
+        disabled={!props.canGoForward}
+        aria-disabled={!props.canGoForward}
+        onClick={props.onForward}
+      >
+        <ArrowRight size={17} />
+      </button>
+
+      <div className="titlebar__menus">
+        {MENU_LABELS.map((label) => {
+          const entries = MENU_ITEMS[label];
+          return (
+            <div className="titlebar__menu" key={label}>
+              <button
+                className={openMenu === label ? 'titlebar__menu-button is-open' : 'titlebar__menu-button'}
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === label}
+                onClick={() => setOpenMenu((current) => (current === label ? null : label))}
+              >
+                {label}
+              </button>
+              {openMenu === label && (
+                <div className="titlebar__dropdown" role="menu" aria-label={label}>
+                  {entries.map((entry, index) => {
+                    if (entry === 'separator') {
+                      return <div className="titlebar__separator" role="separator" key={`sep-${index}`} />;
+                    }
+                    // An item that needs the desktop bridge is disabled — with a
+                    // real accessible disabled state — in a plain browser.
+                    const needsBridge = entry.needsBridge === true && shell === undefined;
+                    const disabled = entry.disabled === true || needsBridge;
+                    return (
+                      <button
+                        className="titlebar__item"
+                        type="button"
+                        role="menuitem"
+                        key={entry.label}
+                        disabled={disabled}
+                        aria-disabled={disabled}
+                        title={needsBridge ? '仅在桌面应用中可用' : undefined}
+                        onClick={() => {
+                          setOpenMenu(null);
+                          props.onAction(entry);
+                        }}
+                      >
+                        <span>{entry.label}</span>
+                        {entry.shortcut && <span className="titlebar__shortcut">{entry.shortcut}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function App({ api: suppliedApi }: AppProps) {
   const api = useMemo(() => suppliedApi ?? createApi(), [suppliedApi]);
   const staticDemo = import.meta.env.VITE_STATIC_DEMO === 'true';
+  // Read once: the bridge is installed by the preload before the page script
+  // runs, so it never appears or disappears during a session.
+  const bridge = useMemo(() => desktopBridge(), []);
   const [page, setPage] = useState<Page>('overview');
+  /**
+   * In-app page history for the title bar's back/forward arrows.
+   *
+   * The app is a single route in a loopback page, so `window.history` has
+   * nothing to walk; the two stacks are the whole navigation model. `back`
+   * holds visited pages oldest-first and `forward` is the redo stack.
+   */
+  const [history, setHistory] = useState<{ back: Page[]; forward: Page[] }>({ back: [], forward: [] });
+
+  /**
+   * Change page and record it, so 后退 can return here.
+   *
+   * Every in-app navigation goes through this rather than `setPage`, otherwise
+   * a jump from the sidebar would be invisible to the arrows.
+   */
+  const navigate = (next: Page) => {
+    setPage((current) => {
+      if (current === next) return current;
+      setHistory((stack) => ({ back: [...stack.back, current], forward: [] }));
+      return next;
+    });
+  };
+
+  const goBack = () => {
+    setHistory((stack) => {
+      const previous = stack.back.at(-1);
+      if (previous === undefined) return stack;
+      setPage(previous);
+      return { back: stack.back.slice(0, -1), forward: [page, ...stack.forward] };
+    });
+  };
+
+  const goForward = () => {
+    setHistory((stack) => {
+      const [next, ...rest] = stack.forward;
+      if (next === undefined) return stack;
+      setPage(next);
+      return { back: [...stack.back, page], forward: rest };
+    });
+  };
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
     const stored = localStorage.getItem('watchdog-theme');
     return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark';
@@ -1331,6 +1589,85 @@ export default function App({ api: suppliedApi }: AppProps) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  /**
+   * Mark the document when the page really is inside the desktop shell.
+   *
+   * The right-hand gutter for the native window buttons is only reserved then;
+   * in a plain browser the title bar row uses ordinary padding instead of
+   * leaving a dead 148px strip under nothing.
+   */
+  useEffect(() => {
+    if (bridge === null) return undefined;
+    document.documentElement.dataset.shell = 'desktop';
+    return () => {
+      delete document.documentElement.dataset.shell;
+    };
+  }, [bridge]);
+
+  /**
+   * Follow commands from the native menu bar and the tray.
+   *
+   * The main process sends these over the bridge; the same two commands arrive
+   * from `文件 -> 返回应用` and from the tray's settings entries, so the
+   * renderer has one place that knows what "go to the app" and "open settings"
+   * mean. An unknown section falls back to simply opening the settings page.
+   */
+  useEffect(() => {
+    if (bridge?.onCommand === undefined) return undefined;
+    return bridge.onCommand((payload) => {
+      if (payload.command === 'back-to-app') {
+        navigate('overview');
+        setSidebarOpen(false);
+        return;
+      }
+      if (payload.command === 'open-settings') {
+        navigate('settings');
+        setSidebarOpen(false);
+      }
+    });
+  }, [bridge]);
+
+  /**
+   * Run a title bar menu item.
+   *
+   * Items that need the desktop bridge are already disabled without it, so this
+   * only ever calls into `shell` when it exists.
+   */
+  const runMenuAction = (entry: MenuEntry) => {
+    const shell = bridge?.shell;
+    if (entry.action === 'back-to-app') {
+      // Back to the overview and out of the mobile drawer, so the page the
+      // person lands on is the one they can actually see.
+      navigate('overview');
+      setSidebarOpen(false);
+      return;
+    }
+    if (entry.action === 'about') {
+      navigate('settings');
+      setSidebarOpen(false);
+      return;
+    }
+    if (entry.action === 'hide') {
+      // "隐藏到托盘" is the same gesture as the window's own close button: the
+      // desktop shell turns `close` into a hide (see the main process lifecycle),
+      // which is why this never calls the bridge's quit action — the tray owns
+      // the only real quit. In a plain browser the item is disabled anyway.
+      window.close();
+      return;
+    }
+    if (entry.url !== undefined) {
+      // External links go through the shell when there is one, so they open in
+      // the OS browser rather than navigating the app's own window.
+      if (shell?.openExternal !== undefined) void shell.openExternal(entry.url);
+      else window.open(entry.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (entry.action === 'zoom') shell?.zoom?.(entry.delta ?? 0);
+    if (entry.action === 'reload') shell?.reload?.();
+    if (entry.action === 'toggleFullScreen') shell?.toggleFullScreen?.();
+    if (entry.action === 'quit') shell?.quit?.();
+  };
 
   /**
    * Paint the chosen palette onto the document root.
@@ -1687,10 +2024,22 @@ export default function App({ api: suppliedApi }: AppProps) {
 
   return (
     <div className={`app-shell ${sidebarCompact ? 'app-shell--compact' : ''}`}>
+      {/* Row 1 spans both grid columns: it is the window's title bar, so the
+          sidebar must not sit beside it. */}
+      <TitleBar
+        sidebarCompact={sidebarCompact}
+        onToggleSidebar={() => setSidebarCompact((current) => !current)}
+        canGoBack={history.back.length > 0}
+        canGoForward={history.forward.length > 0}
+        onBack={goBack}
+        onForward={goForward}
+        bridge={bridge}
+        onAction={runMenuAction}
+      />
       <button className={`mobile-overlay ${sidebarOpen ? 'is-open' : ''}`} type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)} />
       <aside id="watchdog-sidebar" className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="brand"><span className="brand__mark" data-testid="brand-mark"><img src={brandIcon} alt="" width={34} height={34} /></span><div><strong>Selbstlauf</strong><span>continuation watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
-        <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { setPage(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
+        <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { navigate(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
         <div className="sidebar__footer"><div className="service-mini"><span className={`status-light ${connected ? 'is-online' : ''}`} /><div><strong>{connected ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong><span>{sessions.length} 个进程</span></div></div><button className="nav-button" type="button" title={theme === 'dark' ? '切换亮色' : '切换暗色'} onClick={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{theme === 'dark' ? '亮色' : '暗色'}</span></button><button className="compact-toggle icon-button" type="button" title={sidebarCompact ? '展开侧栏' : '收起侧栏'} aria-label={sidebarCompact ? '展开侧栏' : '收起侧栏'} onClick={() => setSidebarCompact(!sidebarCompact)}>{sidebarCompact ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
       </aside>
 
@@ -1702,7 +2051,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         {page === 'overview' && <div className="page-content">
           <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{sessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>服务状态</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : connected ? '已停止' : '离线'}</strong></div></section>
           <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : staticDemo ? '样例数据' : '等待连接'}</span></div><ProcessTable sessions={sessions} config={config} busy={busy} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
-          <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => setPage('timeline')}>查看全部</button></div><Timeline events={events.slice(0, 5)} /></section>
+          <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => navigate('timeline')}>查看全部</button></div><Timeline events={events.slice(0, 5)} /></section>
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{events.length} 条</span></div><Timeline events={events} /></section></div>}
