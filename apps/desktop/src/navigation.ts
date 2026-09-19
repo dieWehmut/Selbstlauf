@@ -28,7 +28,19 @@ export const DEFAULT_WINDOW_POLICY = Object.freeze({
  * itself so the native buttons sit on the same surface as the page.
  */
 export const TITLE_BAR_OVERLAY = Object.freeze({
-  height: 40,
+  /**
+   * 35px of content plus a 1px bottom border, which is what the supplied
+   * reference measures.
+   *
+   * The reference capture is exactly 2x DPI — its caption glyphs are 20px wide
+   * and adjacent button centres are 92px apart, both precisely double the
+   * Windows 11 metrics (10px glyphs, 46px button pitch) — and its title bar spans
+   * 71 physical rows, so 35.5 logical px. The renderer box is `border-box`, so a
+   * 36px row is 35px of content plus the border and matches within the 0.5px the
+   * measurement can resolve. This was 40px, which made the app's top edge about
+   * 12% taller than the image the layout was asked to match.
+   */
+  height: 36,
   /**
    * Matches the title bar the renderer paints.
    *

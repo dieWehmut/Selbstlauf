@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import {
   DEFAULT_WINDOW_POLICY,
@@ -77,13 +79,48 @@ test('allows caller overrides without dropping the security defaults', () => {
   assert.equal(options.webPreferences.contextIsolation, true);
 });
 
+/**
+ * The renderer's title-bar height lives in two files: `TITLE_BAR_OVERLAY.height`
+ * decides where the OS draws its window buttons, and the stylesheet's
+ * `--titlebar-height` decides how tall the page draws the row. They must agree or
+ * the two halves of the top edge misalign, and they drifted before: the row, the
+ * sidebar's sticky offset and the sidebar height were three separate `40px`
+ * literals that no test tied back to the constant.
+ */
+test('keeps the stylesheet title-bar height in step with the overlay height', () => {
+  // Tests run from dist/test, so the repository root is four levels up.
+  const css = readFileSync(
+    resolve(import.meta.dirname, '..', '..', '..', '..', 'apps', 'web', 'src', 'styles', 'index.css'),
+    'utf8',
+  );
+  const token = /--titlebar-height:\s*(\d+)px/u.exec(css);
+  assert.ok(token, 'the stylesheet must define --titlebar-height');
+  assert.equal(
+    Number(token[1]),
+    TITLE_BAR_OVERLAY.height,
+    'the page row and the native window buttons must be the same height',
+  );
+  // No stray literal may reintroduce the drift.
+  const row = /\.titlebar\s*\{[^}]*height:\s*([^;]+);/u.exec(css);
+  assert.ok(row, 'the .titlebar rule must set a height');
+  assert.match(row[1], /var\(--titlebar-height\)/u, '.titlebar must use the shared token');
+});
+
 test('draws the title bar in the page while the window controls stay native', () => {
   const options = createWindowOptions({ serviceOrigin: ORIGIN });
   // Hidden chrome + an overlay gives the renderer the whole top row while the OS
   // keeps owning (and hit-testing) minimise / maximise-restore / close.
   assert.equal(options.titleBarStyle, 'hidden');
   assert.deepEqual(options.titleBarOverlay, TITLE_BAR_OVERLAY);
-  assert.equal(options.titleBarOverlay.height, 40);
+  /**
+   * 36px: 35px of content plus the 1px bottom border, which is what the supplied
+   * reference measures. That capture is exactly 2x DPI — its caption glyphs are
+   * 20px wide and adjacent button centres 92px apart, both precisely double the
+   * Windows 11 metrics — and its bar spans 71 physical rows, so 35.5 logical px.
+   * This was 40px, making the app's top edge ~12% taller than the image the
+   * layout was asked to match.
+   */
+  assert.equal(options.titleBarOverlay.height, 36);
   /**
    * Regression: this was `#0b1120` while the page painted its title bar
    * `#1a1e22`, so the OS window buttons sat on a visibly different strip and the
