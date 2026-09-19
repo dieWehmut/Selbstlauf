@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  TITLE_BAR_OVERLAY,
   applyNavigationPolicy,
   createWindowOptions,
   type DesktopWindowOptions,
@@ -132,6 +133,8 @@ export interface ManagedWindow extends ElectronWindow {
   isMinimized(): boolean;
   restore(): void;
   isDestroyed(): boolean;
+  /** Repaints the native window-button strip; Electron-only, so optional here. */
+  setTitleBarOverlay?(overlay: { color: string; symbolColor?: string; height?: number }): void;
 }
 
 export interface DesktopWindowRequest {
@@ -293,12 +296,32 @@ export function registerShellHandlers(
     readonly openExternal: (url: string) => Promise<void> | void;
     readonly settings: () => Promise<DesktopSettings>;
     readonly saveSettings: (patch: unknown) => Promise<DesktopSettings>;
+    /** Repaint the native window-button strip; optional so stubs keep working. */
+    readonly setTitleBarOverlay?: (colors: { color: string; symbolColor?: string }) => void;
   },
 ): boolean {
   const ipcMain = shell.ipcMain;
   if (ipcMain === undefined) return false;
   ipcMain.handle(SHELL_CHANNELS.invoke, (_event, payload: unknown) => {
     const request = parseShellRequest(payload);
+    // Repainting the native strip must work before the window is usable: the
+    // renderer reports its title-bar colour as soon as it paints, which can land
+    // while the window is still being wired up. Every other action needs a live
+    // window, so it keeps the guard.
+    if (request.action === 'setTitleBarOverlay') {
+      applyShellAction(
+        {
+          window: { reload: () => undefined },
+          quit: context.quit,
+          openExternal: context.openExternal,
+          ...(context.setTitleBarOverlay === undefined
+            ? {}
+            : { setTitleBarOverlay: context.setTitleBarOverlay }),
+        },
+        request,
+      );
+      return null;
+    }
     const window = context.window();
     if (window === null) return null;
     applyShellAction(
@@ -312,6 +335,9 @@ export function registerShellHandlers(
         },
         quit: context.quit,
         openExternal: context.openExternal,
+        ...(context.setTitleBarOverlay === undefined
+          ? {}
+          : { setTitleBarOverlay: context.setTitleBarOverlay }),
       },
       request,
     );

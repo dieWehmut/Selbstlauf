@@ -69,8 +69,18 @@ test('draws the title bar in the page while the window controls stay native', ()
   assert.equal(options.titleBarStyle, 'hidden');
   assert.deepEqual(options.titleBarOverlay, TITLE_BAR_OVERLAY);
   assert.equal(options.titleBarOverlay.height, 40);
-  assert.equal(options.titleBarOverlay.color, '#0b1120');
-  assert.equal(options.titleBarOverlay.symbolColor, '#e2e8f0');
+  /**
+   * Regression: this was `#0b1120` while the page painted its title bar
+   * `#1a1e22`, so the OS window buttons sat on a visibly different strip and the
+   * top row read as two pieces. Measured on a real window at 1456x908.
+   */
+  assert.equal(
+    options.titleBarOverlay.color,
+    '#1a1e22',
+    'the overlay must match the built-in dark title bar (--panel-soft)',
+  );
+  assert.notEqual(options.titleBarOverlay.color, '#0b1120', 'the old mismatched colour must not return');
+  assert.equal(options.titleBarOverlay.symbolColor, '#e9eef0');
   // The overlay is frozen so the renderer's reserve cannot drift from the window.
   assert.equal(Object.isFrozen(TITLE_BAR_OVERLAY), true);
   // The OS menu bar stays out of the way; the renderer draws its own row.
