@@ -1312,8 +1312,8 @@ export default function App({ api: suppliedApi }: AppProps) {
   const [environmentUpgrading, setEnvironmentUpgrading] = useState<string | null>(null);
   const [applyingProfile, setApplyingProfile] = useState(false);
   const [config, setConfig] = useState(fallbackConfig);
-  const [sessions, setSessions] = useState<SessionView[]>(fallbackSessions);
-  const [events, setEvents] = useState<AuditEvent[]>(fallbackEvents);
+  const [sessions, setSessions] = useState<SessionView[]>(staticDemo ? fallbackSessions : []);
+  const [events, setEvents] = useState<AuditEvent[]>(staticDemo ? fallbackEvents : []);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1406,14 +1406,13 @@ export default function App({ api: suppliedApi }: AppProps) {
 
   const refresh = async () => {
     try {
-      const [nextHealth, nextConfig, nextSessions, nextStartup, nextHookStatus, nextCodexProfiles, nextEnvironment] = await Promise.all([
+      const [nextHealth, nextConfig, nextSessions, nextStartup, nextHookStatus, nextCodexProfiles] = await Promise.all([
         api.health(),
         api.config(),
         api.sessions(),
         api.startup(),
         api.claudeHook(),
         api.codexProfiles(),
-        api.environment(),
       ]);
       setHealth(nextHealth);
       setConfig(nextConfig);
@@ -1421,7 +1420,6 @@ export default function App({ api: suppliedApi }: AppProps) {
       setStartupInstalled(nextStartup.installed);
       setHookStatus(nextHookStatus);
       setCodexProfiles(nextCodexProfiles);
-      setEnvironment(nextEnvironment);
       setConnected(true);
     } catch {
       setConnected(false);
@@ -1430,13 +1428,30 @@ export default function App({ api: suppliedApi }: AppProps) {
 
   useEffect(() => {
     if (staticDemo && suppliedApi === undefined) return undefined;
+    let active = true;
+    let environmentPending = false;
+    // npm diagnostics can be slow; they must not hold up monitoring or controls.
+    const loadEnvironment = async () => {
+      if (environmentPending) return;
+      environmentPending = true;
+      try {
+        const report = await api.environment();
+        if (active) setEnvironment(report);
+      } catch {
+        // Keep the last report and let the next poll retry independently.
+      } finally { environmentPending = false; }
+    };
     void refresh();
+    void loadEnvironment();
     const unsubscribe = api.subscribe((event: WatchdogEvent) => {
       if (event.kind === 'audit') setEvents((current) => [event.event, ...current].slice(0, 100));
       else void refresh();
     });
-    const timer = window.setInterval(() => void refresh(), 10_000);
-    return () => { unsubscribe(); window.clearInterval(timer); };
+    const timer = window.setInterval(() => {
+      void refresh();
+      void loadEnvironment();
+    }, 10_000);
+    return () => { active = false; unsubscribe(); window.clearInterval(timer); };
   }, [api, staticDemo]);
 
   const mutateSession = async (session: SessionView, action: 'pause' | 'inject') => {
@@ -1676,7 +1691,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       <aside id="watchdog-sidebar" className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="brand"><span className="brand__mark" data-testid="brand-mark"><img src={brandIcon} alt="" width={34} height={34} /></span><div><strong>Selbstlauf</strong><span>continuation watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
         <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { setPage(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
-        <div className="sidebar__footer"><div className="service-mini"><span className={`status-light ${connected ? 'is-online' : ''}`} /><div><strong>{connected ? '服务在线' : '离线预览'}</strong><span>{sessions.length} 个进程</span></div></div><button className="nav-button" type="button" title={theme === 'dark' ? '切换亮色' : '切换暗色'} onClick={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{theme === 'dark' ? '亮色' : '暗色'}</span></button><button className="compact-toggle icon-button" type="button" title={sidebarCompact ? '展开侧栏' : '收起侧栏'} aria-label={sidebarCompact ? '展开侧栏' : '收起侧栏'} onClick={() => setSidebarCompact(!sidebarCompact)}>{sidebarCompact ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
+        <div className="sidebar__footer"><div className="service-mini"><span className={`status-light ${connected ? 'is-online' : ''}`} /><div><strong>{connected ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong><span>{sessions.length} 个进程</span></div></div><button className="nav-button" type="button" title={theme === 'dark' ? '切换亮色' : '切换暗色'} onClick={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{theme === 'dark' ? '亮色' : '暗色'}</span></button><button className="compact-toggle icon-button" type="button" title={sidebarCompact ? '展开侧栏' : '收起侧栏'} aria-label={sidebarCompact ? '展开侧栏' : '收起侧栏'} onClick={() => setSidebarCompact(!sidebarCompact)}>{sidebarCompact ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
       </aside>
 
       <main className="workspace">
@@ -1686,7 +1701,7 @@ export default function App({ api: suppliedApi }: AppProps) {
 
         {page === 'overview' && <div className="page-content">
           <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{sessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>服务状态</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : connected ? '已停止' : '离线'}</strong></div></section>
-          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : '样例数据'}</span></div><ProcessTable sessions={sessions} config={config} busy={busy} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
+          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : staticDemo ? '样例数据' : '等待连接'}</span></div><ProcessTable sessions={sessions} config={config} busy={busy} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
           <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => setPage('timeline')}>查看全部</button></div><Timeline events={events.slice(0, 5)} /></section>
         </div>}
 

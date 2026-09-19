@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Component, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
-import type { SessionView, WatchdogApi, WatchdogEvent } from '../src/api/client';
+import type { HealthView, SessionView, WatchdogApi, WatchdogEvent } from '../src/api/client';
 import type { EnvironmentView } from '../src/api/client';
 
 function api(): WatchdogApi {
@@ -72,6 +72,16 @@ function stoppedApi(): WatchdogApi {
   const fake = api();
   fake.health = vi.fn(async () => ({ ok: true, running: false, dryRun: true, lastPollAtMs: Date.now() - 2_000 }));
   return fake;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -243,6 +253,70 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
 
 
 describe('watchdog dashboard', () => {
+  it('shows no example sessions while the local service is still connecting', () => {
+    const fake = api();
+    const pendingHealth = deferred<HealthView>();
+    fake.health = vi.fn(() => pendingHealth.promise);
+    render(<App api={fake} />);
+
+    expect(screen.getByText('0 个进程')).toBeInTheDocument();
+    expect(screen.queryAllByRole('button', { name: /立即续写 PID/ })).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: '事件' }));
+    expect(screen.getByText('暂无事件')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '进程' }));
+    expect(screen.queryByText('样例数据')).not.toBeInTheDocument();
+  });
+
+  it('keeps example sessions in the static demo', () => {
+    vi.stubEnv('VITE_STATIC_DEMO', 'true');
+    const view = render(<App />);
+    try {
+      expect(screen.getByText('4 个进程')).toBeInTheDocument();
+      expect(screen.getAllByText('PID 336756').length).toBeGreaterThan(0);
+      expect(screen.getByText('样例数据')).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('updates monitoring and session controls while the environment scan is pending', async () => {
+    const fake = api();
+    const pendingEnvironment = deferred<EnvironmentView>();
+    let sessions = await fake.sessions();
+    fake.environment = vi.fn(() => pendingEnvironment.promise);
+    fake.sessions = vi.fn(async () => sessions);
+    fake.pause = vi.fn(async (id: string) => {
+      sessions = sessions.map((session) => session.id === id ? { ...session, paused: true } : session);
+    });
+    render(<App api={fake} />);
+
+    expect(await screen.findByText('服务在线')).toBeInTheDocument();
+    expect(screen.getAllByText('PID 10').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole('button', { name: '暂停 PID 10' })[0]);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '恢复 PID 10' })[0]).toBeEnabled());
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    fireEvent.click(screen.getByRole('tab', { name: '关于' }));
+    expect(screen.queryByRole('heading', { name: '本地环境检查' })).not.toBeInTheDocument();
+    await act(async () => pendingEnvironment.resolve(environment));
+    expect(await screen.findByRole('heading', { name: '本地环境检查' })).toBeInTheDocument();
+    expect(screen.getByText('2.1.274')).toBeInTheDocument();
+    expect(screen.getByText('服务在线')).toBeInTheDocument();
+  });
+
+  it('keeps monitoring online when the environment scan rejects', async () => {
+    const fake = api();
+    const pendingEnvironment = deferred<EnvironmentView>();
+    fake.environment = vi.fn(() => pendingEnvironment.promise);
+    render(<App api={fake} />);
+
+    await act(async () => pendingEnvironment.reject(new Error('npm lookup failed')));
+    expect(await screen.findByText('服务在线')).toBeInTheDocument();
+    expect(screen.getAllByText('PID 10').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '紧急停止' })).toBeEnabled();
+  });
+
   it('brands the sidebar with the Selbstlauf icon', async () => {
     render(<App api={api()} />);
     const mark = await screen.findByTestId('brand-mark');
