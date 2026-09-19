@@ -1,4 +1,4 @@
-﻿import { existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -156,9 +156,9 @@ export interface WindowIconOptions {
  * Electron only loads an icon from an absolute path, so both shipped layouts are
  * probed in order:
  *
- *  - `resources/build/icon.ico` 鈥?the packaged install (electron-builder copies
+ *  - `resources/build/icon.ico` — the packaged install (electron-builder copies
  *    it there as an extraResource).
- *  - `<appRoot>/build/icon.ico` 鈥?a repository checkout.
+ *  - `<appRoot>/build/icon.ico` — a repository checkout.
  *
  * The packaged path used to be missing from the build, which silently cost the
  * app both its taskbar icon and its tray: without a tray, closing the window
@@ -513,7 +513,7 @@ export async function main(): Promise<void> {
    * Register the shell IPC handlers before any window opens.
    *
    * The renderer reports its title-bar colour as soon as it paints, which happens
-   * while the window is still loading 鈥?before `hostAndLaunch` resolves. Register
+   * while the window is still loading — before `hostAndLaunch` resolves. Register
    * afterwards and that first report hits "No handler registered", which the
    * preload's fire-and-forget call swallows, leaving the native button strip on
    * its stale colour and splitting the top row into two visibly different strips.
