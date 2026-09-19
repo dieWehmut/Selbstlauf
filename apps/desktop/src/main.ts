@@ -1,4 +1,4 @@
-﻿import { existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -156,9 +156,9 @@ export interface WindowIconOptions {
  * Electron only loads an icon from an absolute path, so both shipped layouts are
  * probed in order:
  *
- *  - `resources/build/icon.ico` 鈥?the packaged install (electron-builder copies
+ *  - `resources/build/icon.ico` — the packaged install (electron-builder copies
  *    it there as an extraResource).
- *  - `<appRoot>/build/icon.ico` 鈥?a repository checkout.
+ *  - `<appRoot>/build/icon.ico` — a repository checkout.
  *
  * The packaged path used to be missing from the build, which silently cost the
  * app both its taskbar icon and its tray: without a tray, closing the window
@@ -366,16 +366,23 @@ export function registerShellHandlers(
 }
 
 /**
- * Confirm the renderer actually received the preload bridge.
+ * Confirm the renderer actually received the preload bridge and is hardened.
  *
- * A preload that fails to load is silent: Electron emits no `preload-error` for
- * a sandboxed preload it cannot execute, and every renderer call is
- * fire-and-forget, so the only symptom is that features quietly stop working.
- * That is exactly how a `.mjs` preload shipped broken. This checks once after
- * load and writes to stderr, so the failure is visible in a log instead of being
- * discovered by measuring pixels months later.
+ * Two failures are silent and both have shipped:
  *
- * It is diagnostic only: a missing bridge must not stop the window from opening,
+ *  - A preload that fails to load emits no `preload-error` for a sandboxed
+ *    preload Electron cannot execute, and every renderer call is fire-and-forget,
+ *    so features just quietly stop working. A `.mjs` preload shipped that way.
+ *  - Flattening `webPreferences` makes Electron ignore `sandbox`,
+ *    `contextIsolation` and `preload` together, so the renderer runs with
+ *    *default*, weaker privileges while every unit test still passes.
+ *
+ * This checks the observable facts once after load and writes any failure to
+ * stderr. The checks read the renderer's own globals rather than the options
+ * object, because the options object is what lied: Node globals must be absent
+ * from the page, and `process.sandboxed` must be true.
+ *
+ * It is diagnostic only: a weaker renderer must not stop the window from opening,
  * since the console still works without the desktop extras.
  */
 export async function verifyPreloadBridge(window: ManagedWindow): Promise<boolean> {
@@ -384,13 +391,43 @@ export async function verifyPreloadBridge(window: ManagedWindow): Promise<boolea
   };
   if (target.executeJavaScript === undefined) return false;
   try {
-    const result = await target.executeJavaScript(
-      "typeof window.selbstlaufDesktop !== 'undefined' && typeof window.selbstlaufDesktop.shell === 'object'",
+    const report = await target.executeJavaScript(
+      `JSON.stringify({
+         bridge: typeof window.selbstlaufDesktop !== 'undefined'
+           && typeof window.selbstlaufDesktop.shell === 'object',
+         sandboxed: typeof process !== 'undefined' ? process.sandboxed === true : null,
+         nodeLeaked: typeof window.require !== 'undefined'
+           || typeof window.module !== 'undefined'
+           || typeof window.Buffer !== 'undefined'
+           || typeof window.global !== 'undefined',
+         electronLeaked: typeof window.electron !== 'undefined'
+           || typeof window.ipcRenderer !== 'undefined'
+       })`,
     );
-    if (result !== true) {
-      process.stderr.write(
-        'preload bridge missing: window.selbstlaufDesktop is not available in the renderer\n',
-      );
+    const parsed = typeof report === 'string' ? JSON.parse(report) : null;
+    if (parsed === null) {
+      process.stderr.write('preload bridge check returned an unreadable result\n');
+      return false;
+    }
+
+    const problems: string[] = [];
+    if (parsed.bridge !== true) {
+      problems.push('window.selbstlaufDesktop is not available in the renderer');
+    }
+    // `null` means `process` is absent entirely, which is the strongest form of
+    // isolation; only an explicit `false` is a regression.
+    if (parsed.sandboxed === false) {
+      problems.push('the renderer is not sandboxed (webPreferences.sandbox was ignored)');
+    }
+    if (parsed.nodeLeaked === true) {
+      problems.push('Node globals are reachable from the page (contextIsolation/nodeIntegration ignored)');
+    }
+    if (parsed.electronLeaked === true) {
+      problems.push('the electron/ipcRenderer internals leaked onto the page');
+    }
+
+    if (problems.length > 0) {
+      process.stderr.write(`renderer verification failed: ${problems.join('; ')}\n`);
       return false;
     }
     return true;
@@ -476,7 +513,7 @@ export async function main(): Promise<void> {
    * Register the shell IPC handlers before any window opens.
    *
    * The renderer reports its title-bar colour as soon as it paints, which happens
-   * while the window is still loading 鈥?before `hostAndLaunch` resolves. Register
+   * while the window is still loading — before `hostAndLaunch` resolves. Register
    * afterwards and that first report hits "No handler registered", which the
    * preload's fire-and-forget call swallows, leaving the native button strip on
    * its stale colour and splitting the top row into two visibly different strips.
