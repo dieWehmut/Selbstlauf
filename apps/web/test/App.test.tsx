@@ -833,6 +833,21 @@ describe('window title bar', () => {
       expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
       act(() => deliver?.({ command: 'back-to-app' }));
       expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+
+      /**
+       * The tray's 关于 Selbstlauf sends `open-settings` **with** the account
+       * section, so the named section must actually be selected. Verified live
+       * against the installed app before this assertion was added: the tray item
+       * landed on 账户 and showed 关于 and 本地环境检查.
+       */
+      act(() => deliver?.({ command: 'open-settings', section: 'account' }));
+      const rail = await screen.findByRole('tablist', { name: '设置分区' });
+      expect(within(rail).getByRole('tab', { name: '账户' })).toHaveAttribute('aria-selected', 'true');
+      expect(await screen.findByRole('heading', { name: '关于' })).toBeInTheDocument();
+
+      // An unknown section opens the settings page rather than doing nothing.
+      act(() => deliver?.({ command: 'open-settings', section: 'no-such-section' }));
+      expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
     } finally {
       view.unmount();
       delete (window as { selbstlaufDesktop?: unknown }).selbstlaufDesktop;
