@@ -744,6 +744,18 @@ export function isWritableSession(session: SessionView): boolean {
   return session.alive === true && session.enabled === true && session.paused === false;
 }
 
+/**
+ * The decision label an event carries. The service records the watchdog
+ * decision in `details.decision`; other events only have a kind, and an event
+ * with neither is reported as `未记录` rather than guessed at.
+ */
+export function eventDecision(event: AuditEvent): string {
+  const recorded = event.details?.decision;
+  if (typeof recorded === 'string' && recorded.trim().length > 0) return recorded;
+  if (typeof event.type === 'string' && event.type.trim().length > 0) return event.type;
+  return '未记录';
+}
+
 export function UsageSection(props: {
   readonly sessions: readonly SessionView[];
   readonly events: readonly AuditEvent[];
@@ -753,7 +765,7 @@ export function UsageSection(props: {
 
   const breakdown = new Map<string, number>();
   for (const event of props.events) {
-    const decision = typeof event.type === 'string' && event.type.trim().length > 0 ? event.type : '未记录';
+    const decision = eventDecision(event);
     breakdown.set(decision, (breakdown.get(decision) ?? 0) + 1);
   }
 
