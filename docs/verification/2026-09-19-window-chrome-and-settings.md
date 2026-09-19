@@ -457,6 +457,36 @@ present, `resources/build/icon.ico` present, the renderer verification silent
 (bridge loaded, renderer sandboxed, no Node globals leaked), the title bar uniform
 at `#1A1E22`, the service running and four sessions discovered.
 
+### All three published assets verified, including arm64
+
+Only the x64 asset had ever been installed; the arm64 and combined installers were
+unexamined, and the arm64 payload has a documented history of failing silently —
+`useZip` exists because the NSIS 7z plugin once skipped every ARM64-filtered binary
+and still exited 0 with `Selbstlauf.exe` and every DLL missing. A host that cannot
+run ARM64 cannot install-test that build, so the published payloads were verified
+structurally instead, which is the same failure mode:
+
+All three digests match the SHA-256 GitHub records for the release, and
+`7za t` reports `Everything is Ok` for each.
+
+**arm64 asset** (`Selbstlauf-Setup-0.2.4-arm64.exe`, 146.09 MB):
+- Payload type is `zip`, not `7z`, so the `useZip` mitigation is in effect.
+- 158 files extracted, 386 MB uncompressed (not a truncated archive).
+- All 17 files the acceptance script requires are present, including
+  `Selbstlauf.exe`, every shipped DLL, `resources\app.asar`,
+  `resources\preload.cjs`, `resources\build\icon.ico`,
+  `resources\web-dist\index.html`, and both PowerShell providers.
+- `Selbstlauf.exe`'s PE machine type is `0xAA64` — genuinely ARM64, not an x64
+  build mislabelled.
+
+**combined asset** (`Selbstlauf-Setup-0.2.4.exe`, 293.47 MB): it carries two
+payload streams. The first is the ARM64 tree; the second was carved out and is the
+x64 tree (`0x8664`), so the combined installer really does ship both.
+
+**x64 asset** (`Selbstlauf-Setup-0.2.4-x64.exe`, 148.07 MB): digest matched and
+the full `verify-installer.ps1` acceptance run passed against it, then it was
+installed on this host.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
