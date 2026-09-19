@@ -168,13 +168,80 @@ test('opens a hardened window pointed at a healthy watchdog service', async () =
     assert.equal(target.pid, 4321);
     assert.equal(stub.loaded[0], `http://127.0.0.1:${address.port}`);
     assert.equal(stub.windows[0]?.width, DEFAULT_WINDOW.width);
-    assert.equal(stub.windows[0]?.contextIsolation, true);
-    assert.equal(stub.windows[0]?.nodeIntegration, false);
-    assert.equal(stub.windows[0]?.sandbox, true);
+    // The hardening must be nested: Electron reads it only from webPreferences, so
+    // a flattened spelling is silently ignored (see navigation.test.ts).
+    const prefs = stub.windows[0]?.webPreferences as Record<string, unknown> | undefined;
+    assert.equal(prefs?.contextIsolation, true);
+    assert.equal(prefs?.nodeIntegration, false);
+    assert.equal(prefs?.sandbox, true);
     assert.equal(stub.windows[0]?.show, false);
   } finally {
     await new Promise<void>((resolve_) => server.close(() => resolve_()));
     await rm(localAppData, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Regression: `preload` must be nested under `webPreferences`.
+ *
+ * On the top level Electron ignores it, so the renderer gets no bridge at all:
+ * `window.selbstlaufDesktop` is undefined and the window menus, the settings
+ * store and the title-bar colour report all silently stop working, because every
+ * bridge call is fire-and-forget. Verified live: a minimal preload exposing
+ * `minimalProbe` also produced `undefined` while the option sat on the top level.
+ */
+test('passes the preload through webPreferences so the renderer gets its bridge', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-preload-'));
+  await mkdir(join(root, 'service-dist', 'src'), { recursive: true });
+  await mkdir(join(root, 'web-dist'), { recursive: true });
+  await writeFile(join(root, 'service-dist', 'src', 'index.js'), '', 'utf8');
+
+  const stub = buildShell();
+  try {
+    await hostAndLaunch(stub.shell, {
+      appRoot: root,
+      resourcesPath: root,
+      preloadPath: join(root, 'preload.mjs'),
+      environment: { LOCALAPPDATA: root } as NodeJS.ProcessEnv,
+      startService: async () => ({
+        origin: 'http://127.0.0.1:48500',
+        pid: 4242,
+        reused: false,
+        stop: async () => undefined,
+      }),
+    });
+    const options = stub.windows[0] ?? {};
+    const prefs = options.webPreferences as Record<string, unknown> | undefined;
+    assert.equal(prefs?.preload, join(root, 'preload.mjs'), 'the preload must be nested');
+    assert.equal('preload' in options, false, 'a top-level preload is silently ignored by Electron');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('omits the preload when none is configured, instead of passing undefined', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-nopreload-'));
+  await mkdir(join(root, 'service-dist', 'src'), { recursive: true });
+  await mkdir(join(root, 'web-dist'), { recursive: true });
+  await writeFile(join(root, 'service-dist', 'src', 'index.js'), '', 'utf8');
+
+  const stub = buildShell();
+  try {
+    await hostAndLaunch(stub.shell, {
+      appRoot: root,
+      resourcesPath: root,
+      environment: { LOCALAPPDATA: root } as NodeJS.ProcessEnv,
+      startService: async () => ({
+        origin: 'http://127.0.0.1:48500',
+        pid: 4242,
+        reused: false,
+        stop: async () => undefined,
+      }),
+    });
+    const prefs = (stub.windows[0] ?? {}).webPreferences as Record<string, unknown> | undefined;
+    assert.equal('preload' in (prefs ?? {}), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -333,7 +400,8 @@ test('opens the window on a freshly started bundled service', async () => {
     assert.equal(hosted.target.url, 'http://127.0.0.1:48500');
     assert.equal(hosted.target.pid, 4242);
     assert.equal(stub.loaded[0], 'http://127.0.0.1:48500');
-    assert.equal(stub.windows[0]?.sandbox, true);
+    const prefs = stub.windows[0]?.webPreferences as Record<string, unknown> | undefined;
+    assert.equal(prefs?.sandbox, true);
     await hosted.host?.stop();
     assert.equal(stopped, 1);
   } finally {

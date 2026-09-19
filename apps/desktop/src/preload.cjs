@@ -1,4 +1,16 @@
-import { contextBridge, ipcRenderer } from 'electron';
+/**
+ * Preload bridge for the sandboxed renderer.
+ *
+ * This file is CommonJS (`require`), not ESM, and that is load-bearing. Electron
+ * loads a preload into a *sandboxed* context, and a sandboxed preload cannot be an
+ * ES module: with `import` statements it fails with "Cannot use import statement
+ * outside a module", which takes the entire renderer bridge down with it —
+ * `window.selbstlaufDesktop` becomes undefined, and because every call below is
+ * fire-and-forget the window menus, the settings store and the title-bar colour
+ * report all stop working with nothing in the log. Do not convert this file back
+ * to ESM without also moving the window off `sandbox: true`.
+ */
+const { contextBridge, ipcRenderer } = require('electron');
 
 // The renderer runs sandboxed with context isolation, so it receives display
 // metadata and a small, explicitly enumerated set of window operations - never
@@ -30,8 +42,8 @@ contextBridge.exposeInMainWorld('selbstlaufDesktop', {
     // actually used and the native window-button strip is repainted to match.
     setTitleBarOverlay: (colors) => void invoke({
       action: 'setTitleBarOverlay',
-      color: colors?.color,
-      symbolColor: colors?.symbolColor,
+      color: colors && colors.color,
+      symbolColor: colors && colors.symbolColor,
     }),
   }),
   settings: Object.freeze({

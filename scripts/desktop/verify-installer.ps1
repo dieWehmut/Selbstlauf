@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # Install the Selbstlauf desktop setup silently, assert the installed app is
 # complete and able to host its bundled watchdog service, then uninstall it.
 #
@@ -42,7 +42,7 @@ $requiredFiles = @(
     'icudtl.dat',
     'resources.pak',
     'resources\app.asar',
-    'resources\preload.mjs',
+    'resources\preload.cjs',
     'resources\web-dist\index.html',
     'resources\service-dist\src\index.js',
     # The service resolves its process provider beside its own module. tsc never
