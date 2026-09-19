@@ -16,6 +16,7 @@ import {
   placeholderUrl,
   registerShellHandlers,
   resolveDesktopTarget,
+  resolveWindowIconPath,
   type ElectronShell,
   type ElectronWindow,
 } from '../src/main.js';
@@ -201,6 +202,57 @@ test('brands the window with the shipped Selbstlauf icon', async () => {
     assert.equal(stub.windows[0]?.icon, join(root, 'build', 'icon.ico'));
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Regression: the packaged install keeps the icon at `resources/build/icon.ico`,
+ * but the packaging config did not copy it there. Resolution used to look only
+ * beside the app (inside app.asar), so a packaged build found no icon and could
+ * not construct a tray at all — which silently turned 关闭即隐藏 into a real quit
+ * that also stopped the bundled service.
+ */
+test('finds the branded icon in the packaged resources layout', async () => {
+  // `resourcesPath` is the install's resources directory: it holds service-dist,
+  // web-dist and build/icon.ico. `appRoot` is the unpacked asar, which has no
+  // build/ directory at all — that asymmetry is the whole point of the test.
+  const resources = await mkdtemp(join(tmpdir(), 'desktop-packaged-res-'));
+  const appRoot = await mkdtemp(join(tmpdir(), 'desktop-packaged-asar-'));
+  try {
+    await mkdir(join(resources, 'service-dist', 'src'), { recursive: true });
+    await mkdir(join(resources, 'web-dist'), { recursive: true });
+    await mkdir(join(resources, 'build'), { recursive: true });
+    await writeFile(join(resources, 'service-dist', 'src', 'index.js'), '', 'utf8');
+    await writeFile(join(resources, 'build', 'icon.ico'), 'icon', 'utf8');
+    await writeFile(join(appRoot, 'package.json'), '{}', 'utf8');
+
+    assert.equal(
+      resolveWindowIconPath({ appRoot, resourcesPath: resources }),
+      join(resources, 'build', 'icon.ico'),
+      'the packaged resources path must be probed',
+    );
+    assert.equal(
+      resolveWindowIconPath({ appRoot }),
+      undefined,
+      'beside the asar there is no icon, which is what the packaged layout used to rely on',
+    );
+
+    const stub = buildShell();
+    await hostAndLaunch(stub.shell, {
+      appRoot,
+      resourcesPath: resources,
+      environment: { LOCALAPPDATA: resources } as NodeJS.ProcessEnv,
+      startService: async () => ({
+        origin: 'http://127.0.0.1:48500',
+        pid: 4242,
+        reused: false,
+        stop: async () => undefined,
+      }),
+    });
+    assert.equal(stub.windows[0]?.icon, join(resources, 'build', 'icon.ico'));
+  } finally {
+    await rm(resources, { recursive: true, force: true });
+    await rm(appRoot, { recursive: true, force: true });
   }
 });
 
