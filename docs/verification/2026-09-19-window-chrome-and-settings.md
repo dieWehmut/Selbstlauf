@@ -428,6 +428,35 @@ Two process notes from this check, because both nearly produced a wrong answer:
   (`%APPDATA%\@ai-cli-bypass\desktop\Local Storage`). It was cleared again, and a
   fresh capture confirms the default dark theme is restored on this host.
 
+### The published release asset itself was verified
+
+Every earlier install test used an installer built here. The asset other people
+download is the one CI built in its own environment, and it is a **different
+artifact** — same version, different bytes:
+
+    local build sha256      eb9a99acfc2780c58b94679640d33175e68f2aeac4ab86fa54c28b63111a9741
+    published v0.2.4 sha256 4c6805aec92959acb092929c017da98d7884cfb447ac6cb6b0c5402d8b93960b
+
+The published file was downloaded from the release, its SHA-256 matched GitHub's
+own recorded digest, and `scripts/desktop/verify-installer.ps1` then passed
+against it end to end:
+
+    installed app serves its WebUI on port 48920
+    installed app owns a tray (window 'Continuation Watchdog')
+    closing the installed window hides it to the tray and keeps the watchdog running
+    the hidden window can be restored
+    with closeToTray=false, closing the window quits and stops the watchdog
+    restored the default and brought the app back up
+    installed app discovered the probe process as claude PID 19628
+    installed app recorded watchdog decisions for PID 19628
+    installed app owns and removes its per-user logon task
+    installer verification passed
+
+That exact asset is what is now installed on this host: 0.2.4, `preload.cjs`
+present, `resources/build/icon.ico` present, the renderer verification silent
+(bridge loaded, renderer sandboxed, no Node globals leaked), the title bar uniform
+at `#1A1E22`, the service running and four sessions discovered.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
