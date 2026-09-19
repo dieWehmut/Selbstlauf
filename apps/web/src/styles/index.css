@@ -502,7 +502,43 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .about-card img { border-radius: var(--radius-sm); }
 .about-card__id { display: grid; gap: 7px; }
 .about-card__id strong { font-size: 17px; }
+
+/* ---------- Settings rail and content ---------- */
+/* The reference console navigates settings from a rail of two labelled
+   categories rather than a flat tab strip. The rail is its own scrolling column
+   so a long entry list never pushes the section content around. */
+.settings-shell { display: grid; grid-template-columns: minmax(0, 246px) minmax(0, 1fr); gap: 22px; margin-top: 30px; align-items: start; }
+.settings-content { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; min-width: 0; }
+.settings-rail { position: sticky; top: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; max-height: calc(100vh - 60px); padding: 14px 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow-soft); }
+.settings-rail__back { display: flex; align-items: center; gap: 9px; min-height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-size: 13px; text-align: left; transition: background .16s ease, border-color .16s ease, color .16s ease; }
+.settings-rail__back:hover { border-color: var(--line-soft); color: var(--text); background: var(--panel-raised); }
+.settings-rail__search { display: flex; align-items: center; gap: 8px; padding: 0 11px; min-height: 36px; border: 1px solid var(--line-whisper); border-radius: var(--radius-pill); background: var(--panel-soft); color: var(--faint); }
+.settings-rail__search:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.settings-rail__search input { flex: 1 1 auto; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: 12px; }
+.settings-rail__list { display: grid; gap: 3px; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+.settings-rail__group { display: grid; gap: 3px; min-width: 0; }
+.settings-rail__group + .settings-rail__group { margin-top: 10px; }
+.settings-rail__category { padding: 10px 10px 4px; color: var(--faint); font: 10px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+.settings-rail__item { display: flex; align-items: center; gap: 10px; min-height: 34px; width: 100%; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-size: 13px; text-align: left; transition: background .16s ease, border-color .16s ease, color .16s ease; }
+.settings-rail__item:hover { border-color: var(--line-soft); color: var(--text); background: var(--panel-raised); }
+.settings-rail__item.is-active { box-shadow: inset 3px 0 var(--accent); color: var(--accent-strong); background: var(--panel-raised); }
+.settings-rail__item svg { flex: 0 0 auto; }
+.settings-rail__item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-rail__empty { margin: 6px 10px; color: var(--muted); font-size: 12px; }
+/* Below the sidebar breakpoint the rail stacks above the content and scrolls
+   horizontally *inside its own box*, so the settings page keeps its width
+   instead of growing the document's scroll width. */
+@media (max-width: 960px) {
+  .settings-shell { grid-template-columns: minmax(0, 1fr); }
+  .settings-rail { position: static; max-height: none; }
+  .settings-rail__list { display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; }
+  .settings-rail__group { display: flex; align-items: center; gap: 3px; flex: 0 0 auto; }
+  .settings-rail__group + .settings-rail__group { margin-top: 0; }
+  .settings-rail__category { padding: 0 6px; white-space: nowrap; }
+  .settings-rail__item { width: auto; flex: 0 0 auto; }
+}
 @media (max-width: 700px) {
+  .settings-content { grid-template-columns: 1fr; gap: 12px; }
   .settings-tab { flex: 1 1 60px; padding: 9px 8px; font-size: 12px; }
   .segmented__option { flex: 1 1 100%; justify-content: center; }
 }

@@ -94,16 +94,16 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     render(<App api={api()} />);
     fireEvent.click(await screen.findByRole('button', { name: '设置' }));
 
-    // The settings page opens on the general tab and can switch sections.
+    // The settings page opens on the general section and can switch sections.
     const tabs = await screen.findByRole('tablist', { name: '设置分区' });
-    // Monitoring is the working view and opens first.
-    expect(within(tabs).getByRole('tab', { name: '监控' })).toHaveAttribute('aria-selected', 'true');
-    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
-    expect(within(tabs).getByRole('tab', { name: '关于' })).toHaveAttribute('aria-selected', 'true');
+    // The watchdog settings are the working view and open first.
+    expect(within(tabs).getByRole('tab', { name: '常规' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(within(tabs).getByRole('tab', { name: '账户' }));
+    expect(within(tabs).getByRole('tab', { name: '账户' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByText('本地环境检查')).toBeInTheDocument();
 
     // The appearance control offers light, dark, and follow-system previews.
-    fireEvent.click(within(tabs).getByRole('tab', { name: '通用' }));
+    fireEvent.click(within(tabs).getByRole('tab', { name: '外观' }));
     const appearance = await screen.findByRole('radiogroup', { name: '外观主题' });
     fireEvent.click(within(appearance).getByRole('radio', { name: '跟随系统' }));
     // A system preference resolves through the media query, not a stored literal.
@@ -116,6 +116,117 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     }
   });
 
+  /**
+   * The rail is the map of the console: two labelled categories, the reference's
+   * section order, and a search field that really filters it.
+   */
+  it('lists every settings section under its category and filters them by search', async () => {
+    render(<App api={api()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+
+    const rail = await screen.findByRole('tablist', { name: '设置分区' });
+    const expected = [
+      '常规', '通知', '导入', '个人资料', '外观', '家长控制', 'Trusted contact',
+      '语音', '配置', '个性化', '宠物', '键盘快捷键', '使用情况和计费', '账户',
+      '电脑操控', '应用快照', '插件', '浏览器',
+    ];
+    const labels = within(rail).getAllByRole('tab').map((tab) => tab.textContent);
+    expect(labels).toEqual(expected);
+
+    // The two category headings are present, in order.
+    expect(screen.getByText('个人')).toBeInTheDocument();
+    expect(screen.getByText('集成')).toBeInTheDocument();
+
+    // Search narrows the rail to matching entries only.
+    const search = screen.getByRole('searchbox', { name: '搜索设置' });
+    fireEvent.change(search, { target: { value: '家长' } });
+    const filtered = within(rail).getAllByRole('tab').map((tab) => tab.textContent);
+    expect(filtered).toEqual(['家长控制']);
+
+    // A query matching nothing says so instead of showing an empty rail.
+    fireEvent.change(search, { target: { value: 'zzz-no-such-section' } });
+    expect(within(rail).queryAllByRole('tab')).toHaveLength(0);
+    expect(screen.getByText('无匹配设置')).toBeInTheDocument();
+
+    // Clearing restores the full list.
+    fireEvent.change(search, { target: { value: '' } });
+    expect(within(rail).getAllByRole('tab')).toHaveLength(expected.length);
+  });
+
+  /** 返回应用 leaves the settings page again. */
+  it('returns to the overview from the settings rail', async () => {
+    render(<App api={api()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    await screen.findByRole('tablist', { name: '设置分区' });
+
+    fireEvent.click(screen.getByRole('button', { name: '返回应用' }));
+    expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+  });
+
+  /**
+   * The 键盘快捷键 section must document exactly the bindings the app honours,
+   * so the binding is exercised here rather than merely listed.
+   */
+  it('switches pages with the documented Ctrl+1..3 bindings', async () => {
+    render(<App api={api()} />);
+    await screen.findByRole('heading', { name: '进程监控' });
+
+    fireEvent.keyDown(window, { key: '2', ctrlKey: true });
+    expect(await screen.findByRole('heading', { name: '事件记录' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: '3', ctrlKey: true });
+    expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: '1', ctrlKey: true });
+    expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+
+    // The documented list matches the implemented set, and nothing more.
+    fireEvent.keyDown(window, { key: '3', ctrlKey: true });
+    fireEvent.click(await screen.findByRole('tab', { name: '键盘快捷键' }));
+    const rows = screen.getAllByRole('row').map((row) => row.textContent ?? '');
+    expect(rows.some((row) => row.includes('Ctrl+1'))).toBe(true);
+    expect(rows.some((row) => row.includes('Ctrl+2'))).toBe(true);
+    expect(rows.some((row) => row.includes('Ctrl+3'))).toBe(true);
+    expect(rows.some((row) => row.includes('Esc'))).toBe(true);
+    // A binding nobody implemented must not be advertised.
+    expect(rows.some((row) => /Ctrl\+(4|5|S|P)/u.test(row))).toBe(false);
+  });
+
+  /** 电脑操控 owns the reveal switch, which really disables the table action. */
+  it('disables the reveal action when 电脑操控 turns it off', async () => {
+    render(<App api={api()} />);
+    await screen.findByRole('heading', { name: '进程监控' });
+    // The table and the mobile card both render the action, so scope to the table.
+    const table = screen.getByRole('table');
+    const reveal = await within(table).findByRole('button', { name: /打开运行位置 PID 10/u });
+    expect(reveal).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    fireEvent.click(await screen.findByRole('tab', { name: '电脑操控' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '允许打开运行位置' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '进程' }));
+    expect(await within(screen.getByRole('table')).findByRole('button', { name: /打开运行位置 PID 10/u })).toBeDisabled();
+
+    // The switch persists, so restore it for the tests that follow this one.
+    localStorage.removeItem('watchdog-computer-control');
+  });
+
+  /** 个人资料's display name is adopted by the sidebar brand block. */
+  it('shows the profile display name in the sidebar', async () => {
+    render(<App api={api()} />);
+    expect(await screen.findByText('Selbstlauf')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    fireEvent.click(await screen.findByRole('tab', { name: '个人资料' }));
+    fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: 'Orchester' } });
+
+    expect(await screen.findByText('Orchester')).toBeInTheDocument();
+
+    // Leave the stored profile clean for the next test in this file.
+    localStorage.removeItem('watchdog-profile');
+  });
+
 
 
 
@@ -126,7 +237,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     render(<App api={api()} />);
     fireEvent.click(await screen.findByRole('button', { name: '设置' }));
     const tabs = await screen.findByRole('tablist', { name: '设置分区' });
-    fireEvent.click(within(tabs).getByRole('tab', { name: '通用' }));
+    fireEvent.click(within(tabs).getByRole('tab', { name: '外观' }));
 
     // All three previews are offered, and the stored preference marks one.
     const previews = await screen.findByRole('radiogroup', { name: '外观主题' });
@@ -183,7 +294,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     }) } });
     render(<ImportErrorBoundary><App api={api()} /></ImportErrorBoundary>);
     fireEvent.click(await screen.findByRole('button', { name: '设置' }));
-    fireEvent.click(screen.getByRole('tab', { name: '通用' }));
+    fireEvent.click(screen.getByRole('tab', { name: '外观' }));
     fireEvent.click(screen.getByRole('button', { name: '导入' }));
 
     expect(await screen.findByText('主题已导入')).toBeInTheDocument();
@@ -211,7 +322,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
 
     // The environment check lives on the About tab, beside the version card.
     const tabs = await screen.findByRole('tablist', { name: '设置分区' });
-    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
+    fireEvent.click(within(tabs).getByRole('tab', { name: '账户' }));
 
     // The panel names each agent with its installed and published version.
     expect(await screen.findByText('Claude Code')).toBeInTheDocument();
@@ -297,7 +408,7 @@ describe('watchdog dashboard', () => {
     await waitFor(() => expect(screen.getAllByRole('button', { name: '恢复 PID 10' })[0]).toBeEnabled());
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }));
-    fireEvent.click(screen.getByRole('tab', { name: '关于' }));
+    fireEvent.click(screen.getByRole('tab', { name: '账户' }));
     expect(screen.queryByRole('heading', { name: '本地环境检查' })).not.toBeInTheDocument();
     await act(async () => pendingEnvironment.resolve(environment));
     expect(await screen.findByRole('heading', { name: '本地环境检查' })).toBeInTheDocument();

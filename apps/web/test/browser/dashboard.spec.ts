@@ -130,7 +130,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '设置' }).click();
 
-    await page.getByRole('tab', { name: '关于' }).click();
+    await page.getByRole('tab', { name: '账户' }).click();
     const panel = page.locator('.environment-panel');
     await expect(panel.getByRole('heading', { name: '本地环境检查' })).toBeVisible();
 
@@ -164,7 +164,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
     await page.getByRole('button', { name: '设置' }).click();
-    await page.getByRole('tab', { name: '通用' }).click();
+    await page.getByRole('tab', { name: '外观' }).click();
 
     // The three previews paint from the live palette, not a static image.
     const previews = page.getByRole('radiogroup', { name: '外观主题' });
@@ -194,7 +194,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
-    await page.getByRole('tab', { name: '通用' }).click();
+    await page.getByRole('tab', { name: '外观' }).click();
 
     const panel = page.locator('.appearance-panel');
     await expect(panel).toBeVisible();
@@ -212,7 +212,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
 
-    await page.getByRole('tab', { name: '关于' }).click();
+    await page.getByRole('tab', { name: '账户' }).click();
     const panel = page.locator('.environment-panel');
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId('tool-claude')).toBeVisible();
@@ -297,5 +297,54 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 960, height: 900 });
     await page.goto('/');
     await expect(page.getByRole('button', { name: '打开菜单' })).toBeVisible();
+  });
+
+  /**
+   * The rail replaced the old three-tab strip. It must be usable at a desktop
+   * width and must not push the page sideways on a narrow one.
+   */
+  test('navigates every settings section from the rail', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/');
+    await page.getByRole('button', { name: '设置' }).click();
+
+    const rail = page.getByRole('tablist', { name: '设置分区' });
+    await expect(rail).toBeVisible();
+    await expect(rail.getByRole('tab')).toHaveCount(18);
+    await expect(page.getByRole('button', { name: '返回应用' })).toBeVisible();
+
+    // 返回应用 leaves the settings page.
+    await page.getByRole('button', { name: '返回应用' }).click();
+    await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
+    await page.getByRole('button', { name: '设置' }).click();
+
+    // Search really filters the rail.
+    await page.getByRole('searchbox', { name: '搜索设置' }).fill('家长');
+    await expect(rail.getByRole('tab')).toHaveCount(1);
+    await expect(rail.getByRole('tab', { name: '家长控制' })).toBeVisible();
+
+    // Selecting a section brings its content into view and marks the rail entry.
+    await page.getByRole('searchbox', { name: '搜索设置' }).fill('');
+    await rail.getByRole('tab', { name: '使用情况和计费' }).click();
+    await expect(rail.getByRole('tab', { name: '使用情况和计费' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { name: '使用统计' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+
+    await page.screenshot({ path: testInfo.outputPath('settings-rail-1280x900.png'), fullPage: true });
+  });
+
+  test('keeps the settings rail usable on a narrow viewport', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 360, height: 780 });
+    await page.goto('/');
+    await page.getByRole('button', { name: '打开菜单' }).click();
+    await page.getByRole('button', { name: '设置' }).click();
+
+    const rail = page.getByRole('tablist', { name: '设置分区' });
+    await expect(rail).toBeVisible();
+    await rail.getByRole('tab', { name: '账户' }).click();
+    await expect(page.getByRole('heading', { name: '关于' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+
+    await page.screenshot({ path: testInfo.outputPath('settings-rail-360x780.png'), fullPage: true });
   });
 });
