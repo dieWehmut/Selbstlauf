@@ -1171,7 +1171,7 @@ function SettingsPanel(props: {
           />
           <section className="settings-section settings-section--wide">
             <div className="section-title"><div><span className="eyebrow">Locale</span><h2>界面语言</h2></div><Settings2 size={20} /></div>
-            <p className="section-hint">切换后立即预览界面语言，保存后永久生效。</p>
+            <p className="section-hint">当前使用简体中文，其他界面语言暂不支持。</p>
             <div className="segmented segmented--labels" role="group" aria-label="界面语言">
               {['简体中文', '繁體中文', 'English', '日本語'].map((language) => (
                 <button
@@ -1179,8 +1179,9 @@ function SettingsPanel(props: {
                   className={language === '简体中文' ? 'segmented__option is-active' : 'segmented__option'}
                   type="button"
                   aria-pressed={language === '简体中文'}
+                  disabled={language !== '简体中文'}
                 >
-                  {language}
+                  {language}{language !== '简体中文' && '（暂不支持）'}
                 </button>
               ))}
             </div>
@@ -1533,7 +1534,8 @@ export default function App({ api: suppliedApi }: AppProps) {
       const text = await navigator.clipboard.readText();
       const parsed = JSON.parse(text) as unknown;
       if (!isThemePalette(parsed)) throw new TypeError('剪贴板里不是有效的主题配置');
-      setPaletteOverrides((current) => ({ ...current, [theme]: parsed }));
+      const imported = normalizePalette(parsed, DEFAULT_PALETTES[theme]);
+      setPaletteOverrides((current) => ({ ...current, [theme]: imported }));
       setNotice('主题已导入');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '导入失败');
