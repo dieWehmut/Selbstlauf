@@ -332,6 +332,34 @@ Both need one administrator action: run the old uninstaller from an elevated
 prompt, or delete that registry key and shortcut. This does not affect the 0.2.0
 installation, whose `HKCU` entry and shortcuts are correct and working.
 
+### The renderer's privileges are now checked, not assumed (`v0.2.4`)
+
+The bridge check added in 0.2.3 proved only that the preload loaded. It could not
+detect the other half of the bug it was written for: flattening `webPreferences`
+made Electron ignore `sandbox`, `contextIsolation` and `preload` **together**, so
+the renderer ran with weaker defaults while every options-level unit test passed.
+
+`verifyPreloadBridge` now reads the renderer's own globals, because the options
+object is what lied:
+
+- `window.require` / `module` / `Buffer` / `global` must be unreachable from the
+  page — what context isolation plus `nodeIntegration: false` buy.
+- `window.electron` and `window.ipcRenderer` must not leak past the contextBridge.
+- `process.sandboxed` must not be `false`; `null` (no `process` at all) is the
+  strongest isolation and is accepted rather than treated as a failure.
+
+The check was verified to actually fire, not merely to pass: pointing the preload
+at a missing file reports both `preload failed: … ENOENT` and `renderer
+verification failed: window.selbstlaufDesktop is not available in the renderer`,
+while a healthy build starts silent. It is covered by unit tests in both
+directions, and the nested `webPreferences` type now rejects the flattened
+spelling at compile time, which is the exact regression that shipped.
+
+`v0.2.4` was installed on this host: 0.2.4, `preload.cjs` present, the app running,
+the service live, and the renderer check silent (bridge present, renderer
+sandboxed, no Node globals leaked). `scripts/desktop/verify-installer.ps1` passes
+end to end on its x64 installer.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
