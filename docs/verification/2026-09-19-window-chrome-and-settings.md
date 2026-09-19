@@ -386,6 +386,24 @@ the quit deliberately leaves nothing running and the discovery and logon-task
 checks that follow need a live app — the first draft of this change passed its own
 assertions and then failed several steps later with a connection error.
 
+### The tray and menu commands reach the real renderer
+
+The command channel behind the tray's `设置` / `关于 Selbstlauf` and the `文件`
+menu's `返回应用` was driven live through the app's own `sendToRenderer` — the
+production path, not a copy of it — with the DOM read back afterwards:
+
+    openSettings          -> h1 "Watchdog 设置", settings rail present, 常规 selected
+    openSettings(account) -> 账户 selected, headings 关于 / 本地环境检查
+    backToApp             -> h1 "进程监控"
+
+All three land where the labels promise, so the tray menu items and the menu bar
+are wired to the same working channel.
+
+The renderer test had delivered `open-settings` with no section, which left the
+half the tray actually uses unasserted; it now requires `账户` to be selected for
+`section: 'account'` and requires an unknown section to still open the settings
+page rather than doing nothing.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
