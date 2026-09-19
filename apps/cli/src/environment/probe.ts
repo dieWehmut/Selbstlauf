@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { AGENT_CATALOG } from './catalog.js';
+import { runNpmCommand } from './npm-runtime.js';
 
 /**
  * Read what is installed locally and what the registry currently publishes.
@@ -38,27 +38,6 @@ export interface ProbeOptions {
   readonly fileExists?: (path: string) => boolean;
 }
 
-/**
- * Run the npm CLI that ships beside this Node runtime.
- *
- * npm is installed as a `.cmd` and `.ps1` shim on Windows, and Node refuses to
- * spawn either without a shell. Invoking npm's own entry script with the current
- * Node binary keeps the call shell-free, so no argument is ever re-parsed by a
- * command interpreter, and it works identically on every platform.
- */
-async function runNpmCommand(args: readonly string[]): Promise<string> {
-  const npmCli = resolve(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
-  const { stdout } = await execFileAsync(process.execPath, [npmCli, ...args], {
-    windowsHide: true,
-    maxBuffer: 4 * 1024 * 1024,
-    // npm on Windows walks the whole global tree and can take half a minute even
-    // when it succeeds, so the budget is generous; no HTTP handler waits on this
-    // synchronously.
-    timeout: 120_000,
-  });
-  return stdout;
-}
-
 async function run(executable: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync(executable, [...args], {
     windowsHide: true,
@@ -69,11 +48,11 @@ async function run(executable: string, args: readonly string[]): Promise<string>
 }
 
 function defaultRunNpm(): Promise<string> {
-  return runNpmCommand(['ls', '-g', '--json']);
+  return runNpmCommand(['ls', '-g', '--json'], 120_000);
 }
 
 function defaultRunNpmView(packageName: string): Promise<string> {
-  return runNpmCommand(['view', packageName, 'version']);
+  return runNpmCommand(['view', packageName, 'version'], 120_000);
 }
 
 /**

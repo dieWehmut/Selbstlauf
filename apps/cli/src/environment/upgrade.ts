@@ -1,9 +1,6 @@
-import { execFile } from 'node:child_process';
-import { dirname, resolve } from 'node:path';
-import { promisify } from 'node:util';
-
 import { AGENT_CATALOG, type AgentCatalogEntry } from './catalog.js';
 import type { EnvironmentCheck, EnvironmentReport } from './environment-check.js';
+import { runNpmCommand } from './npm-runtime.js';
 
 /**
  * Install and upgrade the agent CLIs the panel reports on.
@@ -19,8 +16,6 @@ import type { EnvironmentCheck, EnvironmentReport } from './environment-check.js
  *  - The scan is refreshed afterwards so the panel shows what actually
  *    happened rather than what was requested.
  */
-
-const execFileAsync = promisify(execFile);
 
 export interface UpgradeResult {
   readonly id: string;
@@ -125,18 +120,7 @@ export class ToolUpgrader {
   }
 }
 
-/**
- * Run npm without a shell, exactly as the version probe does: invoking npm's own
- * entry script with the current Node binary keeps every argument out of a command
- * interpreter's hands.
- */
-async function defaultRunNpm(args: readonly string[]): Promise<string> {
-  const npmCli = resolve(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
-  const { stdout } = await execFileAsync(process.execPath, [npmCli, ...args], {
-    windowsHide: true,
-    maxBuffer: 4 * 1024 * 1024,
-    // A global install downloads and links the whole tree.
-    timeout: 600_000,
-  });
-  return stdout;
+function defaultRunNpm(args: readonly string[]): Promise<string> {
+  // A global install downloads and links the whole tree.
+  return runNpmCommand(args, 600_000);
 }
