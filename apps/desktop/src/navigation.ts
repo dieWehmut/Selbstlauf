@@ -54,9 +54,23 @@ export interface DesktopWebPreferences {
   readonly webSecurity: true;
   readonly allowRunningInsecureContent: false;
   readonly webviewTag: false;
+  /** Absolute path of the preload script, when one is installed. */
+  readonly preload?: string;
 }
 
-export interface DesktopWindowOptions extends DesktopWebPreferences {
+/**
+ * BrowserWindow options.
+ *
+ * The web preferences are nested under `webPreferences` because that is the only
+ * shape Electron reads. This type used to `extend DesktopWebPreferences`, which
+ * flattened `contextIsolation`, `sandbox`, `preload` and the rest onto the top
+ * level: Electron ignored every one of them, so the renderer ran with the *default*
+ * privileges and, crucially, with no preload — `window.selbstlaufDesktop` was
+ * simply undefined. The unit tests passed because they asserted the flattened
+ * shape rather than the shape Electron consumes; the failure is invisible at
+ * runtime because every bridge call is fire-and-forget.
+ */
+export interface DesktopWindowOptions {
   readonly show: false;
   readonly title: string;
   readonly width: number;
@@ -72,6 +86,8 @@ export interface DesktopWindowOptions extends DesktopWebPreferences {
    */
   readonly titleBarStyle: 'hidden';
   readonly titleBarOverlay: TitleBarOverlay;
+  /** Nesting is load-bearing; see the note above. */
+  readonly webPreferences: DesktopWebPreferences;
   /** Absolute path of the branded window/taskbar icon, when one is installed. */
   readonly icon?: string;
 }
@@ -129,14 +145,18 @@ export function createWindowOptions(options: WindowPolicyOptions): DesktopWindow
     // working the way Windows users expect.
     titleBarStyle: 'hidden',
     titleBarOverlay: TITLE_BAR_OVERLAY,
-    // The window only ever renders the local service bundle, so Node stays out of
-    // the renderer and the sandbox stays on.
-    contextIsolation: true,
-    nodeIntegration: false,
-    sandbox: true,
-    webSecurity: true,
-    allowRunningInsecureContent: false,
-    webviewTag: false,
+    // Electron reads these only from `webPreferences`. Flattening them onto the
+    // top level silently disables all of them, including the preload.
+    webPreferences: {
+      // The window only ever renders the local service bundle, so Node stays out
+      // of the renderer and the sandbox stays on.
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
+    },
   };
 }
 
@@ -144,6 +164,14 @@ export interface NavigationPolicyTarget {
   setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' }): void;
   on(event: 'will-navigate', listener: (event: { preventDefault(): void }, url: string) => void): void;
   on(event: 'will-attach-webview', listener: (event: { preventDefault(): void }) => void): void;
+  /**
+   * A throwing preload silently kills the whole renderer bridge, so the main
+   * process subscribes to this to make that failure visible in the log.
+   */
+  on(
+    event: 'preload-error',
+    listener: (event: unknown, preloadPath: string, error: Error) => void,
+  ): void;
 }
 
 export interface NavigationPolicyOptions {

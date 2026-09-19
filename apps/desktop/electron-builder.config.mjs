@@ -1,4 +1,4 @@
-import path from 'node:path';
+﻿import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 
@@ -12,7 +12,7 @@ const processProviderScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'p
 const windowFocusScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'process', 'window-focus.ps1');
 const webDist = path.join(repositoryRoot, 'apps', 'web', 'dist');
 const continuationScripts = path.join(repositoryRoot, 'scripts', 'continuation');
-const preload = path.join(appRoot, 'src', 'preload.mjs');
+const preload = path.join(appRoot, 'src', 'preload.cjs');
 const icon = path.join(appRoot, 'build', 'icon.ico');
 
 for (const [label, target] of [
@@ -42,7 +42,7 @@ export default {
   // process and resolved through process.resourcesPath at runtime.
   files: [
     'dist/src/**/*',
-    'src/preload.mjs',
+    'src/preload.cjs',
     'package.json',
   ],
   extraResources: [
@@ -58,10 +58,10 @@ export default {
     // The logon-task script the watchdog registers must exist in the installed
     // app; start-watchdog.ps1 resolves service-dist and web-dist beside it.
     { from: continuationScripts, to: 'scripts/continuation' },
-    { from: preload, to: 'preload.mjs' },
+    { from: preload, to: 'preload.cjs' },
     // The window and tray both load the icon by absolute path, and the tray is
     // what makes closing the window hide instead of quit. Without this copy the
-    // packaged app cannot build a tray at all, so 关闭即隐藏 silently degrades to
+    // packaged app cannot build a tray at all, so 鍏抽棴鍗抽殣钘?silently degrades to
     // a real quit; electron-builder's `win.icon` only brands the executable, it
     // does not place the file in resources.
     ...(existsSync(icon) ? [{ from: icon, to: 'build/icon.ico' }] : []),

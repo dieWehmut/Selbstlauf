@@ -39,14 +39,29 @@ test('rejects a non-absolute service origin', () => {
   assert.throws(() => createWindowOptions({ serviceOrigin: 'file:///srv/index.html' }), /absolute http/u);
 });
 
-test('hardens the renderer and hides the window until it has painted', () => {
+/**
+ * Regression: the security flags and `preload` must live under `webPreferences`.
+ *
+ * This type used to extend `DesktopWebPreferences`, flattening them onto the top
+ * level. Electron reads only `webPreferences`, so every flag — and the preload
+ * itself — was silently ignored: `window.selbstlaufDesktop` was undefined in the
+ * shipped app, which killed the window menus, the settings store and the
+ * title-bar colour report with no error anywhere. The old assertions passed
+ * because they checked the flattened shape rather than the shape Electron
+ * consumes.
+ */
+test('nests the renderer hardening under webPreferences, where Electron reads it', () => {
   const options = createWindowOptions({ serviceOrigin: ORIGIN });
-  assert.equal(options.contextIsolation, true);
-  assert.equal(options.nodeIntegration, false);
-  assert.equal(options.sandbox, true);
-  assert.equal(options.webSecurity, true);
-  assert.equal(options.allowRunningInsecureContent, false);
-  assert.equal(options.webviewTag, false);
+  const prefs = options.webPreferences;
+  assert.equal(prefs.contextIsolation, true);
+  assert.equal(prefs.nodeIntegration, false);
+  assert.equal(prefs.sandbox, true);
+  assert.equal(prefs.webSecurity, true);
+  assert.equal(prefs.allowRunningInsecureContent, false);
+  assert.equal(prefs.webviewTag, false);
+  // The flattened spelling must not come back: it is a silent no-op.
+  assert.equal('sandbox' in options, false, 'flags must not sit on the top level');
+  assert.equal('contextIsolation' in options, false, 'flags must not sit on the top level');
   assert.equal(options.show, false);
   assert.equal(options.title, DEFAULT_WINDOW_POLICY.title);
   assert.equal(options.width, DEFAULT_WINDOW_POLICY.width);
@@ -58,8 +73,8 @@ test('allows caller overrides without dropping the security defaults', () => {
   const options = createWindowOptions({ serviceOrigin: ORIGIN, title: 'Custom', width: 1024 });
   assert.equal(options.title, 'Custom');
   assert.equal(options.width, 1024);
-  assert.equal(options.sandbox, true);
-  assert.equal(options.contextIsolation, true);
+  assert.equal(options.webPreferences.sandbox, true);
+  assert.equal(options.webPreferences.contextIsolation, true);
 });
 
 test('draws the title bar in the page while the window controls stay native', () => {
@@ -91,12 +106,12 @@ test('draws the title bar in the page while the window controls stay native', ()
 
 test('keeps every renderer hardening flag with the custom title bar', () => {
   const options = createWindowOptions({ serviceOrigin: ORIGIN });
-  assert.equal(options.contextIsolation, true);
-  assert.equal(options.sandbox, true);
-  assert.equal(options.nodeIntegration, false);
-  assert.equal(options.webSecurity, true);
-  assert.equal(options.allowRunningInsecureContent, false);
-  assert.equal(options.webviewTag, false);
+  assert.equal(options.webPreferences.contextIsolation, true);
+  assert.equal(options.webPreferences.sandbox, true);
+  assert.equal(options.webPreferences.nodeIntegration, false);
+  assert.equal(options.webPreferences.webSecurity, true);
+  assert.equal(options.webPreferences.allowRunningInsecureContent, false);
+  assert.equal(options.webPreferences.webviewTag, false);
   // The window still waits for its first paint before it is revealed.
   assert.equal(options.show, false);
 });

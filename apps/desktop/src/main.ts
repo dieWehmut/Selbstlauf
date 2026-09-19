@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+﻿import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -156,9 +156,9 @@ export interface WindowIconOptions {
  * Electron only loads an icon from an absolute path, so both shipped layouts are
  * probed in order:
  *
- *  - `resources/build/icon.ico` — the packaged install (electron-builder copies
+ *  - `resources/build/icon.ico` 鈥?the packaged install (electron-builder copies
  *    it there as an extraResource).
- *  - `<appRoot>/build/icon.ico` — a repository checkout.
+ *  - `<appRoot>/build/icon.ico` 鈥?a repository checkout.
  *
  * The packaged path used to be missing from the build, which silently cost the
  * app both its taskbar icon and its tray: without a tray, closing the window
@@ -186,17 +186,34 @@ function windowIcon(appRoot: string, resourcesPath?: string): { readonly iconPat
 }
 
 function openWindow(shell: ElectronShell, request: DesktopWindowRequest): ManagedWindow {
-  const window = new shell.BrowserWindow({
-    ...createWindowOptions({ serviceOrigin: request.serviceOrigin }),
-    ...(request.preloadPath === undefined ? {} : { preload: request.preloadPath }),
+  const base = createWindowOptions({ serviceOrigin: request.serviceOrigin });
+  const windowOptions: DesktopWindowOptions = {
+    ...base,
+    // `preload` belongs inside `webPreferences`; on the top level Electron ignores
+    // it, the renderer gets no bridge, and every fire-and-forget call from the
+    // renderer fails without a single log line.
+    webPreferences: {
+      ...base.webPreferences,
+      ...(request.preloadPath === undefined ? {} : { preload: request.preloadPath }),
+    },
     ...(request.iconPath === undefined ? {} : { icon: request.iconPath }),
-  } as DesktopWindowOptions) as ManagedWindow;
+  };
+  const window = new shell.BrowserWindow(windowOptions) as ManagedWindow;
   applyNavigationPolicy({
     webContents: window.webContents,
     serviceOrigin: request.serviceOrigin,
     openExternal: (url) => {
       void shell.shell.openExternal(url);
     },
+  });
+  // A preload that throws takes the whole renderer bridge with it: the title-bar
+  // colour report, the menu actions and the settings store all stop working, and
+  // because every call is fire-and-forget the failure is otherwise completely
+  // silent. Surface it on stderr so a broken bridge is diagnosable from a log.
+  window.webContents.on?.('preload-error', (_event, preloadPath, error) => {
+    process.stderr.write(
+      `preload failed: ${preloadPath}: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
   });
   window.once('ready-to-show', () => window.show());
   return window;
@@ -349,8 +366,44 @@ export function registerShellHandlers(
 }
 
 /**
- * Build the "tell the renderer to do something" function.
+ * Confirm the renderer actually received the preload bridge.
  *
+ * A preload that fails to load is silent: Electron emits no `preload-error` for
+ * a sandboxed preload it cannot execute, and every renderer call is
+ * fire-and-forget, so the only symptom is that features quietly stop working.
+ * That is exactly how a `.mjs` preload shipped broken. This checks once after
+ * load and writes to stderr, so the failure is visible in a log instead of being
+ * discovered by measuring pixels months later.
+ *
+ * It is diagnostic only: a missing bridge must not stop the window from opening,
+ * since the console still works without the desktop extras.
+ */
+export async function verifyPreloadBridge(window: ManagedWindow): Promise<boolean> {
+  const target = window.webContents as unknown as {
+    executeJavaScript?: (code: string) => Promise<unknown>;
+  };
+  if (target.executeJavaScript === undefined) return false;
+  try {
+    const result = await target.executeJavaScript(
+      "typeof window.selbstlaufDesktop !== 'undefined' && typeof window.selbstlaufDesktop.shell === 'object'",
+    );
+    if (result !== true) {
+      process.stderr.write(
+        'preload bridge missing: window.selbstlaufDesktop is not available in the renderer\n',
+      );
+      return false;
+    }
+    return true;
+  } catch (error) {
+    process.stderr.write(
+      `preload bridge check failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    return false;
+  }
+}
+
+/**
+ * Build the "tell the renderer to do something" function.
  * Commands travel over the window's `webContents`, which is the surface that
  * actually owns the renderer process; a window-level send does nothing in
  * Electron. The window is looked up on every call so a hidden-then-revived or
@@ -423,7 +476,7 @@ export async function main(): Promise<void> {
    * Register the shell IPC handlers before any window opens.
    *
    * The renderer reports its title-bar colour as soon as it paints, which happens
-   * while the window is still loading — before `hostAndLaunch` resolves. Register
+   * while the window is still loading 鈥?before `hostAndLaunch` resolves. Register
    * afterwards and that first report hits "No handler registered", which the
    * preload's fire-and-forget call swallows, leaving the native button strip on
    * its stale colour and splitting the top row into two visibly different strips.
@@ -462,6 +515,11 @@ export async function main(): Promise<void> {
       attach: (opened) => {
         window = opened;
         opened.on('close', (event) => lifecycle.handleWindowClose(event));
+        // Verify the renderer really received the bridge. A preload that fails to
+        // load is otherwise invisible: the renderer's calls are fire-and-forget,
+        // so the window simply loses its title-bar colour report, the menus their
+        // actions and the settings page its store with nothing in the log.
+        void verifyPreloadBridge(opened);
       },
     });
   } catch (error) {
@@ -539,9 +597,9 @@ export interface PreloadPathOptions {
 /** The packaged build copies the preload next to the asar; the dev tree keeps it in src. */
 export function resolvePreloadPath(options: PreloadPathOptions): string {
   if (options.resourcesPath !== undefined && options.resourcesPath.trim().length > 0) {
-    return resolve(options.resourcesPath, 'preload.mjs');
+    return resolve(options.resourcesPath, 'preload.cjs');
   }
-  return resolve(options.appRoot, 'src', 'preload.mjs');
+  return resolve(options.appRoot, 'src', 'preload.cjs');
 }
 
 const PLACEHOLDER_HTML = `<!doctype html>
