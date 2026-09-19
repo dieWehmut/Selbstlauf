@@ -487,6 +487,36 @@ x64 tree (`0x8664`), so the combined installer really does ship both.
 the full `verify-installer.ps1` acceptance run passed against it, then it was
 installed on this host.
 
+#### What the structural result does and does not prove
+
+"All files present" is weaker than "it runs", so the two payloads were compared
+file by file to see how far the x64 runtime evidence reaches:
+
+    x64 files: 158; arm64 files: 158
+    only in x64: 0        only in arm64: 0
+    identical: 149        differing: 9
+
+The 9 differences are exactly the files that carry native code, and nothing else:
+
+    Selbstlauf.exe (246,478,336 vs 226,726,400)
+    ffmpeg.dll, dxcompiler.dll, dxil.dll, d3dcompiler_47.dll,
+    vk_swiftshader.dll, vulkan-1.dll
+    snapshot_blob.bin, v8_context_snapshot.bin
+
+**Every application file is byte-identical between the two payloads**, including
+all ten that implement the verified behaviour: `resources/app.asar` (the whole
+Electron main process), `resources/preload.cjs` (the renderer bridge),
+`resources/web-dist/index.html` and its bundle (the UI, title bar and settings
+rail), `resources/service-dist/src/index.js` (the watchdog),
+`windows-processes.ps1` and `window-focus.ps1` (discovery and reveal),
+`resources/build/icon.ico`, and the three `scripts/continuation` files.
+
+So the arm64 build differs from the verified x64 build **only** in its native
+binaries: the tray, hide-on-close, the UI, the bridge and the title bar are the
+same bytes. That is the strongest statement available without ARM64 hardware, and
+it is deliberately stated as "the same code drives it" rather than "it was run" —
+installing and running on ARM64 remains unverified.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
