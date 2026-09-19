@@ -50,6 +50,46 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
   });
 
+  test('shows the window title bar row with working menus at 1280x900', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/');
+
+    // The first row is the window's own title bar: 40px, above the page header.
+    const titlebar = page.locator('.titlebar');
+    await expect(titlebar).toBeVisible();
+    const bar = await titlebar.boundingBox();
+    expect(bar).not.toBeNull();
+    expect(Math.round(bar!.height)).toBe(40);
+    expect(Math.round(bar!.y)).toBe(0);
+    // It spans the full window width, sidebar included.
+    expect(Math.round(bar!.width)).toBe(1280);
+    await expect(page.locator('.topbar')).toBeVisible();
+    expect(bar!.y + bar!.height).toBeLessThanOrEqual((await page.locator('.topbar').boundingBox())!.y);
+
+    // The four menu buttons are present, in reference order.
+    const menus = titlebar.locator('.titlebar__menu-button');
+    await expect(menus).toHaveCount(4);
+    await expect(menus).toHaveText(['文件', '编辑', '视图', '帮助']);
+    // The panel toggle and the history arrows share the row.
+    await expect(titlebar.getByRole('button', { name: '收起侧栏' })).toBeVisible();
+    await expect(titlebar.getByRole('button', { name: '后退' })).toBeVisible();
+    await expect(titlebar.getByRole('button', { name: '前进' })).toBeVisible();
+
+    // Clicking 文件 opens a real dropdown containing 返回应用.
+    await titlebar.getByRole('button', { name: '文件' }).click();
+    const menu = page.getByRole('menu', { name: '文件' });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: '返回应用' })).toBeVisible();
+    // Escape dismisses it again.
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeHidden();
+
+    // The row must never introduce a horizontal scrollbar.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+
+    await page.screenshot({ path: testInfo.outputPath('titlebar-desktop-1280x900.png'), fullPage: true });
+  });
+
   test('manages Claude Stop Hook settings in the static Pages demo', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
