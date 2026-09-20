@@ -132,7 +132,13 @@ export function SessionWindowPreview(props: {
         {state === 'no-window' && (
           <p className="window-preview__note">
             <ImageOff size={15} aria-hidden="true" />
-            该进程没有自己的窗口（DeepSeek Harness 是网页界面），因此没有可预览的画面。
+            {/* The reason is derived from the session rather than hardcoded. The message used to
+                assert "DeepSeek Harness is a web UI" for *any* session with no window, but a null
+                handle has several causes — a harness interface, a bare console or shell, or a host
+                whose window lookup failed. That claim happens to be right for every session on this
+                machine and is still wrong as a general statement: a Codex session in a bare console
+                would have been told it was DeepSeek Harness. */}
+            {noWindowReason(props.session)}
           </p>
         )}
 
@@ -145,4 +151,27 @@ export function SessionWindowPreview(props: {
       </div>
     </section>
   );
+}
+
+/**
+ * Why a session has no window to preview, stated from what the session actually reports.
+ *
+ * A null window handle has more than one cause, so this describes the host the service identified
+ * rather than asserting a single explanation. The previous wording claimed every such session was
+ * DeepSeek Harness, which is wrong for a session running in a bare console or an unrecognised host —
+ * and a message about the wrong application is worse than a plain "there is nothing to show here".
+ */
+export function noWindowReason(session: SessionView): string {
+  const host = session.host;
+  const label = host?.label?.trim() ?? '';
+  // A harness session's interface is the browser page showing its WebUI, which is why it has no
+  // window of its own.
+  if (session.tool === 'dsh') {
+    return '该进程没有自己的窗口（DeepSeek Harness 的界面是浏览器里的网页），因此没有可预览的画面。';
+  }
+  if (host === null || host === undefined || label.length === 0) {
+    return '未识别出该进程所在的窗口，因此没有可预览的画面。';
+  }
+  // Name the host that was identified instead of guessing which kind it is.
+  return `该进程没有可预览的窗口（运行位置：${label}）。`;
 }
