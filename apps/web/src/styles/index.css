@@ -961,3 +961,35 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 /* The preview's own buttons are smaller than a page-level action, since they sit inside a
    panel rather than standing alone. */
 .window-preview__actions .button { min-height: 30px; padding: 0 11px; font-size: 12px; }
+
+/* ---------- Writing a line into a session ---------- */
+/* The app already writes text into sessions ¡ª Á¢¼´ÐøÐ´ sends the configured prompt ¡ª so this only lets a
+   person choose the words. The panel therefore says plainly WHERE the text goes, because it lands in a
+   running session rather than in a form. */
+.prompt-composer { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); }
+.prompt-composer__head { display: flex; align-items: center; gap: 10px; }
+.prompt-composer__title { margin: 0; font-size: 14px; }
+.prompt-composer__form { display: flex; align-items: center; gap: 10px; }
+.prompt-composer__field { flex: 1 1 auto; min-width: 0; display: block; }
+.prompt-composer__field input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line-whisper);
+  border-radius: var(--radius-xs);
+  color: var(--text);
+  background: var(--bg);
+  font-size: 13px;
+}
+.prompt-composer__field input::placeholder { color: var(--faint); }
+.prompt-composer__field input:disabled { color: var(--faint); cursor: not-allowed; }
+.prompt-composer__field input[aria-invalid='true'] { border-color: color-mix(in srgb, var(--red) 55%, transparent); }
+.prompt-composer__hint { margin: 0; color: var(--muted); font-size: 12px; }
+.prompt-composer__hint strong { color: var(--text); font: 12px var(--mono); }
+.prompt-composer__blocked { display: inline-flex; align-items: center; gap: 6px; color: var(--amber, #e6b65b); }
+/* A refusal or a failure is stated in words rather than only by a colour change. */
+.prompt-composer__problem { margin: 0; color: var(--red, #e5735f); font-size: 12px; }
+.prompt-composer__sent { margin: 0; color: var(--green); font-size: 12px; }
+.prompt-composer__sent code { padding: 1px 5px; border-radius: var(--radius-xs); background: var(--bg); font: 11px var(--mono); overflow-wrap: anywhere; }
+.prompt-composer__spinner { display: inline-grid; place-items: center; animation: prompt-composer-spin .8s linear infinite; }
+@keyframes prompt-composer-spin { to { transform: rotate(360deg); } }

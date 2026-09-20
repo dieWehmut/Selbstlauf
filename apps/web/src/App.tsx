@@ -56,6 +56,7 @@ import {
 } from './api/client';
 import { SettingsRail, SETTINGS_SECTION_IDS } from './settings/SettingsRail';
 import { SessionWindowPreview } from './process/SessionWindowPreview';
+import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
 import {
@@ -90,7 +91,7 @@ import {
 } from './settings/desktop-prefs';
 
 /** Shown by the account section and the sidebar; tracks the package version. */
-const APP_VERSION = '0.8.8';
+const APP_VERSION = '0.9.0';
 
 /** 电脑操控's single switch. */
 function isRevealPref(value: unknown): value is { allowReveal: boolean } {
@@ -700,6 +701,8 @@ function ProcessDetail(props: {
   readonly allowReveal: boolean;
   /** Absent outside the desktop shell, where no window can be captured. */
   readonly requestPreview?: (sessionId: string) => Promise<WindowPreviewResult>;
+  /** Write a typed line into the session; absent nowhere, since the transport always exists. */
+  readonly onSendPrompt?: (session: SessionView, prompt: string) => Promise<void> | void;
 }) {
   const session = props.session;
   if (session === null) {
@@ -755,6 +758,14 @@ function ProcessDetail(props: {
         onOpenWindow={props.onFocus}
         busy={props.busy === session.id}
         {...(props.requestPreview === undefined ? {} : { requestPreview: props.requestPreview })}
+      />
+
+      {/* Writing a line into the session, next to the window it will appear in. */}
+      <SessionPromptComposer
+        session={session}
+        canSend={canInject(session)}
+        busy={props.busy === session.id}
+        {...(props.onSendPrompt === undefined ? {} : { onSend: props.onSendPrompt })}
       />
 
       <footer className="process-detail__actions">
@@ -2239,15 +2250,25 @@ export default function App({ api: suppliedApi }: AppProps) {
     return () => { active = false; unsubscribe(); window.clearInterval(timer); };
   }, [api, staticDemo]);
 
-  const mutateSession = async (session: SessionView, action: 'pause' | 'inject') => {
+  const mutateSession = async (session: SessionView, action: 'pause' | 'inject', prompt?: string) => {
     setBusy(session.id); setNotice(null);
     try {
-      if (action === 'inject') await api.inject(session.id);
+      // A supplied prompt goes through the same transport as the one-click action; the service
+      // accepts any single line and rejects anything it could not carry.
+      if (action === 'inject') {
+        // Only a typed prompt adds the second argument, so the one-click path calls exactly as
+        // before and its callers see an unchanged shape.
+        if (prompt === undefined) await api.inject(session.id);
+        else await api.inject(session.id, prompt);
+      }
       else if (session.paused) await api.resume(session.id);
       else await api.pause(session.id);
       await refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '操作失败');
+      // Rethrown so a caller showing its own error — the composer does — is not left believing the
+      // send succeeded just because the notice was set.
+      if (prompt !== undefined) throw error;
     } finally { setBusy(null); }
   };
 
@@ -2703,6 +2724,7 @@ export default function App({ api: suppliedApi }: AppProps) {
             onPause={(session) => void mutateSession(session, 'pause')}
             onInject={(session) => void mutateSession(session, 'inject')}
             onFocus={(session) => void focusSession(session)}
+            onSendPrompt={(session, prompt) => mutateSession(session, 'inject', prompt)}
             {...(previewWindow === null ? {} : { requestPreview: previewWindow })}
           />
         </div>}
@@ -2713,3 +2735,4 @@ export default function App({ api: suppliedApi }: AppProps) {
     </div>
   );
 }
+
