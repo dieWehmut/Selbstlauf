@@ -49,10 +49,17 @@ export function SessionPromptComposer(props: {
   /** Refuses when the session cannot accept input, matching the one-click action. */
   readonly canSend: boolean;
   readonly busy?: boolean;
-  readonly onSend?: (session: SessionView, prompt: string) => Promise<void> | void;
+  /**
+   * Send the line, reporting whether it was actually written.
+   *
+   * The outcome matters: with Dry Run enabled the service answers successfully and writes nothing, so a
+   * caller that treated that as a write would tell the user their line was delivered when it was not.
+   */
+  readonly onSend?: (session: SessionView, prompt: string) => Promise<{ readonly dryRun: boolean }> | { readonly dryRun: boolean } | void;
 }) {
   const [draft, setDraft] = useState('');
   const [sent, setSent] = useState<string | null>(null);
+  const [dryRun, setDryRun] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The draft belongs to a session, so it must not follow the user to another one.
   const sequence = useRef(0);
@@ -61,6 +68,7 @@ export function SessionPromptComposer(props: {
     sequence.current += 1;
     setDraft('');
     setSent(null);
+    setDryRun(false);
     setError(null);
   }, [props.session.id]);
 
@@ -73,11 +81,12 @@ export function SessionPromptComposer(props: {
     setError(null);
     const text = draft.trim();
     try {
-      await props.onSend(props.session, text);
+      const outcome = await props.onSend(props.session, text);
       if (mine === sequence.current) {
-        // Cleared only on success, so a failed send does not lose what was typed.
         setDraft('');
         setSent(text);
+        // A dry run reports success without writing, so it must not be announced as a delivery.
+        setDryRun(outcome?.dryRun === true);
       }
     } catch (cause) {
       if (mine === sequence.current) {
@@ -159,8 +168,12 @@ export function SessionPromptComposer(props: {
       )}
       {error !== null && <p className="prompt-composer__problem" role="alert">发送失败：{error}</p>}
       {sent !== null && (
-        <p className="prompt-composer__sent" role="status">
-          已发送：<code>{sent}</code>
+        <p className={dryRun ? 'prompt-composer__problem' : 'prompt-composer__sent'} role="status">
+          {/* A dry run answers successfully and writes nothing, so saying 已发送 would be a false report of
+              delivery. It is stated as a skip instead, matching what the service records in its audit. */}
+          {dryRun
+            ? <>未真正写入（Dry Run）：<code>{sent}</code>　只记录了跳过，没有发送到会话。</>
+            : <>已发送：<code>{sent}</code></>}
         </p>
       )}
     </section>

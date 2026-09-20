@@ -173,6 +173,18 @@ interface ServiceHealthResponse {
   readonly version?: unknown;
 }
 
+/**
+ * The result of asking a session to accept input.
+ *
+ * `dryRun` is the important field: with Dry Run enabled the service answers 200 and records a skip rather
+ * than writing anything, so a caller that ignores this reports success for something that did not happen.
+ */
+export interface InjectionOutcome {
+  readonly dryRun: boolean;
+  /** The text the service used, which is the configured prompt when none was supplied. */
+  readonly prompt?: string;
+}
+
 export interface WatchdogApi {
   health(): Promise<HealthView>;
   config(): Promise<WatchdogConfig>;
@@ -180,7 +192,7 @@ export interface WatchdogApi {
   sessions(): Promise<SessionView[]>;
   pause(id: string): Promise<void>;
   resume(id: string): Promise<void>;
-  inject(id: string, prompt?: string): Promise<void>;
+  inject(id: string, prompt?: string): Promise<InjectionOutcome>;
   focus(id: string): Promise<{ focused: boolean; reason?: string }>;
   install(): Promise<void>;
   startup(): Promise<StartupTaskView>;
@@ -242,18 +254,27 @@ export function createApi(): WatchdogApi {
     /**
    * Write text into a session.
    *
-   * With no `prompt` the service uses the configured continuation prompt, which is what the
-   * one-click action does. Supplying one sends that line instead — the service accepts any single
-   * line up to 4096 characters and refuses empty or multi-line text, so the validation lives there
-   * rather than being duplicated here.
+   * With no `prompt` the service uses the configured continuation prompt, which is what the one-click
+   * action does. Supplying one sends that line instead — the service accepts any single line up to 4096
+   * characters and refuses empty or multi-line text, so the validation lives there rather than being
+   * duplicated here.
+   *
+   * The outcome is returned rather than discarded, because a 200 does not always mean the text was written:
+   * with Dry Run on the service records a skip and writes nothing.
    */
-  inject: (id, prompt) => request<void>(
+  inject: (id, prompt) => request<InjectionOutcome | void>(
     `/sessions/${encodeURIComponent(id)}/inject`,
     {
       method: 'POST',
       ...(prompt === undefined ? {} : { body: JSON.stringify({ prompt }) }),
     },
-  ),
+  ).then((result) => ({
+    // A response body is expected, but an older service that returns none must not be read as a real write.
+    dryRun: (result as InjectionOutcome | undefined)?.dryRun === true,
+    ...((result as InjectionOutcome | undefined)?.prompt === undefined
+      ? {}
+      : { prompt: (result as InjectionOutcome).prompt as string }),
+  })),
     focus: (id) => request<{ focused: boolean; reason?: string }>(
       `/sessions/${encodeURIComponent(id)}/focus`,
       { method: 'POST' },

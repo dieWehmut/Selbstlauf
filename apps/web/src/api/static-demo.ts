@@ -118,7 +118,9 @@ export function createStaticDemoApi(): WatchdogApi {
     sessions: async () => structuredClone(currentSessions),
     pause: async (id) => { currentSessions = currentSessions.map((session) => session.id === id ? { ...session, paused: !session.paused } : session); },
     resume: async (id) => { currentSessions = currentSessions.map((session) => session.id === id ? { ...session, paused: false } : session); },
-    inject: async () => undefined,
+    // The demo never writes anything, so it reports a dry run: that is the honest answer for a build with no
+// service behind it, and it matches what the real service returns when Dry Run is enabled.
+    inject: async () => ({ dryRun: true }),
     focus: async () => ({ focused: true }),
     install: async () => undefined,
     startup: async () => ({ installed: startupInstalled, name: 'Selbstlauf Continuation Watchdog' }),

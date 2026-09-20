@@ -1819,6 +1819,31 @@ does not read that suite's silence as a passing check.
 
 Web suite 127 -> 131. **No release**: tests only.
 
+#### A dry run was reported as a delivery
+
+Continuing the same feature, one state had not been considered: **Dry Run**. With it enabled the service
+answers
+
+    200 { ok: true, dryRun: true, prompt, sessionId }
+
+and writes nothing — it records a `skip` event in its audit. The composer announced **已发送：…** for that,
+telling the user their line had reached the session when it had not. It is the same shape of defect as the
+earlier ones: a state with more than one meaning reported as a single one.
+
+Fixed by carrying the outcome rather than discarding it. `inject` now returns `InjectionOutcome`
+(`{ dryRun, prompt }`), `mutateSession` passes it back, and the composer says which of the two happened:
+
+    dryRun true  -> 未真正写入（Dry Run）："…" 只记录了跳过，没有发送到会话。
+    dryRun false -> 已发送："…"
+
+The demo API used by the browser suite was also wrong in the same direction: it returned `undefined` for
+`inject`, so a build with no service behind it claimed to have written. It now reports `{ dryRun: true }`,
+which is the honest answer for a demo and matches what the real service returns in Dry Run.
+
+Three tests pin it — a dry run is not announced as sent, a real write is, and a stale dry-run notice is
+cleared when the next send really writes. Proved by neutralising the branch: both dry-run tests fail with
+`Unable to find an element with the text: /未真正写入/u`, and pass once restored. Web suite 131 -> 134.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
