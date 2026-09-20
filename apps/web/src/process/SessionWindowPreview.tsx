@@ -121,7 +121,11 @@ export function SessionWindowPreview(props: {
         {state === 'minimized' && (
           <p className="window-preview__note">
             <Minimize2 size={15} aria-hidden="true" />
-            窗口已最小化，无法抓取画面。还原该窗口后点“刷新”即可查看。
+            {/* Worded as "not capturable" rather than "minimized": a minimized window and one that
+                has just closed are indistinguishable to the capture layer — both are simply absent
+                from the window list, with no separate signal — so naming only the minimized case
+                would give advice that cannot be followed once the window is gone. */}
+            无法抓取该窗口的画面。通常是最小化了，还原它后点“刷新”即可查看。
           </p>
         )}
 
