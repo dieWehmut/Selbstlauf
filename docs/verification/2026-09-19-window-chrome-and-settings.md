@@ -824,6 +824,34 @@ independent processes** writing the same file at once — zero failures, a docum
 parses, one complete writer's value rather than a blend, and no `.tmp`/`.bak`
 leftovers. Released as 0.2.9 and confirmed present in the shipped bundle.
 
+### Collapsing the sidebar hid nothing useful
+
+Collapsing the sidebar narrowed the grid to a 76px column and hid the brand and nav
+labels with `display: none`, leaving a permanent strip of unlabelled icons down the
+side of every page: not readable, and barely any space reclaimed.
+
+At the user's request it now removes the sidebar from the layout and gives the content
+the full width (`3531145`). The hide rule is scoped to `min-width: 961px` on purpose —
+below that the sidebar is a drawer opened from the topbar, and hiding it there would
+make navigation unreachable — and the narrow-width block restores `display: flex`. The
+rail-only rules (centred brand, hidden labels, 12px padding) were deleted rather than
+left in place.
+
+Measured on the **installed** 0.3.0:
+
+    expanded  - sidebar visible: true
+    collapsed - sidebar visible: false
+    workspace x: 236 -> 0
+    workspace width: 914 -> 1150   (the full window)
+    horizontal overflow: 0
+    restored  - sidebar visible: true | width back to 914
+
+`sidebar-collapse.spec.ts` pins it: hidden rather than narrowed, `.workspace` starting
+at the window's left edge (the check that proves no 76px strip remains), full width, no
+sideways scroll, exact geometry on restore, and — after collapsing at 1280px and
+narrowing to 900px — a drawer that still opens at 236px with readable brand and nav
+labels.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
