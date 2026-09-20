@@ -1651,6 +1651,36 @@ matters: what is actually painted where the OS buttons will be. Proved by settin
 
 Restored afterwards; browser suite 49 -> 51.
 
+#### Is the tray icon wrong, or is the artwork pale?
+
+The tray icon reads as a pale smudge in the notification area, and the original request was for every icon
+location to use the user's own `C:\Users\han\picture\Selbstlauf.png`. Three candidate causes were checked,
+and the answer is the third.
+
+**Not the packaging.** The packaged `.ico` carries a proper 7-entry ladder (16, 24, 32, 48, 64, 128, 256),
+each stored as a PNG inside the container. Extracting the purpose-drawn 16x16 and comparing it with a
+downscale of the 256 gives **56% vs 55% near-white and 0% dark ink for both** — equivalent, so which entry
+is used makes no visible difference.
+
+**Not the resampling.** Electron loads only the 256px entry (`getScaleFactors()` returns `[1]`), so Windows
+scales one image to whatever the DPI needs instead of being handed the art drawn for that size. Measured:
+resampling differs from the purpose-drawn art by a **mean of 0.85/255** at 16, 24, 32 and 48px, worst case
+8/255 — imperceptible. Adding multiple representations is possible and would change nothing, so it was not
+done.
+
+**It is the artwork.** The supplied `Selbstlauf.png` is 1254x1254 and **66% near-white**; the packaged icon
+is 64%, and at tray size both are **55%**. The packaged icon is a faithful derivation of the user's own
+image.
+
+So there is nothing to fix: the tray icon's lightness is a property of the artwork chosen, not of the build.
+Changing it would mean altering that image, which is the user's to decide — noted as something they may want
+to consider, not as a defect.
+
+Against real taskbar colours, for the record: mean contrast **10.82:1** on a dark taskbar (100% of pixels
+distinguishable), **2.99:1** on an accented one, **1.41:1** on a light one (52% distinguishable). A plain
+white glyph on that same light taskbar is **1.11:1**, so a pale icon on a light taskbar is a general
+limitation rather than something specific to this one.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
