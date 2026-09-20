@@ -597,6 +597,35 @@ This is the second defect in this work found only by exercising the surface rath
 than the code that describes it: the rail's *data* was correct and tested, while one
 of its *sections* was not wired up.
 
+### The 事件 page and cross-page navigation were never exercised in a browser
+
+Only 设置 was ever navigated to by the browser suite, so the 事件记录 page's layout
+rested on jsdom alone — and jsdom does no layout, so an overflow, a collapsed
+column or a document that scrolled sideways would not have shown up anywhere.
+Navigation *between* pages was untested too: each page was checked in isolation, and
+the title bar's 后退/前进 arrows were only asserted to exist.
+
+Both are now covered and both pass (`b2f857b`):
+
+- `timeline.spec.ts` opens 事件记录 at 1280x900 and 390x844 and asserts the heading,
+  that rows render, that every row stays inside the viewport, and that the document
+  never scrolls sideways.
+- `navigation.spec.ts` walks 进程 → 事件 → 设置, edits a config field, navigates away
+  and back, then drives the 后退 and 前进 arrows and confirms they move through the
+  same history. It revisits all three pages three more times and requires the shell
+  to stay intact — one `.app-shell`, one `.titlebar`, one `.settings-rail` — with no
+  page error and no horizontal overflow.
+
+No defect was found in either: the timeline lays out correctly at both widths and the
+history arrows work. That is a real result rather than a formality, because these
+were the two largest surfaces with no browser coverage at all.
+
+The config assertion is deliberately loose — whether an uncommitted draft survives a
+page change is a product decision — so the test requires the field to show a real
+value rather than NaN, instead of pinning one behaviour.
+
+Browser suite: 16 to 18 passing.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
