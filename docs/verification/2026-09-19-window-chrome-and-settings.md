@@ -722,6 +722,29 @@ named assets. The lesson is about process rather than code: a version bump that 
 must not leave a tag behind, so the version is now confirmed in all three places —
 both `package.json` files and `APP_VERSION` — before tagging.
 
+### The release path now refuses a mismatched tag, proved in CI
+
+The mislabeled asset above had a root cause in the pipeline rather than the code: the
+release workflow asserted that both architectures were packaged, but nothing compared
+the tag with the declared version, so a tag pushed while the package files still said
+0.2.7 produced a `Selbstlauf-Setup-0.2.7-x64.exe` attached to the v0.2.8 release.
+
+`tests/Test-VersionConsistency.ps1` (`cf6661a`) now compares every declaration — both
+workspace manifests, `APP_VERSION` in the renderer, and the two `package-lock.json`
+entries — and with `-Tag` refuses a tag that disagrees. The release workflow runs it
+in the `test` job before anything is built.
+
+Proved rather than assumed, by pushing a deliberately mismatched `v0.2.9` tag:
+
+    job 'test'    : failure
+      - Assert the tag matches the declared version : failure
+      - Build workspaces                            : skipped
+    job 'package' : skipped
+
+No installer was built, no release appeared, and `releases/tags/v0.2.9` returns 404.
+The test tag was then deleted. A well-formed tag was left alone: the v0.2.8 run
+remains green.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
