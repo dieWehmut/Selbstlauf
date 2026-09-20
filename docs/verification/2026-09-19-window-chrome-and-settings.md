@@ -1780,6 +1780,45 @@ field`, and passes once restored. Browser suite 53 -> 54.
 to the installed 0.9.0 — the same reasoning applied to the breakpoint sweep, and the same reasoning that
 0.8.7 and 0.8.8 should have followed and did not.
 
+#### The request the composer sends, and a harness that cannot show it
+
+The composer had been verified up to the send and no further, because a real send writes into a live session.
+That left the most consequential part unchecked: whether pressing Send produces the right request. It now is,
+at two levels.
+
+**At the client** (`inject-request.test.ts`), with `fetch` stubbed so nothing leaves the process:
+
+    POST /api/sessions/codex%3A17448/inject
+    content-type: application/json
+    body: {"prompt":"继续，并按上面的计划做完"}
+
+The id is URL-encoded because a session id contains a colon, and the no-prompt call must send **no body at
+all** — a body there would silently stop the one-click action from using the configured continuation prompt.
+Both are pinned, and both fail when the client is reverted to its previous bodyless form.
+
+**In the packaged app**, with the request observed and **aborted before delivery**, so no session could be
+written to:
+
+    request: POST http://127.0.0.1:48920/api/sessions/codex%3A17448/inject
+      origin: http://127.0.0.1:48920
+    URL names the panel's PID:         true
+    body carries the typed line:       true
+    Origin present (service needs it): true
+    after abort -> draft kept: "继续，并按上面的计划做完" | failure reported: "发送失败：Failed to fetch"
+
+The `Origin` is worth naming: the service **refuses a mutating request without a loopback Origin** — measured
+earlier when a probe of mine got `loopback origin required`. Had the client omitted it, the composer would
+have failed with a 403 in production while every unit test passed.
+
+**A test that could not work, found by trying it.** The first version of the request check was written in the
+browser suite and reported `no request was made`. The cause was the harness, not the composer: that suite runs
+with `VITE_STATIC_DEMO=true`, where `static-demo.ts` defines `inject: async () => undefined`, so the app makes
+no API call at all. A request-shape test in that suite could only ever be silent, which is why the assertions
+now live at the client and the packaged app instead. The demo stub's no-op is recorded here so the next person
+does not read that suite's silence as a passing check.
+
+Web suite 127 -> 131. **No release**: tests only.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
