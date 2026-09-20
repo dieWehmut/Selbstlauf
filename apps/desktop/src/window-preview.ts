@@ -115,9 +115,12 @@ export async function captureSessionWindow(
   }
 
   const source = sources.find((entry) => handleOfSourceId(entry.id) === handle);
-  // The window exists (the service reports a handle for it) but the capture layer does not offer
-  // it. Measured behaviour: that is what a minimized window looks like. A window that has closed
-  // would instead have had its handle dropped from the session by the service.
+  // The service reports a handle for this window but the capture layer does not offer it. Measured:
+  // a minimized window and a window that has just closed are **indistinguishable here** — both are
+  // simply absent from the source list, with no separate signal. So this state means "not
+  // capturable right now" and the UI words it that way, rather than claiming to know which of the
+  // two it is. Usually it is a minimized window, because a closed one has its handle dropped from
+  // the session list by the next poll.
   if (source === undefined) return { state: 'minimized' };
 
   const image = source.thumbnail;

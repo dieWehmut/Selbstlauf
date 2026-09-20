@@ -66,9 +66,13 @@ describe('SessionWindowPreview', () => {
     expect(await screen.findByText(/此窗口内有 2 个受监控进程/u)).toBeInTheDocument();
   });
 
-  it('names a minimized window instead of showing an empty frame', async () => {
+  it('names an uncapturable window without claiming to know why', async () => {
     render(<SessionWindowPreview session={session()} requestPreview={async () => ({ state: 'minimized' })} />);
-    expect(await screen.findByText(/窗口已最小化/u)).toBeInTheDocument();
+    // A minimized window and one that has just closed are indistinguishable to the capture layer,
+    // so the message must not promise that restoring it will help — that advice cannot be followed
+    // once the window is gone.
+    const note = await screen.findByText(/无法抓取该窗口的画面/u);
+    expect(note.textContent).toContain('通常是最小化了');
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 

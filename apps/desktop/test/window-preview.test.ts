@@ -157,3 +157,21 @@ test('asks for a thumbnail size large enough to read a terminal', async () => {
   assert.deepEqual(seen, { ...PREVIEW_THUMBNAIL_SIZE });
   assert.ok(PREVIEW_THUMBNAIL_SIZE.width >= 960, 'the preview would be too small to read');
 });
+test('a window that has closed is reported the same way as a minimized one, not as a wrong window', async () => {
+  // Measured: a destroyed window and a minimized one are indistinguishable to the capture layer ¡ª
+  // both are simply absent from the source list. The important property is that a stale handle
+  // never resolves to some *other* window, which would show the wrong content under this process's
+  // name. Here another window is present and must not be matched.
+  const { dependencies: deps } = dependencies([session('a', 11)], [source(22), source(33)]);
+  const result = await captureSessionWindow(deps, 'a');
+  assert.equal(result.state, 'minimized', 'a stale handle must not fall back to another window');
+});
+
+test('never captures a window belonging to a different handle', async () => {
+  // The guard that makes the above safe: only an exact handle match is ever captured.
+  const { dependencies: deps } = dependencies([session('a', 67008)], [source(67009 - 1), source(67008)]);
+  const result = await captureSessionWindow(deps, 'a');
+  assert.equal(result.state, 'captured');
+  if (result.state !== 'captured') return;
+  assert.match(result.dataUrl, /handle-67008/u);
+});

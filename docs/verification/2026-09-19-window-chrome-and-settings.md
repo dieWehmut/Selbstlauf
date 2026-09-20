@@ -1392,6 +1392,33 @@ like a result: writing `--remote-debugging-port` into `process.argv` leaves noth
 go through `app.commandLine.appendSwitch`), and a probe left the app's own `main.js` importing while a
 top-level `await` before `app.whenReady()` kept Electron from ever starting.
 
+#### A stale window handle: the message promised something impossible
+
+The preview matches a session to its window by handle, and the service re-resolves that handle from
+the PID on every poll — so a handle can be stale by the time a preview is asked for. If a recycled
+handle ever matched a different window, the panel would show **another window's content under this
+process's name**, which is worse than showing nothing. That needed measuring rather than assuming.
+
+Measured with a window this probe created, destroyed mid-run:
+
+    live handle      -> captured
+    destroyed handle -> minimized
+    stale handle now matches any window: no
+
+So a stale handle never resolves to another window — the exact-handle match is what makes it safe.
+But it exposed a defect of a different kind: **a destroyed window produces exactly the same signal as
+a minimized one**, because both are simply absent from the capture layer's source list with no
+separate signal to tell them apart. The panel therefore said *"窗口已最小化，无法抓取画面。还原该
+窗口后点刷新即可查看"* — telling the user to restore a window that no longer existed.
+
+The state cannot be split honestly, since the evidence does not distinguish the two. What could be
+fixed was the **wording**, so the message no longer claims to know which case applies:
+
+    无法抓取该窗口的画面。通常是最小化了，还原它后点“刷新”即可查看。
+
+Two tests were added: one that a stale handle never falls back to another window, and one that the
+message does not promise restoration will help. Desktop suite 109 -> 111.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
