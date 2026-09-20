@@ -1442,6 +1442,50 @@ interface is a browser page, an identified host is named (运行位置：控制�
 window could not be identified. Two tests pin it, and **both fail when the hardcoded message is put
 back** — verified by reverting the fix, watching them fail, and restoring it. Web suite 111 -> 113.
 
+#### A real accessibility audit, which found a real contrast failure
+
+The suite checked accessibility by *structure* — the rail is a valid tablist, sidebar rows stay exposed
+as buttons, a menu holds only menu items. Those were all written from bugs already found, so they can
+only catch bugs of a kind already known. `axe-core` was added as a dev dependency and now runs an
+independent WCAG 2.1 A/AA rule set over every page, in both themes, with the settings drawer on a
+narrow viewport audited separately because it is a different structure.
+
+**It found a genuine failure, in the sidebar rebuilt this cycle.** `--faint` carried the group
+headings, the silence times and the conversation lines at **3.29:1 against a required 4.5:1**, and the
+light theme was worse at **2.95:1**. Those are text a person reads to decide what to act on, not
+decoration:
+
+    dark  --faint #637078  3.29:1 FAIL   (group heading, silence, conversation)
+    light --faint #829095  2.95:1 FAIL
+
+The first fix was **aimed at the wrong surface** and the audit caught that too: solving against the
+sidebar background (#1a1e22) left the *selected* row's timestamp at 4.36:1, because selection changes
+the row background to the lighter #1e2326. Both tokens are now solved against the true binding surface
+in each theme:
+
+    dark  --muted #9ea2a5  --faint #868b8d   4.86:1 on the sidebar, 4.60:1 on a selected row
+    light --muted #4f575b  --faint #5f686a   5.11:1 on the panel,   4.60:1 on a selected row
+
+The light theme had less headroom: `--muted` was only 4.95:1, so pushing `--faint` to AA with the
+original `--muted` would have made `--faint` **darker** than `--muted` and inverted the visual
+hierarchy. Both were therefore solved together, and `--faint` remains the dimmer of the two.
+
+#### Two ways the audit itself was wrong before it was right
+
+Both are recorded because each looked like a finding:
+
+- **Measuring during an animation.** The audit injected axe and ran it immediately after navigating,
+  while the row and panel enter animations were still running. axe samples *computed* colour, so a fade
+  reads as a blended mid-transition value and is reported as a contrast failure. It reported sidebar
+  failures that vanished once animations settled; the audit now awaits `document.getAnimations()`.
+- **A path that did not exist.** The axe bundle was read from `process.cwd()`, which Playwright sets to
+  `apps/web`, so the file was not found. Resolved through `createRequire(...).resolve` instead.
+
+To prove the audit cannot pass vacuously, `--faint` was temporarily set to `#2a3238` — genuinely
+unreadable — and the suite failed with contrast violations on all five pages. It was then restored.
+
+Browser suite: 42 -> 45. Every page now reports zero WCAG A/AA violations.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
