@@ -341,8 +341,8 @@ test.describe('Selbstlauf watchdog workbench', () => {
 
     // Selecting a section brings its content into view and marks the rail entry.
     await page.getByRole('searchbox', { name: '搜索设置' }).fill('');
-    await rail.getByRole('tab', { name: '使用情况和计费' }).click();
-    await expect(rail.getByRole('tab', { name: '使用情况和计费' })).toHaveAttribute('aria-selected', 'true');
+    await rail.getByRole('tab', { name: '使用统计' }).click();
+    await expect(rail.getByRole('tab', { name: '使用统计' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('heading', { name: '使用统计' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 

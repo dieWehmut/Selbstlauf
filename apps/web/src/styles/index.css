@@ -2,6 +2,12 @@
   font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
   color: #e9eef0;
   background: #0d1216;
+  /* Tells the browser which way its own chrome should be drawn. Without it the native
+     scrollbars, form controls and focus rings stay light on the dark theme, which is
+     the bright bar that showed down the settings rail. The light theme below overrides
+     this; the desktop shell follows the same value so the window does not paint a light
+     scrollbar before the bundle loads. */
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --bg: #0d1216;
@@ -43,6 +49,8 @@
 :root[data-theme='light'] {
   color: #1c262b;
   background: #eef2f1;
+  /* The light theme must opt back in, or it would inherit the dark scrollbars. */
+  color-scheme: light;
   --bg: #eef2f1;
   --panel: #ffffff;
   --panel-raised: #f7f9f8;
@@ -532,6 +540,36 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .settings-rail__search:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 .settings-rail__search input { flex: 1 1 auto; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: 12px; }
 .settings-rail__list { display: grid; gap: 3px; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+
+/* ---------- Scrollbars ---------- */
+/* A themed, unobtrusive bar for the two scroll regions. `color-scheme` on :root already
+   stops the browser painting a light scrollbar on the dark theme, but the default bar is
+   still wide and high-contrast; this makes it read as part of the surface. Firefox uses
+   the standard properties, Chromium/Electron the -webkit pseudo-elements, so both are
+   declared rather than relying on one engine. */
+.settings-rail__list,
+.sidebar-processes__scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--line-strong) 70%, transparent) transparent;
+}
+.settings-rail__list::-webkit-scrollbar,
+.sidebar-processes__scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.settings-rail__list::-webkit-scrollbar-track,
+.sidebar-processes__scroll::-webkit-scrollbar-track { background: transparent; }
+.settings-rail__list::-webkit-scrollbar-thumb,
+.sidebar-processes__scroll::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--line-strong) 85%, transparent);
+  background-clip: content-box;
+}
+.settings-rail__list::-webkit-scrollbar-thumb:hover,
+.sidebar-processes__scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted) 75%, transparent);
+  background-clip: content-box;
+}
+.settings-rail__list::-webkit-scrollbar-corner,
+.sidebar-processes__scroll::-webkit-scrollbar-corner { background: transparent; }
 .settings-rail__group { display: grid; gap: 3px; min-width: 0; }
 .settings-rail__group + .settings-rail__group { margin-top: 10px; }
 .settings-rail__category { padding: 10px 10px 4px; color: var(--faint); font: 10px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
