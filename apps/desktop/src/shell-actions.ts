@@ -28,6 +28,7 @@ export const SHELL_ACTIONS = Object.freeze([
   'quit',
   'openExternal',
   'setTitleBarOverlay',
+  'windowPreview',
 ] as const);
 
 export type ShellAction = (typeof SHELL_ACTIONS)[number];
@@ -91,7 +92,39 @@ export interface ShellActionContext {
   openExternal(url: string): Promise<void> | void;
   /** Repaint the native window-button strip so it matches the page title bar. */
   setTitleBarOverlay?(overlay: TitleBarOverlayRequest): void;
+  /**
+   * Capture a preview of the window a watched session runs in.
+   *
+   * Deliberately keyed by *session id*, not by a window handle. If the renderer passed a handle
+   * it could ask for a picture of any window on the machine; going through the service's own
+   * session list bounds the capability to windows this app already monitors. The main process
+   * performs the lookup, so the renderer never names a window at all.
+   */
+  previewWindow?(sessionId: string): Promise<WindowPreview> | WindowPreview;
 }
+
+/**
+ * The outcome of a preview request.
+ *
+ * `unavailable` is a first-class result rather than an error, because two of the three ways a
+ * preview can fail are normal states of a healthy system: a session may run in no window at all
+ * (DeepSeek Harness is a web UI), and a minimized window is not enumerated by the OS capture
+ * layer at all — established by measurement, not assumption. Returning a reason lets the UI say
+ * which one applies instead of showing an empty frame.
+ */
+export type WindowPreview =
+  | {
+    readonly state: 'captured';
+    /** A `data:image/png;base64,...` URL, ready to use as an `<img src>`. */
+    readonly dataUrl: string;
+    readonly width: number;
+    readonly height: number;
+    /** How many watched sessions share this window; two Codex sessions can share one Tabby. */
+    readonly sharedBy: number;
+  }
+  | { readonly state: 'no-window' }
+  | { readonly state: 'minimized' }
+  | { readonly state: 'unsupported'; readonly reason: string };
 
 export interface ShellActionRequest {
   readonly action: ShellAction;
@@ -102,6 +135,8 @@ export interface ShellActionRequest {
   /** Only meaningful for `setTitleBarOverlay`. */
   readonly color?: string;
   readonly symbolColor?: string;
+  /** Only meaningful for `windowPreview`: the watched session to preview. */
+  readonly sessionId?: string;
 }
 
 /** The zoomable surface of a window, whichever shape Electron hands back. */
@@ -156,6 +191,11 @@ export function applyShellAction(context: ShellActionContext, request: ShellActi
       });
       return;
     }
+    case 'windowPreview':
+      // Handled by `applyAsyncShellAction`, which can await the capture. Reaching here means a
+      // caller used the synchronous dispatcher for it, which is a programming error rather than
+      // something to paper over.
+      throw new TypeError('windowPreview is asynchronous: use applyAsyncShellAction');
     default: {
       const exhaustive: never = request.action;
       throw new TypeError(`unknown shell action: ${String(exhaustive)}`);
@@ -173,7 +213,14 @@ export function parseShellRequest(payload: unknown): ShellActionRequest {
   if (payload === null || typeof payload !== 'object') {
     throw new TypeError('shell request must be an object');
   }
-  const entry = payload as { action?: unknown; delta?: unknown; url?: unknown; color?: unknown; symbolColor?: unknown };
+  const entry = payload as {
+    action?: unknown;
+    delta?: unknown;
+    url?: unknown;
+    color?: unknown;
+    symbolColor?: unknown;
+    sessionId?: unknown;
+  };
   if (!isShellAction(entry.action)) {
     throw new TypeError(`unknown shell action: ${String(entry.action)}`);
   }
@@ -183,5 +230,40 @@ export function parseShellRequest(payload: unknown): ShellActionRequest {
     ...(entry.url === undefined ? {} : { url: String(entry.url) }),
     ...(entry.color === undefined ? {} : { color: String(entry.color) }),
     ...(entry.symbolColor === undefined ? {} : { symbolColor: String(entry.symbolColor) }),
+    ...(entry.sessionId === undefined ? {} : { sessionId: String(entry.sessionId) }),
   };
+}
+
+/**
+ * The async half of the action set, kept separate from `applyShellAction`.
+ *
+ * `applyShellAction` is deliberately synchronous and returns nothing, which is what makes it
+ * unit-testable without Electron. A capture is the one action that must await, so it is
+ * dispatched through this function instead of widening the synchronous one to a Promise.
+ */
+export async function applyAsyncShellAction(
+  context: ShellActionContext,
+  request: ShellActionRequest,
+): Promise<WindowPreview> {
+  if (request.action !== 'windowPreview') {
+    throw new TypeError(`not an async shell action: ${request.action}`);
+  }
+  const handler = context.previewWindow;
+  if (handler === undefined) return { state: 'unsupported', reason: 'windowPreview is not wired up' };
+  const sessionId = request.sessionId;
+  // A session id is the only thing the renderer may name here, and an empty one is refused
+  // rather than passed down to become some default window.
+  if (typeof sessionId !== 'string' || sessionId.length === 0) {
+    return { state: 'unsupported', reason: 'windowPreview needs a session id' };
+  }
+  try {
+    return await handler(sessionId);
+  } catch (error) {
+    return { state: 'unsupported', reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Whether an action is one the asynchronous dispatcher handles. */
+export function isAsyncShellAction(action: ShellAction): boolean {
+  return action === 'windowPreview';
 }

@@ -12,8 +12,11 @@ import {
 import { buildApplicationMenu, RENDERER_COMMANDS, type RendererCommand } from './menu.js';
 import {
   SHELL_CHANNELS,
+  applyAsyncShellAction,
   applyShellAction,
+  isAsyncShellAction,
   parseShellRequest,
+  type WindowPreview,
 } from './shell-actions.js';
 import {
   readDesktopSettings,
@@ -24,6 +27,11 @@ import {
 import { readStartupState, setStartupInstalled } from './startup-client.js';
 import { installTray, showWindow, type TrayController, type TrayLike } from './tray.js';
 import { createLifecycle } from './lifecycle.js';
+import {
+  captureSessionWindow,
+  type PreviewSession,
+  type PreviewSource,
+} from './window-preview.js';
 import {
   readWatchdogRecord,
   resolveStateDirectory,
@@ -119,6 +127,19 @@ export interface ElectronShell {
   };
   readonly Tray?: new (icon: unknown) => TrayLike;
   readonly nativeImage?: { createFromPath(path: string): unknown };
+  /**
+   * The window capturer, used to preview the window a watched session runs in.
+   *
+   * Optional so a stub without it degrades to "preview unavailable" rather than crashing, the
+   * same way the menu and tray members do.
+   */
+  readonly desktopCapturer?: {
+    getSources(options: {
+      types: readonly string[];
+      thumbnailSize: { width: number; height: number };
+      fetchWindowIcons?: boolean;
+    }): Promise<readonly PreviewSource[]>;
+  };
   readonly ipcMain?: {
     handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void;
     removeHandler?(channel: string): void;
@@ -304,7 +325,7 @@ export function installApplicationMenu(
   return menu;
 }
 
-/** Register the five renderer-facing shell actions exactly once. */
+/** Register the renderer-facing shell actions exactly once. */
 export function registerShellHandlers(
   shell: ElectronShell,
   context: {
@@ -315,12 +336,28 @@ export function registerShellHandlers(
     readonly saveSettings: (patch: unknown) => Promise<DesktopSettings>;
     /** Repaint the native window-button strip; optional so stubs keep working. */
     readonly setTitleBarOverlay?: (colors: { color: string; symbolColor?: string }) => void;
+    /** Capture a preview of a watched session's window; optional so stubs keep working. */
+    readonly previewWindow?: (sessionId: string) => Promise<WindowPreview> | WindowPreview;
   },
 ): boolean {
   const ipcMain = shell.ipcMain;
   if (ipcMain === undefined) return false;
   ipcMain.handle(SHELL_CHANNELS.invoke, (_event, payload: unknown) => {
     const request = parseShellRequest(payload);
+    // The capture is the one action that must await, so it goes through the async dispatcher.
+    // A rejected request resolves to an `unsupported` outcome rather than throwing across IPC,
+    // where the renderer would only see an opaque "Error invoking remote method".
+    if (isAsyncShellAction(request.action)) {
+      return applyAsyncShellAction(
+        {
+          window: { reload: () => undefined },
+          quit: context.quit,
+          openExternal: context.openExternal,
+          ...(context.previewWindow === undefined ? {} : { previewWindow: context.previewWindow }),
+        },
+        request,
+      );
+    }
     // Repainting the native strip must work before the window is usable: the
     // renderer reports its title-bar colour as soon as it paints, which can land
     // while the window is still being wired up. Every other action needs a live
@@ -540,6 +577,35 @@ export async function main(): Promise<void> {
         ...(colors.symbolColor === undefined ? {} : { symbolColor: colors.symbolColor }),
         height: TITLE_BAR_OVERLAY.height,
       });
+    },
+    /**
+     * Preview the window a watched session runs in.
+     *
+     * The service origin is resolved lazily from the same record the rest of the desktop shell
+     * reads, because this handler is registered before the service is hosted. The session list
+     * comes from the service rather than from the renderer, which is what bounds the capability
+     * to windows this app already monitors — the renderer names a session, never a window.
+     */
+    previewWindow: async (sessionId) => {
+      const capturer = shell.desktopCapturer;
+      if (capturer === undefined) {
+        return { state: 'unsupported', reason: 'this build cannot capture windows' } as const;
+      }
+      return captureSessionWindow(
+        {
+          getSources: (options) => capturer.getSources(options),
+          sessions: async () => {
+            const record = await readWatchdogRecord(stateDirectory);
+            if (record === null) return [];
+            const origin = watchdogOrigin(record.port);
+            const response = await fetch(`${origin}/api/sessions`);
+            if (!response.ok) throw new Error(`sessions request failed: ${response.status}`);
+            const body = (await response.json()) as { sessions?: readonly PreviewSession[] };
+            return body.sessions ?? [];
+          },
+        },
+        sessionId,
+      );
     },
   });
 

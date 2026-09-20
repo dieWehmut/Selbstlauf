@@ -45,6 +45,14 @@ contextBridge.exposeInMainWorld('selbstlaufDesktop', {
       color: colors && colors.color,
       symbolColor: colors && colors.symbolColor,
     }),
+    /**
+     * Ask for a still of the window a watched session runs in.
+     *
+     * Takes a session id, never a window handle: the main process resolves the window through the
+     * service's own session list, so the renderer cannot ask for a picture of an arbitrary
+     * window. Unlike the actions above this one returns a value, so it is awaited.
+     */
+    windowPreview: (sessionId) => invoke({ action: 'windowPreview', sessionId }),
   }),
   settings: Object.freeze({
     get: () => ipcRenderer.invoke(SHELL_CHANNELS.settingsGet),

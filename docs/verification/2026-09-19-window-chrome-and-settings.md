@@ -1242,6 +1242,80 @@ Verified on the built app against the live service:
 Suites: web 105 -> 101 (four sections' tests removed with them, nine id tests added), browser
 38 -> 41.
 
+### The window preview, and why input injection was not built
+
+A process detail page now shows a still of the window that process runs in, plus a
+**切换到该窗口** button. The user asked for both that and the ability to type into the preview;
+the second half was measured, found not viable, and is documented rather than faked.
+
+#### What the measurements established
+
+Every claim below comes from running the real capturer, not from reading documentation. All of it
+was done with windows this session created itself — an earlier probe of mine had launched Notepad
+and closed a window the user had unsaved work in, so from then on no other application was
+targeted, no process was terminated by name, and no input was sent anywhere.
+
+| Case | Result |
+| --- | --- |
+| Visible window | Captures at 945x600, text legible |
+| **Occluded** window (fully behind another) | **Captures with its own content intact** — 162 distinct colours, identical to unoccluded |
+| **Minimized** window | **Absent from the source list entirely**, not merely blank; returns on restore |
+| Source id vs the service's handle | Exact match (`window:67008:0` ↔ `hwnd 67008`) |
+| One window per process | No — two Codex sessions share Tabby's `hwnd 67008` |
+| Cost of one capture pass | ~300ms, **flat** as windows go from 0 to 15 open |
+
+The occluded result is what makes the feature worth having: it shows a session the user cannot
+currently see. (A window already in front needs no preview.) The minimized result is why the panel
+names that state in words instead of rendering an empty frame. The flat cost is why it is fetched
+on demand rather than on a timer.
+
+#### Why typing into the preview was not built
+
+| Route | Foreground | Background (unfocused) |
+| --- | --- | --- |
+| Electron `sendInputEvent` | works (own window only) | — |
+| `PostMessage WM_CHAR` | **works** — field received `xyz`, real `input` events | **no effect at all** — empty field, zero events |
+
+A continuation is only useful if it arrives while the user is looking elsewhere, and the unfocused
+case does nothing. Making it work would require seizing the foreground (interrupting what the user
+is doing) or `AttachThreadInput` (fragile, often blocked). The app already writes continuations
+through *validated* transports — the console bridge, the Codex adapter and the DSH web host — so
+extending those is the correct route rather than synthesising keystrokes.
+
+#### Design
+
+The renderer asks for a preview **by session id, never by window handle**. The main process resolves
+the handle through the service's own session list, so the capability is bounded to windows this app
+already monitors and cannot be pointed at an arbitrary window. `windowPreview` is the one
+asynchronous shell action, so it is dispatched separately from the synchronous
+`applyShellAction` — which also keeps that function unit-testable without Electron — and a rejected
+request resolves to a stated `unsupported` outcome rather than throwing across IPC, where the
+renderer would only see an opaque "Error invoking remote method".
+
+#### Verification
+
+The packaged app, driven over the DevTools protocol (`0.8.0`):
+
+    bridge shell keys: [reload, toggleFullScreen, zoom, quit, openExternal,
+                        setTitleBarOverlay, windowPreview]
+    dsh  pid=7984 hwnd=null    -> no-window
+    codex pid=30780 hwnd=67008 -> minimized      (the user's windows are minimized)
+    "nope:1" -> unsupported: that session is no longer running
+    ""       -> unsupported: windowPreview needs a session id
+    detail page panel: shows 窗口已最小化，无法抓取画面… | page errors: none
+
+Because every window the user's sessions run in was minimized, that run could only exercise the
+`minimized` state. The **captured** path was therefore proven separately, by importing the built
+production module (`apps/desktop/dist/src/window-preview.js` — the same file packed into
+`app.asar`) and driving it with Electron's real capturer against a window the probe created:
+
+    captureSessionWindow -> captured
+      size 945x600 | sharedBy 2 (two sessions pointed at one window)
+      dataUrl 26506 chars -> decodes to a real PNG (signature verified, image inspected)
+    no-window -> no-window | minimized -> minimized | unknown -> unsupported
+
+Suites: desktop 92 -> 109, web 101 -> 111, browser 41 -> 42.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
