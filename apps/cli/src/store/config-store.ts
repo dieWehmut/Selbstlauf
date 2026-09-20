@@ -13,6 +13,17 @@ export class ConfigStore {
   public readonly path: string;
   private readonly createIfMissing: boolean;
   private cached: WatchdogConfig | null = null;
+  /**
+   * Serializes saves.
+   *
+   * Two concurrent saves used to race in `replaceAtomically`'s Windows backup branch:
+   * the first moved `config.json` aside, and the second then failed with ENOENT
+   * because the destination it tried to move no longer existed. Saves come from
+   * several places at once — the renderer's settings form, the tray, and the service's
+   * own lifecycle routes — so this is reachable in normal use, and a lost save is a
+   * setting the user watched change back.
+   */
+  private queue: Promise<unknown> = Promise.resolve();
 
   public constructor(path: string, options: ConfigStoreOptions = {}) {
     if (typeof path !== 'string' || path.trim().length === 0) {
@@ -38,6 +49,16 @@ export class ConfigStore {
 
   public async save(value: unknown): Promise<WatchdogConfig> {
     const config = parseConfig(value);
+    // Validate before queueing, so a rejected value fails immediately and cannot
+    // disturb the documents queued ahead of it.
+    const run = this.queue.then(() => this.write(config));
+    // Keep the chain alive even when this save rejects, or every later save would
+    // inherit the rejection and fail for an unrelated reason.
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async write(config: WatchdogConfig): Promise<WatchdogConfig> {
     await mkdir(dirname(this.path), { recursive: true });
     const temporaryPath = `${this.path}.${randomUUID()}.tmp`;
     try {
@@ -70,14 +91,20 @@ async function replaceAtomically(source: string, destination: string): Promise<v
   }
 
   const backup = `${destination}.${randomUUID()}.bak`;
-  await rename(destination, backup);
+  // Another writer may have already moved the destination aside, in which case there
+  // is nothing to back up and the plain rename below is enough. This keeps a second
+  // process (or a second ConfigStore on the same path) from failing the save.
+  const staged = await rename(destination, backup).then(() => true).catch((error: unknown) => {
+    if (isMissingFile(error)) return false;
+    throw error;
+  });
   try {
     await rename(source, destination);
   } catch (error) {
-    await rename(backup, destination).catch(() => undefined);
+    if (staged) await rename(backup, destination).catch(() => undefined);
     throw error;
   }
-  await rm(backup, { force: true });
+  if (staged) await rm(backup, { force: true });
 }
 
 function isMissingFile(error: unknown): boolean {
