@@ -55,7 +55,7 @@ import {
 } from './api/client';
 import { SettingsRail, SETTINGS_SECTION_IDS } from './settings/SettingsRail';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
-import { sessionTone, sessionToneLabel } from './sidebar/session-groups';
+import { sessionTone, sessionToneLabel, conversationLabel } from './sidebar/session-groups';
 import {
   AccountSection,
   BrowserSection,
@@ -488,10 +488,8 @@ function toolLabel(tool: SessionView['tool']): string {
   return 'Claude';
 }
 
-function conversationLabel(session: SessionView): string {
-  if (session.tool === 'dsh') return session.runningTurn ? '步骤执行中' : '等待输入';
-  return session.goal ? `Goal · ${session.goal.status}` : '普通对话';
-}
+/* `conversationLabel` lives in ./sidebar/session-groups so the sidebar list and this
+   table describe a session's conversation identically rather than duplicating the rule. */
 
 function transportReason(error: string | undefined): string | null {
   if (!error) return null;
@@ -2525,7 +2523,11 @@ export default function App({ api: suppliedApi }: AppProps) {
         </aside>
       ) : (
       <aside id="watchdog-sidebar" className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-        <div className="brand"><span className="brand__mark" data-testid="brand-mark"><img src={brandIcon} alt="" width={34} height={34} /></span><div><strong>{displayName.trim().length > 0 ? displayName : 'Selbstlauf'}</strong><span>continuation watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
+        {/* No brand block at the top: it repeated the app's own name on every page without
+            carrying anything actionable, and the identity it showed lives in the bottom
+            bar instead. The close control the drawer needs at narrow widths stays, and
+            hides itself at column widths where there is no drawer to close. */}
+        <button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button>
         <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { navigate(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
         {/* The discovered processes, grouped by the application they run inside. This
             is the list the reference sidebar's structure is modelled on: a heading per
@@ -2555,6 +2557,15 @@ export default function App({ api: suppliedApi }: AppProps) {
               // the whole menu for it. The status is still announced, because it is a
               // region with its own label.
               <div className="account-popup" role="region" aria-label="账户与状态">
+                {/* The identity the top brand block used to show, now that the sidebar has
+                    no header of its own. The display name from 个人资料 is adopted here. */}
+                <div className="account-menu__status">
+                  <span className="brand__mark" data-testid="brand-mark" aria-hidden="true"><img src={brandIcon} alt="" width={34} height={34} /></span>
+                  <div>
+                    <strong>{displayName.trim().length > 0 ? displayName : 'Selbstlauf'}</strong>
+                    <span>continuation watchdog</span>
+                  </div>
+                </div>
                 <div className="account-menu__status">
                   <span className={`process-dot process-dot--${connected ? 'writable' : 'error'}`} aria-hidden="true" />
                   <div>

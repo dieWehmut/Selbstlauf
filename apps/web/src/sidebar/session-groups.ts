@@ -96,6 +96,28 @@ export function formatSilence(ms: number): string {
 }
 
 /**
+ * What conversation a session is in, phrased the way the process table phrases it.
+ *
+ * Defined here rather than in the renderer so the sidebar list and the table cannot
+ * describe the same session differently — they are two views of one value.
+ */
+export function conversationLabel(session: SessionView): string {
+  if (session.tool === 'dsh') return session.runningTurn ? '步骤执行中' : '等待输入';
+  return session.goal ? `Goal · ${session.goal.status}` : '普通对话';
+}
+
+/**
+ * The conversation identity shown under each row: the label plus the id it is bound to.
+ *
+ * A session with no conversation says 未关联 rather than nothing, because "this process has
+ * no conversation yet" is exactly what decides whether it can be continued.
+ */
+export function conversationDetail(session: SessionView): string {
+  const id = session.conversationId;
+  return `${conversationLabel(session)} · ${id === null || id.length === 0 ? '未关联' : id}`;
+}
+
+/**
  * The dot beside a row, which must agree with the process table's own badges.
  *
  * This mirrors the app's `canInject` rule rather than testing `transport` directly: the

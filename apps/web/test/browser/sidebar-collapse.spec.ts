@@ -71,12 +71,13 @@ test('a collapsed sidebar does not remove the mobile drawer', async ({ page }, t
   const sidebar = page.locator('.sidebar');
   await expect(sidebar).toHaveClass(/is-open/u);
 
-  // It must be the full labelled sidebar, not the old icon rail: the brand name and
-  // the nav labels are the things the rail used to hide.
+  // It must be the full labelled sidebar, not the old icon rail: the nav labels are the
+  // thing the rail used to hide. The sidebar has no brand header any more, so the labels
+  // are what is checked.
   const box = (await sidebar.boundingBox())!;
   expect(Math.round(box.width), 'the drawer is not the full sidebar width').toBe(236);
-  await expect(sidebar.locator('.brand strong')).toBeVisible();
   await expect(sidebar.locator('nav').getByRole('button', { name: '进程' })).toBeVisible();
+  await expect(sidebar.locator('.sidebar-processes__conversation').first()).toBeVisible();
   const labelVisible = await sidebar.locator('.nav-button span').first().evaluate(
     (el) => getComputedStyle(el).display !== 'none',
   );

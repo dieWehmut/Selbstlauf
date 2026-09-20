@@ -22,16 +22,17 @@ test('replaces the app sidebar with the settings rail, and keeps the title bar a
   await page.goto('/');
 
   // The app sidebar is present on the dashboard, which is what makes its absence on
-  // settings meaningful rather than a selector that never matched.
+  // settings meaningful rather than a selector that never matched. It is identified by the
+  // process list and the nav, since it no longer has a brand header.
   await expect(page.locator('.sidebar:not(.sidebar--settings)')).toHaveCount(1);
-  await expect(page.locator('.brand')).toHaveCount(1);
+  await expect(page.locator('.sidebar .sidebar-processes')).toHaveCount(1);
+  await expect(page.locator('.sidebar .nav-button').first()).toBeVisible();
 
   await page.keyboard.press('Control+3');
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
 
   // 1. The app sidebar is gone, entirely: not merely narrowed or hidden behind the rail.
   await expect(page.locator('.sidebar:not(.sidebar--settings)'), 'the app sidebar is still on the settings page').toHaveCount(0);
-  await expect(page.locator('.brand')).toHaveCount(0);
   await expect(page.locator('.sidebar-processes')).toHaveCount(0);
   await expect(page.locator('.account-bar')).toHaveCount(0);
   await expect(page.locator('.nav-button')).toHaveCount(0);

@@ -5,7 +5,6 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
-    await expect(page.getByText('Selbstlauf')).toBeVisible();
     await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
     await expect(page.locator('.process-table-wrap')).toBeVisible();
     await expect(page.locator('.session-cards')).toBeHidden();
