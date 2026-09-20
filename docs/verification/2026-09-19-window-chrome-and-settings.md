@@ -1844,6 +1844,30 @@ Three tests pin it — a dry run is not announced as sent, a real write is, and 
 cleared when the next send really writes. Proved by neutralising the branch: both dry-run tests fail with
 `Unable to find an element with the text: /未真正写入/u`, and pass once restored. Web suite 131 -> 134.
 
+**Verified on the published 0.9.1 with Dry Run genuinely enabled** — the one case where sending is safe,
+because nothing is written:
+
+    dryRun before: false | dryRun now: true
+    panel says: 未真正写入（Dry Run）：dry-run verification line 只记录了跳过，没有发送到会话。
+      says 未真正写入 (correct):      true
+      claims 已发送 (the old defect): false
+
+#### My verification left the watchdog inert, and its own restore failed
+
+A mistake worth recording plainly. To test that case I enabled Dry Run on the running service, and the script's
+restore step then **did not take** — it hung and exited before restoring, and a first manual attempt also
+returned without changing anything. Dry Run was left **on**, which means the watchdog would have been running
+but writing nothing: enabled, polling every 2s, and never continuing a session.
+
+Confirmed and corrected afterwards:
+
+    running: True | dryRun: False | config dryRun: False | enabled: True | poll: 2000ms
+
+So the state is healthy. But the lesson is that a verification which *changes the user's configuration* must
+not rely on a best-effort restore inside the same script that might die — it has to be checked after the fact,
+which is what caught it here. The measurement was strong (the full round trip, field to service to audit), but
+it briefly left the user's own tool disabled, and that is not an acceptable cost for a test.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
