@@ -56,9 +56,12 @@ export function SidebarProcessList(props: {
         />
       </div>
 
-      {/* A named region so the list is reachable as a landmark and its scrolling is
-          announced, rather than being an unlabelled overflow container. */}
-      <div className="sidebar-processes__scroll" role="list" aria-label="进程列表">
+      {/* A labelled group of buttons, not `role="list"` with `role="listitem"` rows.
+          Putting `listitem` on a `<button>` overrides its button role: the rows stopped
+          being exposed as activatable at all, so assistive technology announced a list
+          item with no way to know it could be pressed. The rows stay buttons, which is
+          what they are, and the group keeps the label. */}
+      <div className="sidebar-processes__scroll" role="group" aria-label="进程列表">
         {groups.length === 0 && (
           <p className="sidebar-processes__empty">
             {query.length === 0 ? '尚未发现进程' : '没有匹配的进程'}
@@ -74,7 +77,6 @@ export function SidebarProcessList(props: {
                 <button
                   key={session.id}
                   type="button"
-                  role="listitem"
                   className={`sidebar-processes__item ${selected ? 'is-selected' : ''}`}
                   aria-current={selected ? 'true' : undefined}
                   title={`${toolLabel(session.tool)} · PID ${session.rootPid} · ${sessionToneLabel(tone)}`}

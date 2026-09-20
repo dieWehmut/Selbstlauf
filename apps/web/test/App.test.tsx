@@ -741,9 +741,9 @@ describe('window title bar', () => {
 
     // The fixtures carry no host, so every process must land in the named fallback
     // group rather than being dropped from the list.
-    const list = await screen.findByRole('list', { name: '进程列表' });
+    const list = await screen.findByRole('group', { name: '进程列表' });
     expect(within(list).getByText('未识别宿主')).toBeInTheDocument();
-    const rows = within(list).getAllByRole('listitem');
+    const rows = within(list).getAllByRole('button');
     expect(rows).toHaveLength(4);
     // Each row names its tool and its silence, which is what makes it findable.
     expect(rows[0].textContent).toMatch(/Codex|Claude|DeepSeek Harness/u);
@@ -752,14 +752,14 @@ describe('window title bar', () => {
   it('opens a process detail page when a session is chosen from the sidebar', async () => {
     const fake = api();
     render(<App api={fake} />);
-    const list = await screen.findByRole('list', { name: '进程列表' });
-    const row = within(list).getAllByRole('listitem')[0];
+    const list = await screen.findByRole('group', { name: '进程列表' });
+    const row = within(list).getAllByRole('button')[0];
     fireEvent.click(row);
 
     // The main area switches to that process, and the row stays marked as selected.
     expect(await screen.findByRole('heading', { name: '进程详情' })).toBeInTheDocument();
     expect(row).toHaveAttribute('aria-current', 'true');
-    expect(within(list).getAllByRole('listitem').filter((item) => item.getAttribute('aria-current') === 'true')).toHaveLength(1);
+    expect(within(list).getAllByRole('button').filter((item) => item.getAttribute('aria-current') === 'true')).toHaveLength(1);
     // And it can be left again.
     fireEvent.click(screen.getByRole('button', { name: /返回列表/u }));
     expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
@@ -768,11 +768,11 @@ describe('window title bar', () => {
   it('filters the sidebar process list without touching the page', async () => {
     const fake = api();
     render(<App api={fake} />);
-    const list = await screen.findByRole('list', { name: '进程列表' });
-    expect(within(list).getAllByRole('listitem')).toHaveLength(4);
+    const list = await screen.findByRole('group', { name: '进程列表' });
+    expect(within(list).getAllByRole('button')).toHaveLength(4);
 
     fireEvent.change(screen.getByLabelText('搜索进程'), { target: { value: 'zzz-no-match' } });
-    expect(within(list).queryAllByRole('listitem')).toHaveLength(0);
+    expect(within(list).queryAllByRole('button')).toHaveLength(0);
     expect(within(list).getByText('没有匹配的进程')).toBeInTheDocument();
     // The page itself must not have changed.
     expect(screen.getByRole('heading', { name: '进程监控' })).toBeInTheDocument();

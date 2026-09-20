@@ -16,7 +16,7 @@ test('groups the sidebar processes by host and opens the detail page', async ({ 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
 
-  const list = page.getByRole('list', { name: '进程列表' });
+  const list = page.getByRole('group', { name: '进程列表' });
   await expect(list).toBeVisible();
 
   // Group headings are the run locations the process table shows, and the fixture
@@ -25,8 +25,24 @@ test('groups the sidebar processes by host and opens the detail page', async ({ 
   expect(headings.length).toBeGreaterThan(1);
   expect(headings).toContain('未识别宿主');
 
-  const rows = list.getByRole('listitem');
+  const rows = list.getByRole('button');
   await expect(rows.first()).toBeVisible();
+
+  /**
+   * Each row must be exposed as a button, not merely be one in the DOM.
+   *
+   * An earlier version put `role="listitem"` on these `<button>` elements, which
+   * overrides the button role: the rows stopped being exposed as activatable, so
+   * assistive technology announced list items with no way to know they could be
+   * pressed. `getByRole('button')` finding them is the check that catches that.
+   */
+  expect(await rows.count(), 'the rows are not exposed as buttons').toBeGreaterThan(0);
+  expect(await list.getByRole('listitem').count(), 'a listitem role overrode the button role').toBe(0);
+  // They must also be reachable and activatable by keyboard.
+  await rows.first().focus();
+  await expect(rows.first()).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: '进程详情' })).toBeVisible();
 
   // Selecting a row opens that process and marks exactly that row.
   await rows.first().click();
