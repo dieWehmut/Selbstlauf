@@ -577,3 +577,60 @@ test('exposes Codex endpoint profiles and applies a switch through the API', asy
   });
   assert.equal(rejected.response.status, 400);
 });
+
+/**
+ * The manual-injection endpoint takes its prompt from the request body.
+ *
+ * This capability is what a UI needs in order to let someone type into a session, and the rules around it
+ * were entirely untested: the endpoint accepts an arbitrary single line, falls back to the configured
+ * prompt when none is given, and refuses anything the transport could not carry. An empty prompt would
+ * inject nothing, and a newline would submit the first line and leave the rest behind — both of which look
+ * like the app "not working" rather than like a rejected request, so they are refused loudly.
+ */
+test('injects a caller-supplied prompt and enforces the prompt rules', async (t) => {
+  const seen: string[] = [];
+  const { service } = await makeServer({
+    inject: async (_id, prompt, dryRun) => {
+      seen.push(prompt);
+      return { ok: true, dryRun, prompt };
+    },
+  });
+  // Dry-run keeps this a pure record: no transport is asked to write anything.
+  t.after(() => service.stop());
+  const base = service.url();
+  const route = `/api/sessions/${encodeURIComponent(session.id)}/inject`;
+
+  // A caller-supplied line reaches the controller unchanged, which is the whole point of the endpoint.
+  const custom = await request(base, route, { method: 'POST', origin: base, body: { prompt: '继续-now' } });
+  assert.equal(custom.response.status, 200);
+  assert.equal(custom.json.prompt, '继续-now');
+  assert.deepEqual(seen, ['继续-now']);
+
+  // No prompt at all falls back to the configured one, which is what the UI does today.
+  const fallback = await request(base, route, { method: 'POST', origin: base, body: {} });
+  assert.equal(fallback.response.status, 200);
+  assert.equal(typeof fallback.json.prompt, 'string');
+  assert.ok(fallback.json.prompt.length > 0, 'the fallback prompt must not be empty');
+
+  // Refused: each of these would produce a confusing no-op rather than a visible failure.
+  const rejected: [string, unknown][] = [
+    ['empty', { prompt: '' }],
+    ['whitespace only', { prompt: '   ' }],
+    ['multi-line', { prompt: 'first\nsecond' }],
+    ['carriage return', { prompt: 'first\rsecond' }],
+    ['over the 4096 limit', { prompt: 'x'.repeat(4097) }],
+    ['not a string', { prompt: 42 }],
+  ];
+  for (const [label, body] of rejected) {
+    const response = await request(base, route, { method: 'POST', origin: base, body });
+    assert.equal(response.response.status, 400, `${label} should be refused`);
+  }
+
+  // The boundary itself is allowed: a 4096-character line is the documented maximum.
+  const atLimit = await request(base, route, { method: 'POST', origin: base, body: { prompt: 'x'.repeat(4096) } });
+  assert.equal(atLimit.response.status, 200);
+  assert.equal(atLimit.json.prompt.length, 4096);
+
+  // And nothing was injected for any of the refusals.
+  assert.deepEqual(seen, ['继续-now', fallback.json.prompt, 'x'.repeat(4096)]);
+});
