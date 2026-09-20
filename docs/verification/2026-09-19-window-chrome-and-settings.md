@@ -1715,6 +1715,44 @@ Rules that had no coverage are now tested — empty, whitespace-only, multi-line
 and 4097 characters are each refused, and exactly 4096 is accepted. Proved by weakening the empty-prompt
 check: the suite fails with `empty should be refused`, and passes once restored. CLI suite 252 -> 253.
 
+#### Writing a line into a session — the second half of the original request
+
+The request had two halves: show each process's window, and let it be operated. The first was built. The
+second had been answered with "keystroke injection does not work", which was true of *keystrokes* and wrong
+about the capability: the app's own validated transport already carries arbitrary text.
+
+`POST /api/sessions/:id/inject` reads the prompt from the request body, and `parsePrompt` accepts any single
+line up to 4096 characters. The web client never sent a body, so the UI could only use the configured
+prompt — the capability was implemented, tested, and unreachable. That gap is now closed with a field on the
+process detail page, which also makes the framing honest: **the app already writes text into sessions**
+(立即续写 does exactly that), so this is not a new capability class, it is letting the person choose the
+words.
+
+The transport is reused, so nothing new can be written that the existing path could not already write, and
+the rules are mirrored in the UI so a refusal is explained rather than arriving as an HTTP 400 nobody can
+interpret: empty, whitespace-only and over-length drafts are refused with reasons, a non-writable session
+disables the field and says why, and a failed send **keeps the draft** and reports the cause.
+
+**The defect this uncovered.** The first version validated a pasted newline the way the service does. A probe
+showed the rule could never fire, and why:
+
+    field type: text
+    after setting 'a\nb', the field holds: "ab"
+    after a multi-line paste, the field holds: "line oneline twoline three"
+
+`<input type="text">` applies the HTML value-sanitization algorithm, so line breaks are **deleted before any
+handler sees them** — the words were being welded together and no validation could object, because no
+newline ever arrived. Rejecting newlines was therefore dead code guarding a state that cannot occur, while
+the real damage went unnoticed. Fixed with an `onPaste` handler, which sees the clipboard text with its
+breaks intact and converts them to spaces:
+
+    in a real browser, pasting three lines now holds: "line one line two line three"
+
+Proved by removing the handler: the test fails with `expected '' to be 'line one line two line three'`, and
+passes once restored.
+
+Suites: web 113 -> 127, browser 51 -> 53.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

@@ -180,7 +180,7 @@ export interface WatchdogApi {
   sessions(): Promise<SessionView[]>;
   pause(id: string): Promise<void>;
   resume(id: string): Promise<void>;
-  inject(id: string): Promise<void>;
+  inject(id: string, prompt?: string): Promise<void>;
   focus(id: string): Promise<{ focused: boolean; reason?: string }>;
   install(): Promise<void>;
   startup(): Promise<StartupTaskView>;
@@ -239,7 +239,21 @@ export function createApi(): WatchdogApi {
     },
     pause: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
     resume: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
-    inject: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/inject`, { method: 'POST' }),
+    /**
+   * Write text into a session.
+   *
+   * With no `prompt` the service uses the configured continuation prompt, which is what the
+   * one-click action does. Supplying one sends that line instead — the service accepts any single
+   * line up to 4096 characters and refuses empty or multi-line text, so the validation lives there
+   * rather than being duplicated here.
+   */
+  inject: (id, prompt) => request<void>(
+    `/sessions/${encodeURIComponent(id)}/inject`,
+    {
+      method: 'POST',
+      ...(prompt === undefined ? {} : { body: JSON.stringify({ prompt }) }),
+    },
+  ),
     focus: (id) => request<{ focused: boolean; reason?: string }>(
       `/sessions/${encodeURIComponent(id)}/focus`,
       { method: 'POST' },
