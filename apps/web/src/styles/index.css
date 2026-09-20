@@ -553,6 +553,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
    the settings page has one left rail rather than two. It is a `.sidebar` for the slot
    and the drawer behaviour, and this modifier takes over its insides. */
 .app-shell--settings { grid-template-columns: minmax(0, 268px) minmax(0, 1fr); }
+/* Collapsed wins over the settings column.
+   Both rules are single-class selectors, so whichever comes last in the file would
+   otherwise decide it — and with these in this order the 268px column stayed reserved
+   after the rail inside it was hidden, squeezing the content into the left third of the
+   window. Doubling the class makes the collapsed state authoritative wherever it sits. */
+.app-shell--settings.app-shell--compact { grid-template-columns: minmax(0, 1fr); }
 .sidebar--settings { overflow: hidden; padding: 0; background: var(--panel-soft); }
 .sidebar--settings .settings-rail { flex: 1 1 auto; min-height: 0; }
 .sidebar--settings .sidebar-close { display: none; }
