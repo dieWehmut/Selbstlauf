@@ -769,6 +769,34 @@ The release workflow runs the same check, upgrading from the most recently publi
 release, and skips with an explicit warning when none exists so that a check which did
 not run is never reported as a pass.
 
+### The static file handler had never run in a test
+
+No test had ever passed a `staticDirectory` to the HTTP server, so the code path that
+serves the entire renderer was uncovered — neither its routing nor its
+directory-escape guard had ever executed. The guard is security-relevant: the service
+is reachable from any process on loopback, and it is the kind of code that reads as
+correct while doing nothing.
+
+Six tests now cover it (`04151f8`), all passing:
+
+- the shell at `/`, and a real asset with a JavaScript content type — a wrong type
+  would make the browser refuse to execute the bundle;
+- a nested directory with its own index, and a file-less deep link falling back to the
+  shell, which is what a refresh on a settings route needs;
+- a missing file *with an extension* is **not** answered with the shell, since the
+  browser would otherwise parse HTML as JavaScript;
+- eight traversal attacks — `/../secret.txt`, `/assets/../../secret.txt`,
+  `/..%2fsecret.txt`, `/%2e%2e/secret.txt`, `/....//secret.txt` and more — are all
+  refused, and none leaks a file planted outside the served directory;
+- an encoded traversal does not fall through to the shell;
+- the API routes still work with a static directory configured, so the static handler
+  cannot shadow them.
+
+The traversal test plants a real file outside the static root and asserts its contents
+never appear in any response, which is stronger than asserting a status code.
+
+CLI suite: 243 to 249 passing.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
