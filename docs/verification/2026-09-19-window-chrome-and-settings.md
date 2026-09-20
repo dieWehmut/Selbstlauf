@@ -706,6 +706,22 @@ fall to the body.
 
 Browser suite: 20 to 22 passing.
 
+### A mislabeled release, caught and cleaned up
+
+The 0.2.8 version bump first ran through a `node -e` one-liner whose quoting failed,
+so it exited before writing the package files. The tag was pushed anyway: v0.2.8 was
+tagged while `apps/desktop` and `apps/web` still declared 0.2.7, and CI built and
+uploaded an installer named `Selbstlauf-Setup-0.2.7-x64.exe` onto the **v0.2.8**
+release. That file was not the real 0.2.7 either — its digest differed from the one on
+the v0.2.7 release — so anyone downloading "0.2.7" from the v0.2.8 page would have got
+neither version.
+
+Fixed by committing the version bump, moving the tag to the corrected commit, and
+deleting the three mislabeled assets. Every release now lists exactly three correctly
+named assets. The lesson is about process rather than code: a version bump that fails
+must not leave a tag behind, so the version is now confirmed in all three places —
+both `package.json` files and `APP_VERSION` — before tagging.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
