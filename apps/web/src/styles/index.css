@@ -886,3 +886,50 @@ button:disabled { cursor: not-allowed; opacity: .45; }
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------- The window preview on a process detail page ---------- */
+/* A still of the window a process runs in. It exists to show a session the user cannot
+   currently see: a merely occluded window captures fine, a minimized one is not offered by the
+   OS capture layer at all, so that case is named in words rather than shown as an empty frame. */
+.window-preview { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); }
+.window-preview__head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.window-preview__title { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 14px; }
+.window-preview__actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.window-preview__frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 180px;
+  padding: 10px;
+  border: 1px solid var(--line-whisper);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  /* Checkerboard so a captured window with a dark terminal is distinguishable from an empty
+     frame at a glance. */
+  background-image: linear-gradient(45deg, color-mix(in srgb, var(--panel-raised) 55%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--panel-raised) 55%, transparent) 75%),
+    linear-gradient(45deg, color-mix(in srgb, var(--panel-raised) 55%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--panel-raised) 55%, transparent) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+}
+.window-preview__image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--shadow-soft);
+  /* The image is replaced rather than moved when it refreshes, so it fades in. */
+  animation: window-preview-in .2s ease-out both;
+}
+@keyframes window-preview-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.window-preview__note { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; max-width: 46ch; color: var(--muted); font-size: 12.5px; text-align: left; }
+.window-preview__caption { margin: 0; color: var(--faint); font: 11px var(--mono); text-align: center; overflow-wrap: anywhere; }
+
+/* The preview's own buttons are smaller than a page-level action, since they sit inside a
+   panel rather than standing alone. */
+.window-preview__actions .button { min-height: 30px; padding: 0 11px; font-size: 12px; }

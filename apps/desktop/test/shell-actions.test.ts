@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   SHELL_ACTIONS,
+  applyAsyncShellAction,
   applyShellAction,
+  isAsyncShellAction,
   isHexColor,
   isShellAction,
   isZoomDelta,
@@ -130,9 +132,10 @@ test('refuses every non-http(s) URL before it reaches the OS', () => {
 });
 
 test('rejects unknown actions and malformed payloads', () => {
+  // Pinned so the renderer's reachable surface cannot grow without this test being updated.
   assert.deepEqual(
     [...SHELL_ACTIONS],
-    ['reload', 'toggleFullScreen', 'zoom', 'quit', 'openExternal', 'setTitleBarOverlay'],
+    ['reload', 'toggleFullScreen', 'zoom', 'quit', 'openExternal', 'setTitleBarOverlay', 'windowPreview'],
   );
   assert.equal(isShellAction('reload'), true);
   assert.equal(isShellAction('eval'), false);
@@ -208,4 +211,86 @@ test('a window without a zoom target is left alone rather than throwing', () => 
   applyShellAction(spy.context, { action: 'zoom', delta: 1 });
   assert.deepEqual(spy.levels, []);
   assert.equal(spy.quits, 0);
+});
+/**
+ * The window-preview action is dispatched asynchronously, so it is exercised separately.
+ *
+ * It is the one action that must await a capture, and it is keyed by session id rather than by a
+ * window handle: the main process resolves the window through the service's own session list, so
+ * the renderer can never name an arbitrary window on the machine.
+ */
+test('windowPreview takes a session id and returns the capture', async () => {
+  const asked: string[] = [];
+  const context: ShellActionContext = {
+    window: { reload: () => undefined },
+    quit: () => undefined,
+    openExternal: () => undefined,
+    previewWindow: (sessionId) => {
+      asked.push(sessionId);
+      return { state: 'captured', dataUrl: 'data:image/png;base64,abc', width: 960, height: 600, sharedBy: 1 };
+    },
+  };
+
+  const result = await applyAsyncShellAction(context, { action: 'windowPreview', sessionId: 'codex:1' });
+  assert.deepEqual(asked, ['codex:1']);
+  assert.equal(result.state, 'captured');
+});
+
+test('windowPreview refuses an empty session id instead of previewing some default window', async () => {
+  let called = 0;
+  const context: ShellActionContext = {
+    window: { reload: () => undefined },
+    quit: () => undefined,
+    openExternal: () => undefined,
+    previewWindow: () => {
+      called += 1;
+      return { state: 'no-window' };
+    },
+  };
+
+  for (const sessionId of ['', undefined]) {
+    const result = await applyAsyncShellAction(context, { action: 'windowPreview', ...(sessionId === undefined ? {} : { sessionId }) });
+    assert.equal(result.state, 'unsupported');
+  }
+  assert.equal(called, 0, 'no lookup was attempted without a session id');
+});
+
+test('windowPreview reports itself unavailable when the shell has no capturer', async () => {
+  const context: ShellActionContext = {
+    window: { reload: () => undefined },
+    quit: () => undefined,
+    openExternal: () => undefined,
+  };
+  const result = await applyAsyncShellAction(context, { action: 'windowPreview', sessionId: 'a' });
+  assert.equal(result.state, 'unsupported');
+});
+
+test('a throwing capturer becomes a stated outcome rather than crossing IPC as an error', async () => {
+  const context: ShellActionContext = {
+    window: { reload: () => undefined },
+    quit: () => undefined,
+    openExternal: () => undefined,
+    previewWindow: () => { throw new Error('capture exploded'); },
+  };
+  const result = await applyAsyncShellAction(context, { action: 'windowPreview', sessionId: 'a' });
+  assert.equal(result.state, 'unsupported');
+  if (result.state !== 'unsupported') return;
+  assert.match(result.reason ?? '', /capture exploded/u);
+});
+
+test('the asynchronous dispatcher refuses a synchronous action', async () => {
+  await assert.rejects(
+    () => applyAsyncShellAction(harness().context, { action: 'reload' }),
+    /not an async shell action/u,
+  );
+});
+
+test('the synchronous dispatcher refuses the asynchronous action', () => {
+  // Reaching here would mean a caller skipped the await, which is a programming error.
+  assert.throws(
+    () => applyShellAction(harness().context, { action: 'windowPreview', sessionId: 'a' }),
+    /windowPreview is asynchronous/u,
+  );
+  assert.equal(isAsyncShellAction('windowPreview'), true);
+  assert.equal(isAsyncShellAction('reload'), false);
 });

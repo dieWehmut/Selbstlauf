@@ -55,6 +55,7 @@ import {
   type WatchdogConfig,
 } from './api/client';
 import { SettingsRail, SETTINGS_SECTION_IDS } from './settings/SettingsRail';
+import { SessionWindowPreview } from './process/SessionWindowPreview';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
 import {
@@ -89,7 +90,7 @@ import {
 } from './settings/desktop-prefs';
 
 /** Shown by the account section and the sidebar; tracks the package version. */
-const APP_VERSION = '0.7.0';
+const APP_VERSION = '0.8.0';
 
 /** 电脑操控's single switch. */
 function isRevealPref(value: unknown): value is { allowReveal: boolean } {
@@ -127,7 +128,35 @@ interface DesktopShellBridge {
    * top row split into two strips.
    */
   setTitleBarOverlay?(colors: { color: string; symbolColor?: string }): void;
+  /**
+   * A still of the window a watched session runs in.
+   *
+   * Takes a session id rather than a window handle: the desktop shell resolves the window
+   * through the service's own session list, so the renderer cannot ask for a picture of an
+   * arbitrary window on the machine.
+   */
+  windowPreview?(sessionId: string): Promise<WindowPreviewResult>;
 }
+
+/**
+ * The outcome of a preview request.
+ *
+ * `unavailable` states are normal, not errors: a session may run in no window at all (DeepSeek
+ * Harness is a web UI), and a minimized window is not offered by the OS capture layer at all.
+ * Naming which case applies is the difference between an honest panel and a blank frame.
+ */
+export type WindowPreviewResult =
+  | {
+    readonly state: 'captured';
+    readonly dataUrl: string;
+    readonly width: number;
+    readonly height: number;
+    /** How many watched sessions share this window. Two Codex sessions can share one Tabby. */
+    readonly sharedBy: number;
+  }
+  | { readonly state: 'no-window' }
+  | { readonly state: 'minimized' }
+  | { readonly state: 'unsupported'; readonly reason?: string };
 
 interface DesktopBridge {
   readonly shell?: Partial<DesktopShellBridge>;
@@ -669,6 +698,8 @@ function ProcessDetail(props: {
   readonly onInject: (session: SessionView) => void;
   readonly onFocus: (session: SessionView) => void;
   readonly allowReveal: boolean;
+  /** Absent outside the desktop shell, where no window can be captured. */
+  readonly requestPreview?: (sessionId: string) => Promise<WindowPreviewResult>;
 }) {
   const session = props.session;
   if (session === null) {
@@ -715,6 +746,16 @@ function ProcessDetail(props: {
         <div className="process-detail__wide"><dt>下一输入</dt><dd><code className="prompt-code">{nextPrompt(session, props.config)}</code></dd></div>
         {session.transportError ? <div className="process-detail__wide"><dt>传输错误</dt><dd className="process-detail__error">{session.transportError}</dd></div> : null}
       </dl>
+
+      {/* The window the process runs in. Placed before the actions because it answers the
+          question the detail page exists for — "what is actually happening in there" — and the
+          actions at the bottom are then the things you do about it. */}
+      <SessionWindowPreview
+        session={session}
+        onOpenWindow={props.onFocus}
+        busy={props.busy === session.id}
+        {...(props.requestPreview === undefined ? {} : { requestPreview: props.requestPreview })}
+      />
 
       <footer className="process-detail__actions">
         <SessionActions
@@ -1824,6 +1865,19 @@ export default function App({ api: suppliedApi }: AppProps) {
   /** Desktop-shell preferences, mirrored from the main process when available. */
   const [closeToTray, setCloseToTray] = useState<boolean | null>(null);
   const [preferredTerminal, setPreferredTerminal] = useState<string | null>(null);
+  /**
+   * The window-preview request, or null outside the desktop shell.
+   *
+   * Bound once here rather than read at the call site, so the detail page receives a stable
+   * function and its effect does not re-run — and therefore does not re-capture the desktop —
+   * on every render.
+   */
+  const previewWindow = useMemo(() => {
+    const request = bridge?.shell?.windowPreview;
+    return typeof request === 'function'
+      ? (sessionId: string) => request.call(bridge!.shell, sessionId)
+      : null;
+  }, [bridge]);
   const [health, setHealth] = useState<HealthView>({ ok: false, running: false, dryRun: true, lastPollAtMs: null });
   const [startupInstalled, setStartupInstalled] = useState(false);
   const [hookStatus, setHookStatus] = useState<ClaudeHookStatusView>(fallbackHookStatus);
@@ -2649,6 +2703,7 @@ export default function App({ api: suppliedApi }: AppProps) {
             onPause={(session) => void mutateSession(session, 'pause')}
             onInject={(session) => void mutateSession(session, 'inject')}
             onFocus={(session) => void focusSession(session)}
+            {...(previewWindow === null ? {} : { requestPreview: previewWindow })}
           />
         </div>}
 
