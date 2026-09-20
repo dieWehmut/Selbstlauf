@@ -729,9 +729,98 @@ describe('window title bar', () => {
     render(<App api={api()} />);
     const toggle = within(titlebar()).getByRole('button', { name: '收起侧栏' });
     fireEvent.click(toggle);
-    // The toggle is wired to the same state the sidebar footer button uses.
+    // The toggle is wired to the same state the bottom bar's menu uses.
     expect(document.querySelector('.app-shell')).toHaveClass('app-shell--compact');
     expect(within(titlebar()).getByRole('button', { name: '展开侧栏' })).toBeInTheDocument();
+  });
+
+  it('lists discovered processes grouped by the host they run inside', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    await screen.findByText('0 个进程').catch(() => undefined);
+
+    // The fixtures carry no host, so every process must land in the named fallback
+    // group rather than being dropped from the list.
+    const list = await screen.findByRole('list', { name: '进程列表' });
+    expect(within(list).getByText('未识别宿主')).toBeInTheDocument();
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows).toHaveLength(4);
+    // Each row names its tool and its silence, which is what makes it findable.
+    expect(rows[0].textContent).toMatch(/Codex|Claude|DeepSeek Harness/u);
+  });
+
+  it('opens a process detail page when a session is chosen from the sidebar', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    const list = await screen.findByRole('list', { name: '进程列表' });
+    const row = within(list).getAllByRole('listitem')[0];
+    fireEvent.click(row);
+
+    // The main area switches to that process, and the row stays marked as selected.
+    expect(await screen.findByRole('heading', { name: '进程详情' })).toBeInTheDocument();
+    expect(row).toHaveAttribute('aria-current', 'true');
+    expect(within(list).getAllByRole('listitem').filter((item) => item.getAttribute('aria-current') === 'true')).toHaveLength(1);
+    // And it can be left again.
+    fireEvent.click(screen.getByRole('button', { name: /返回列表/u }));
+    expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+  });
+
+  it('filters the sidebar process list without touching the page', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    const list = await screen.findByRole('list', { name: '进程列表' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(4);
+
+    fireEvent.change(screen.getByLabelText('搜索进程'), { target: { value: 'zzz-no-match' } });
+    expect(within(list).queryAllByRole('listitem')).toHaveLength(0);
+    expect(within(list).getByText('没有匹配的进程')).toBeInTheDocument();
+    // The page itself must not have changed.
+    expect(screen.getByRole('heading', { name: '进程监控' })).toBeInTheDocument();
+  });
+
+  it('opens the bottom bar menu upwards and closes it on Escape', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    await screen.findByText('0 个进程');
+
+    const trigger = screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('menu', { name: '账户与状态' })).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+    const menu = screen.getByRole('menu', { name: '账户与状态' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    // The entries the menu offers, using capabilities the app already has. The theme
+// entry names the scheme it switches *to*, so it is matched by shape rather than by
+// an exact string that depends on the environment's colour scheme.
+    const labels = within(menu).getAllByRole('menuitem').map((item) => item.textContent);
+    expect(labels).toHaveLength(3);
+    expect(labels[0]).toMatch(/^切换到(亮色|暗色)主题$/u);
+    expect(labels[1]).toBe('设置Ctrl+,');
+    expect(labels[2]).toBe('收起侧栏');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu', { name: '账户与状态' })).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('closes the bottom bar menu on a press outside it', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    await screen.findByText('0 个进程');
+    fireEvent.click(screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u }));
+    expect(screen.getByRole('menu', { name: '账户与状态' })).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('menu', { name: '账户与状态' })).not.toBeInTheDocument();
+  });
+
+  it('collapses the sidebar from the bottom bar menu', async () => {
+    render(<App api={api()} />);
+    await screen.findByText('0 个进程');
+    fireEvent.click(screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '收起侧栏' }));
+    expect(document.querySelector('.app-shell')).toHaveClass('app-shell--compact');
   });
 
   it('opens 文件 with 返回应用 and 隐藏到托盘 as menu items', async () => {

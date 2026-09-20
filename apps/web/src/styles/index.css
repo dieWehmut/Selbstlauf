@@ -564,3 +564,137 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .theme-diff__arrow { display: none; }
   .appearance-actions { flex-direction: column; align-items: flex-start; }
 }
+
+/* ---------- Sidebar: the discovered processes ---------- */
+/* Grouped by the application each CLI runs inside, mirroring the reference sidebar:
+   a small grey heading, then rows with a full-width highlight on the selected one. */
+.sidebar-processes { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1 1 auto; }
+.sidebar-processes__search input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px 0 30px;
+  border: 1px solid var(--line-whisper);
+  border-radius: var(--radius-xs);
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 70%, transparent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23637078' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 9px center;
+  font-size: 12px;
+}
+.sidebar-processes__search input::placeholder { color: var(--faint); }
+.sidebar-processes__search input:focus-visible { border-color: color-mix(in srgb, var(--accent) 45%, transparent); outline: none; }
+/* Its own scroll region: a long process list must never push the navigation or the
+   footer out of reach, and must never widen the sidebar. */
+.sidebar-processes__scroll { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
+.sidebar-processes__group { display: flex; flex-direction: column; gap: 2px; }
+.sidebar-processes__heading {
+  padding: 0 10px 4px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-processes__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  transition: background .14s ease, color .14s ease;
+}
+.sidebar-processes__item:hover { color: var(--text); background: color-mix(in srgb, var(--panel-raised) 70%, transparent); }
+/* The selected row is highlighted across its full width, as in the reference. */
+.sidebar-processes__item.is-selected { color: var(--text); background: var(--panel-raised); border-color: var(--line-soft); }
+.sidebar-processes__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-processes__meta { flex: 0 0 auto; color: var(--faint); font: 11px var(--mono); }
+.sidebar-processes__empty { padding: 6px 10px; color: var(--faint); font-size: 12px; }
+
+/* The tone dot, shared by the sidebar list and the detail header so a session reads
+   the same in both places. */
+.process-dot { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 13%, transparent); }
+.process-dot--writable { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 15%, transparent); }
+.process-dot--monitor { background: var(--amber, #e6b65b); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber, #e6b65b) 15%, transparent); }
+.process-dot--idle { background: var(--faint); }
+.process-dot--error { background: var(--red, #e5735f); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red, #e5735f) 15%, transparent); }
+
+/* ---------- The process detail page ---------- */
+.process-detail { display: flex; flex-direction: column; gap: 18px; }
+.process-detail__header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.process-detail__header .process-id { flex: 1 1 auto; }
+.process-detail__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 22px; margin: 0; padding: 18px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); }
+.process-detail__grid > div { min-width: 0; }
+.process-detail__grid dt { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.process-detail__grid dd { margin: 5px 0 0; color: var(--text); font-size: 13px; overflow-wrap: anywhere; }
+.process-detail__wide { grid-column: 1 / -1; }
+.process-detail__wide dd code { display: block; padding: 8px 10px; border: 1px solid var(--line-whisper); border-radius: var(--radius-xs); background: var(--bg); font: 12px var(--mono); overflow-wrap: anywhere; }
+.process-detail__error { color: var(--red, #e5735f); }
+.process-detail__actions { display: flex; justify-content: flex-end; }
+.process-detail__siblings { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line-whisper); }
+.process-detail__sibling { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius-xs); color: var(--muted); background: var(--panel); font-size: 12px; }
+.process-detail__sibling:hover { color: var(--text); background: var(--panel-raised); }
+
+/* ---------- The bottom bar and the menu it opens upwards ---------- */
+.account-bar { position: relative; }
+.account-bar__button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line-whisper);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--panel);
+  text-align: left;
+}
+.account-bar__button:hover { background: var(--panel-raised); }
+.account-bar.is-open .account-bar__button { border-color: var(--line-soft); background: var(--panel-raised); }
+.account-bar__button > div { flex: 1 1 auto; min-width: 0; }
+.account-bar__button strong { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-bar__button > div > span { display: block; margin-top: 2px; color: var(--faint); font: 10px var(--mono); }
+.account-bar__button .brand__mark { width: 28px; height: 28px; flex: 0 0 28px; }
+/* Anchored to the bar's bottom edge and positioned upwards, so the menu opens out of
+   the sidebar footer rather than downwards off the bottom of the window. */
+.account-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--panel-raised);
+  box-shadow: var(--shadow-lift);
+}
+.account-menu__status { display: flex; align-items: center; gap: 9px; padding: 8px 10px 10px; border-bottom: 1px solid var(--line-whisper); margin-bottom: 4px; }
+.account-menu__status strong { display: block; font-size: 12px; }
+.account-menu__status span { display: block; margin-top: 2px; color: var(--faint); font: 10px var(--mono); }
+.account-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+}
+.account-menu__item:hover { color: var(--text); background: color-mix(in srgb, var(--panel) 80%, transparent); }
+.account-menu__item > span { flex: 1 1 auto; }
+.account-menu__item kbd { color: var(--faint); font: 10px var(--mono); }
