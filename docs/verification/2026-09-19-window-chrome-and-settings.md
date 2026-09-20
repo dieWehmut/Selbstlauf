@@ -1541,6 +1541,54 @@ deleting the token line again: the guard fails with `release-desktop.yml:123 is 
 declare GH_TOKEN`, and passes once restored. The second version is what makes the check worth having,
 since the first would have shipped a guard that could never fire.
 
+#### Keyboard focus: two real defects, and two things that only looked like defects
+
+axe validates names, roles and contrast. It does **not** check whether a keyboard user can reach a
+control, see where focus is, or use the thing once focused — which is exactly the question for the pin,
+since it is invisible until hovered or focused. Two real defects were found, and two apparent defects
+were disproved.
+
+**Real: focus was lost after pinning.** Pinning lifts the row into the 置顶 group, so React unmounts the
+old row and mounts a new one, destroying the focused button. Measured:
+
+    before Enter: {"cls":"sidebar-row__pin","label":"置顶 PID 336756"}
+    after Enter:  {"tag":"body","isBody":true}        <- focus dropped to the document
+    after Tab:    {"cls":"sidebar-row__open"}         <- restarted from the top
+
+A keyboard user pinning several rows was thrown back to the start after each one, and a second Enter
+landed on a different row — which **unpinned** the first. Fixed by remembering the session id on the pin
+press and restoring focus to that row's pin once the move has rendered. It is keyed by id rather than
+position, because the whole point is that the position changed.
+
+**Real: the focus ring was invisible in the dark theme.** The browser default is `auto 1px rgb(16,16,16)`
+— near-black — which against the dark sidebar (#1a1e22) is **1.14:1**, well under the 3:1 WCAG 2.2
+"Focus Appearance" asks for. The light theme was fine at **17.01:1**, so only the dark one was broken,
+and only for keyboard users. A themed ring now gives **8.95:1** dark and **4.02:1** light.
+
+**Not a defect: the pin is not invisible when focused.** The first probe read `opacity: 0` on a focused
+pin and looked like a serious finding. The pin fades in over .16s and the probe was reading the first
+frame of that transition:
+
+    +0ms opacity 0    +100ms opacity 0.90    +300ms opacity 1    +800ms opacity 1
+
+The settled value is 1, so a focused pin is fully shown. Measuring during a transition is how a probe
+invents a defect.
+
+**Not a defect: tests do not leak pins to each other.** One intermittent suite failure looked like
+`localStorage` leaking between specs in a worker, since a pinned row reorders the list. It was traced
+properly: a test that pins a row, followed by a test reading `localStorage` before load, shows `null` —
+Playwright gives every test a fresh context. The contamination was **within** a single test that
+navigated twice. A shared isolation fixture was written for this and then **removed**, because it solved
+a problem that did not exist; the spec records what was measured instead.
+
+Both real fixes are pinned by `focus-appearance.spec.ts`, and each test was proved to catch its defect by
+reverting the fix:
+
+    ring reverted   -> "the dark focus ring is auto 1px rgb(16,16,16) at 1.14:1 against its surface"
+    focus reverted  -> "focus was lost after activating the pin"
+
+Browser suite: 47 -> 49, verified stable over three consecutive runs.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
