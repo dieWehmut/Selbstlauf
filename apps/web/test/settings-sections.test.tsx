@@ -538,17 +538,27 @@ describe('ComputerControlSection', () => {
 });
 
 describe('ShortcutsSection', () => {
-  it('lists exactly the four honoured shortcuts and nothing more', () => {
+  it('lists exactly the honoured shortcuts and nothing more', () => {
     render(<ShortcutsSection />);
     const rows = document.querySelectorAll('.shortcuts-table tbody tr');
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(5);
     expect([...rows].map((row) => row.textContent)).toEqual([
       'Esc关闭侧栏抽屉或已打开的菜单',
       'Ctrl+1切换到进程',
       'Ctrl+2切换到事件',
       'Ctrl+3切换到设置',
+      'Ctrl+,切换到设置（与底部菜单上标注的按键一致）',
     ]);
   });
+
+  /**
+   * The list's own contract is "exactly the shortcuts the application honours today".
+   *
+   * That claim was false: the bottom bar's menu displayed Ctrl+, beside 设置 while nothing
+   * bound it, so the listed keys and the displayed hint had both drifted from the app.
+   * `App.test.tsx` presses every documented page shortcut and requires it to work, which
+   * is where the fixture for a full app lives.
+   */
 });
 
 describe('SnapshotsSection', () => {

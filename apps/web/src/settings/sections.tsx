@@ -700,6 +700,7 @@ export const SHORTCUTS = Object.freeze([
   { keys: 'Ctrl+1', description: '切换到进程' },
   { keys: 'Ctrl+2', description: '切换到事件' },
   { keys: 'Ctrl+3', description: '切换到设置' },
+  { keys: 'Ctrl+,', description: '切换到设置（与底部菜单上标注的按键一致）' },
 ] as const);
 
 export function ShortcutsSection() {
