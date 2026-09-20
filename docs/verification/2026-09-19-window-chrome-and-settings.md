@@ -1354,6 +1354,44 @@ three assets. The downloaded `Selbstlauf-Setup-0.8.0-x64.exe` matched the publis
 installed app was confirmed to be running the **released** bundle (`index-CwC321Gp.js`, on disk and
 loaded) rather than a local build — a distinction a version check alone cannot make.
 
+#### The "fetched on demand, not on every poll" claim, measured
+
+The design rests on the preview being fetched once per user action: a capture pass enumerates and
+captures **every** window on the machine and costs ~300ms, so re-firing it on the app's 2s poll would
+burn that continuously for a picture that changes only when the user acts. The app replaces its
+session objects on every poll, so the preview component re-renders constantly and the claim is not
+obvious from the code.
+
+Measured by counting captures **in the app's main process**, with `desktopCapturer.getSources`
+wrapped before the app's own entry module is imported, and driving the real UI over the DevTools
+protocol:
+
+    captures before opening a detail page:  0
+    captures after opening the detail page: 1   (delta 1 — one fetch)
+    40s of normal polling, sampled every 5s: 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1
+      growth during 40s of polling: 0
+    refresh button:                          1 -> 2
+    switching to another process:            2 -> 3
+
+So it captures exactly once per user action and never on the poll.
+
+#### A probe of mine that measured nothing, and reported it as a result
+
+The first attempt at that measurement wrapped `window.selbstlaufDesktop.shell.windowPreview` from the
+renderer and counted zero calls over 45 seconds. It printed "the preview did NOT re-capture" — but
+the same run also showed the **refresh button** producing no call, which is what gave it away. The
+bridge is frozen (`Object.isFrozen(shell) === true`) and `window.selbstlaufDesktop` is non-writable
+and non-configurable, so the patch was **silently refused** and the counter could never have moved.
+
+The count was therefore meaningless, and the honest form of it would have been "instrumentation
+failed", not "the claim holds". Measuring in the main process — at the point where the capture
+actually happens — gave a number that means something.
+
+Two further attempts failed before that one worked, and both are worth recording because each looked
+like a result: writing `--remote-debugging-port` into `process.argv` leaves nothing listening (it must
+go through `app.commandLine.appendSwitch`), and a probe left the app's own `main.js` importing while a
+top-level `await` before `app.whenReady()` kept Electron from ever starting.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
