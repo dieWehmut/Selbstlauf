@@ -107,6 +107,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '设置' }).click();
 
+    await page.getByRole('tab', { name: '配置' }).click();
     const hookSection = page.locator('.hook-settings');
     await expect(hookSection.getByRole('heading', { name: 'Claude Stop Hook' })).toBeVisible();
     await expect(hookSection.getByText('~/.claude/settings.json')).toBeVisible();
@@ -127,6 +128,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '设置' }).click();
 
+    await page.getByRole('tab', { name: '配置' }).click();
     const section = page.locator('.codex-endpoints');
     await expect(section.getByRole('heading', { name: '端点配置' })).toBeVisible();
     await expect(section.getByLabel('接口地址')).toHaveValue('https://external-api-platform.hkgai.net/v1');
@@ -242,6 +244,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
 
+    await page.getByRole('tab', { name: '配置' }).click();
     const section = page.locator('.codex-endpoints');
     await expect(section).toBeVisible();
     const sectionBox = await section.boundingBox();
@@ -258,6 +261,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
 
+    await page.getByRole('tab', { name: '配置' }).click();
     const hookSection = page.locator('.hook-settings');
     await expect(hookSection).toBeVisible();
     await expect(hookSection.getByRole('button', { name: '安装 Stop Hook' })).toBeVisible();

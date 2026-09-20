@@ -1344,41 +1344,6 @@ function SettingsPanel(props: {
         <div className="switch-row"><div><strong>允许续写 DeepSeek Harness</strong><span>通过 Harness 自己的本机会话接口写入，仅在会话已停止且能完成本机认证时生效</span></div><label className="switch"><input aria-label="允许续写 DeepSeek Harness" type="checkbox" checked={draft.tools.dsh.allowApiInput} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, allowApiInput: event.target.checked } } })} /><span /></label></div>
         <div className="switch-row"><div><strong>Dry run</strong><span>只记录决策，不写入进程</span></div><label className="switch"><input aria-label="Dry run" type="checkbox" checked={draft.dryRun} onChange={(event) => setDraft({ ...draft, dryRun: event.target.checked })} /><span /></label></div>
       </section>
-      <section className="settings-section settings-section--wide hook-settings">
-        <div className="section-title hook-settings__title">
-          <div><span className="eyebrow">Claude</span><h2>Claude Stop Hook</h2></div>
-          <Webhook size={20} />
-        </div>
-        <div className="hook-status-list" aria-label="Claude Stop Hook 状态">
-          <span className={`state-chip ${props.hookStatus.manualReviewRequired ? 'state-chip--error' : props.hookStatus.installed ? 'state-chip--ready' : 'state-chip--limited'}`}>
-            <span className="state-chip__dot" />
-            {props.hookStatus.manualReviewRequired ? '需人工检查' : props.hookStatus.installed ? '已安装' : '未安装'}
-          </span>
-          <span className={`state-chip ${props.hookStatus.enabled ? 'state-chip--ready' : 'state-chip--limited'}`}>
-            <span className="state-chip__dot" />
-            {props.hookStatus.enabled ? '已启用' : '未启用'}
-          </span>
-          {props.hookStatus.restartRequired && <span className="state-chip state-chip--waiting"><span className="state-chip__dot" />需重启 Claude</span>}
-        </div>
-        <div className="hook-settings__body">
-          <div>
-            <div className="field-grid hook-settings__fields">
-              <label><span>Lease 有效期（毫秒）</span><input aria-label="Lease 有效期（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.leaseTtlMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, leaseTtlMs: Number(event.target.value) } } } })} /></label>
-              <label><span>命令超时（毫秒）</span><input aria-label="命令超时（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.commandTimeoutMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, commandTimeoutMs: Number(event.target.value) } } } })} /></label>
-            </div>
-            <div className="switch-row"><div><strong>启用 Stop Hook 续写</strong><span>仅对唯一关联且已静默的 Claude 会话创建一次性 Lease</span></div><label className="switch"><input aria-label="启用 Claude Stop Hook" type="checkbox" checked={draft.tools.claude.stopHook.enabled} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, enabled: event.target.checked } } } })} /><span /></label></div>
-          </div>
-          <div className="hook-settings__control">
-            <p className="hook-disclosure"><CircleAlert size={17} /><span>安装会修改 <code>~/.claude/settings.json</code>。已打开的 Claude 会话需要重启后才能加载 Hook。</span></p>
-            {props.hookStatus.lastError && <p className="hook-error" role="alert">{props.hookStatus.lastError}</p>}
-            <div className="hook-actions">
-              {!props.hookStatus.installed && !props.hookStatus.manualReviewRequired && <button className="button button--secondary" type="button" onClick={() => void props.onInstallClaudeHook()} disabled={props.saving}><Plug size={17} />安装 Stop Hook</button>}
-              {props.hookStatus.enabled && <button className="button button--stop" type="button" onClick={() => void props.onDisableClaudeHook()} disabled={props.saving}><Power size={17} />停用 Stop Hook</button>}
-              {(props.hookStatus.installed || props.hookStatus.manualReviewRequired) && <button className="button button--danger" type="button" onClick={() => void props.onUninstallClaudeHook()} disabled={props.saving}><Unplug size={17} />卸载 Stop Hook</button>}
-            </div>
-          </div>
-        </div>
-      </section>
       <section className="settings-section settings-section--wide">
         <div className="section-title"><div><span className="eyebrow">Processes</span><h2>进程范围</h2></div><ShieldAlert size={20} /></div>
         <div className="field-grid">
@@ -1387,8 +1352,58 @@ function SettingsPanel(props: {
         </div>
         <div className="switch-row"><div><strong>仅监控当前用户进程</strong><span>关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入</span></div><label className="switch"><input aria-label="仅监控当前用户进程" type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
       </section>
-      <CodexEndpointsPanel profiles={props.profiles} onApply={props.onApplyProfile} applying={props.applyingProfile} />
       {saveBar}
+        </>
+      )}
+
+      {/*
+        The 配置 section.
+
+        The rail advertises this entry, and it used to render nothing at all: the
+        Claude Stop Hook block and the Codex endpoint panel were mounted under 常规, so
+        selecting 配置 produced an empty panel. Nothing caught it because no test ever
+        clicked that entry — the browser suite only visited four of the eighteen
+        sections. Both panels belong here, next to the other per-tool configuration.
+      */}
+      {activeSection === 'config' && (
+        <>
+          <section className="settings-section settings-section--wide hook-settings">
+            <div className="section-title hook-settings__title">
+              <div><span className="eyebrow">Claude</span><h2>Claude Stop Hook</h2></div>
+              <Webhook size={20} />
+            </div>
+            <div className="hook-status-list" aria-label="Claude Stop Hook 状态">
+              <span className={`state-chip ${props.hookStatus.manualReviewRequired ? 'state-chip--error' : props.hookStatus.installed ? 'state-chip--ready' : 'state-chip--limited'}`}>
+                <span className="state-chip__dot" />
+                {props.hookStatus.manualReviewRequired ? '需人工检查' : props.hookStatus.installed ? '已安装' : '未安装'}
+              </span>
+              <span className={`state-chip ${props.hookStatus.enabled ? 'state-chip--ready' : 'state-chip--limited'}`}>
+                <span className="state-chip__dot" />
+                {props.hookStatus.enabled ? '已启用' : '未启用'}
+              </span>
+              {props.hookStatus.restartRequired && <span className="state-chip state-chip--waiting"><span className="state-chip__dot" />需重启 Claude</span>}
+            </div>
+            <div className="hook-settings__body">
+              <div>
+                <div className="field-grid hook-settings__fields">
+                  <label><span>Lease 有效期（毫秒）</span><input aria-label="Lease 有效期（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.leaseTtlMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, leaseTtlMs: Number(event.target.value) } } } })} /></label>
+                  <label><span>命令超时（毫秒）</span><input aria-label="命令超时（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.commandTimeoutMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, commandTimeoutMs: Number(event.target.value) } } } })} /></label>
+                </div>
+                <div className="switch-row"><div><strong>启用 Stop Hook 续写</strong><span>仅对唯一关联且已静默的 Claude 会话创建一次性 Lease</span></div><label className="switch"><input aria-label="启用 Claude Stop Hook" type="checkbox" checked={draft.tools.claude.stopHook.enabled} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, enabled: event.target.checked } } } })} /><span /></label></div>
+              </div>
+              <div className="hook-settings__control">
+                <p className="hook-disclosure"><CircleAlert size={17} /><span>安装会修改 <code>~/.claude/settings.json</code>。已打开的 Claude 会话需要重启后才能加载 Hook。</span></p>
+                {props.hookStatus.lastError && <p className="hook-error" role="alert">{props.hookStatus.lastError}</p>}
+                <div className="hook-actions">
+                  {!props.hookStatus.installed && !props.hookStatus.manualReviewRequired && <button className="button button--secondary" type="button" onClick={() => void props.onInstallClaudeHook()} disabled={props.saving}><Plug size={17} />安装 Stop Hook</button>}
+                  {props.hookStatus.enabled && <button className="button button--stop" type="button" onClick={() => void props.onDisableClaudeHook()} disabled={props.saving}><Power size={17} />停用 Stop Hook</button>}
+                  {(props.hookStatus.installed || props.hookStatus.manualReviewRequired) && <button className="button button--danger" type="button" onClick={() => void props.onUninstallClaudeHook()} disabled={props.saving}><Unplug size={17} />卸载 Stop Hook</button>}
+                </div>
+              </div>
+            </div>
+          </section>
+          <CodexEndpointsPanel profiles={props.profiles} onApply={props.onApplyProfile} applying={props.applyingProfile} />
+          {saveBar}
         </>
       )}
       {activeSection === 'notifications' && (
