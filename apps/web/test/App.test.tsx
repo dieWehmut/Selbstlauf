@@ -30,7 +30,7 @@ function api(): WatchdogApi {
     config: vi.fn(async () => config),
     updateConfig: vi.fn(async (next) => next),
     sessions: vi.fn(async () => sessions),
-    pause: vi.fn(async () => undefined), resume: vi.fn(async () => undefined), inject: vi.fn(async () => undefined),
+    pause: vi.fn(async () => undefined), resume: vi.fn(async () => undefined), inject: vi.fn(async () => ({ dryRun: false })),
     focus: vi.fn(async () => ({ focused: true })),
     install: vi.fn(async () => undefined), startup: vi.fn(async () => ({ installed: false })), installStartup: vi.fn(async () => undefined), uninstallStartup: vi.fn(async () => undefined),
     claudeHook: vi.fn(async () => ({ installed: false, enabled: false, restartRequired: false, manualReviewRequired: false })),

@@ -57,7 +57,7 @@ describe('promptProblem', () => {
 
 describe('SessionPromptComposer', () => {
   it('sends the typed line to the session', async () => {
-    const onSend = vi.fn(async () => undefined);
+    const onSend = vi.fn(async () => ({ dryRun: false }));
     const target = session();
     render(<SessionPromptComposer session={target} canSend onSend={onSend} />);
 
@@ -71,13 +71,13 @@ describe('SessionPromptComposer', () => {
   });
 
   it('says where the text will go, since it lands in a running session', () => {
-    render(<SessionPromptComposer session={session()} canSend onSend={vi.fn()} />);
+    render(<SessionPromptComposer session={session()} canSend onSend={async () => ({ dryRun: false })} />);
     expect(screen.getByText(/PID 4242/u)).toBeInTheDocument();
     expect(screen.getByText(/立即续写/u)).toBeInTheDocument();
   });
 
   it('refuses an over-long line, and allows exactly the maximum', () => {
-    render(<SessionPromptComposer session={session()} canSend onSend={vi.fn()} />);
+    render(<SessionPromptComposer session={session()} canSend onSend={async () => ({ dryRun: false })} />);
     const send = screen.getByRole('button', { name: /发送到 PID 4242/u });
     const field = screen.getByLabelText('要发送到该会话的文字');
 
@@ -101,7 +101,7 @@ describe('SessionPromptComposer', () => {
    * only be measuring jsdom.
    */
   it('turns pasted line breaks into spaces rather than losing them', () => {
-    render(<SessionPromptComposer session={session()} canSend onSend={vi.fn()} />);
+    render(<SessionPromptComposer session={session()} canSend onSend={async () => ({ dryRun: false })} />);
     const field = screen.getByLabelText('要发送到该会话的文字') as HTMLInputElement;
 
     const paste = new Event('paste', { bubbles: true, cancelable: true });
@@ -116,7 +116,7 @@ describe('SessionPromptComposer', () => {
 
   it('leaves a single-line paste untouched', () => {
     // An ordinary paste must not be intercepted, so selection and undo behave normally.
-    render(<SessionPromptComposer session={session()} canSend onSend={vi.fn()} />);
+    render(<SessionPromptComposer session={session()} canSend onSend={async () => ({ dryRun: false })} />);
     const field = screen.getByLabelText('要发送到该会话的文字') as HTMLInputElement;
     fireEvent.change(field, { target: { value: '继续' } });
 
@@ -129,7 +129,7 @@ describe('SessionPromptComposer', () => {
   });
 
   it('cannot send while the line is invalid, and explains why', () => {
-    render(<SessionPromptComposer session={session()} canSend onSend={vi.fn()} />);
+    render(<SessionPromptComposer session={session()} canSend onSend={async () => ({ dryRun: false })} />);
     const send = screen.getByRole('button', { name: /发送到 PID 4242/u });
     expect(send).toBeDisabled();
 
@@ -140,7 +140,7 @@ describe('SessionPromptComposer', () => {
   });
 
   it('is disabled, and says so, for a session that cannot be written to', () => {
-    render(<SessionPromptComposer session={session()} canSend={false} onSend={vi.fn()} />);
+    render(<SessionPromptComposer session={session()} canSend={false} onSend={async () => ({ dryRun: false })} />);
     expect(screen.getByLabelText('要发送到该会话的文字')).toBeDisabled();
     expect(screen.getByRole('button', { name: /发送到 PID 4242/u })).toBeDisabled();
     expect(screen.getByText(/不可写入/u)).toBeInTheDocument();
@@ -160,17 +160,17 @@ describe('SessionPromptComposer', () => {
 
   it('does not carry a draft over to another session', () => {
     // A line written for one process must not be one click away from being sent to a different one.
-    const { rerender } = render(<SessionPromptComposer session={session()} canSend onSend={vi.fn()} />);
+    const { rerender } = render(<SessionPromptComposer session={session()} canSend onSend={async () => ({ dryRun: false })} />);
     fireEvent.change(screen.getByLabelText('要发送到该会话的文字'), { target: { value: '给第一个进程' } });
     expect(screen.getByLabelText('要发送到该会话的文字')).toHaveValue('给第一个进程');
 
-    rerender(<SessionPromptComposer session={session({ id: 'codex:2', rootPid: 5151 })} canSend onSend={vi.fn()} />);
+    rerender(<SessionPromptComposer session={session({ id: 'codex:2', rootPid: 5151 })} canSend onSend={async () => ({ dryRun: false })} />);
     expect(screen.getByLabelText('要发送到该会话的文字')).toHaveValue('');
     expect(screen.getByText(/PID 5151/u)).toBeInTheDocument();
   });
 
   it('submits from the keyboard, since the field holds one line', async () => {
-    const onSend = vi.fn(async () => undefined);
+    const onSend = vi.fn(async () => ({ dryRun: false }));
     render(<SessionPromptComposer session={session()} canSend onSend={onSend} />);
 
     const field = screen.getByLabelText('要发送到该会话的文字');
@@ -178,5 +178,57 @@ describe('SessionPromptComposer', () => {
     fireEvent.submit(field.closest('form') as HTMLFormElement);
 
     await waitFor(() => expect(onSend).toHaveBeenCalledWith(expect.anything(), '继续'));
+  });
+});
+
+/**
+ * A dry run must not be announced as a delivery.
+ *
+ * With Dry Run enabled the service answers 200 with `dryRun: true` and writes nothing — it records a skip in
+ * its audit. Treating that as success would tell the user their line reached the session when it did not, so
+ * the composer distinguishes the two and says which happened.
+ */
+describe('dry run', () => {
+  it('reports a skip instead of claiming the line was sent', async () => {
+    const onSend = vi.fn(async () => ({ dryRun: true }));
+    render(<SessionPromptComposer session={session()} canSend onSend={onSend} />);
+
+    fireEvent.change(screen.getByLabelText('要发送到该会话的文字'), { target: { value: '继续' } });
+    fireEvent.click(screen.getByRole('button', { name: /发送到 PID 4242/u }));
+
+    // The words matter: this did not reach the session.
+    expect(await screen.findByText(/未真正写入/u)).toBeInTheDocument();
+    expect(screen.getByText(/Dry Run/u)).toBeInTheDocument();
+    expect(screen.queryByText(/^已发送/u)).not.toBeInTheDocument();
+  });
+
+  it('announces a real write as sent', async () => {
+    const onSend = vi.fn(async () => ({ dryRun: false }));
+    render(<SessionPromptComposer session={session()} canSend onSend={onSend} />);
+
+    fireEvent.change(screen.getByLabelText('要发送到该会话的文字'), { target: { value: '继续' } });
+    fireEvent.click(screen.getByRole('button', { name: /发送到 PID 4242/u }));
+
+    expect(await screen.findByText(/已发送/u)).toBeInTheDocument();
+    expect(screen.queryByText(/未真正写入/u)).not.toBeInTheDocument();
+  });
+
+  it('clears a previous dry-run notice when the next send really writes', async () => {
+    // Otherwise a stale "not written" would sit under a successful send.
+    let dry = true;
+    const onSend = vi.fn(async () => ({ dryRun: dry }));
+    render(<SessionPromptComposer session={session()} canSend onSend={onSend} />);
+    const field = screen.getByLabelText('要发送到该会话的文字');
+
+    fireEvent.change(field, { target: { value: '第一次' } });
+    fireEvent.click(screen.getByRole('button', { name: /发送到 PID 4242/u }));
+    await screen.findByText(/未真正写入/u);
+
+    dry = false;
+    fireEvent.change(field, { target: { value: '第二次' } });
+    fireEvent.click(screen.getByRole('button', { name: /发送到 PID 4242/u }));
+
+    await waitFor(() => expect(screen.queryByText(/未真正写入/u)).not.toBeInTheDocument());
+    expect(screen.getByText(/已发送/u)).toBeInTheDocument();
   });
 });
