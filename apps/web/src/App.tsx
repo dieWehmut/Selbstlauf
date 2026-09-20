@@ -91,7 +91,7 @@ import {
 } from './settings/desktop-prefs';
 
 /** Shown by the account section and the sidebar; tracks the package version. */
-const APP_VERSION = '0.6.0';
+const APP_VERSION = '0.6.1';
 
 /** 电脑操控's single switch. */
 function isRevealPref(value: unknown): value is { allowReveal: boolean } {
