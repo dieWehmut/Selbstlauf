@@ -852,6 +852,51 @@ sideways scroll, exact geometry on restore, and — after collapsing at 1280px a
 narrowing to 900px — a drawer that still opens at 236px with readable brand and nav
 labels.
 
+### The sidebar now lists processes, and a mouse-click bug it uncovered
+
+The sidebar held only three navigation entries, so the discovered processes lived
+solely in the main table. At the user's request it now lists them too, grouped the way
+the reference sidebar groups its conversations (`206fa66`, `eb2ae45`, released as 0.4.0):
+
+- **grouped by run location** — the host the CLI runs inside, which the table already
+  shows as 运行位置 — ordered by category then label so the list does not reshuffle
+  between polls, with rows ordered by longest silence first;
+- a session with no host is kept under **未识别宿主** rather than dropped;
+- selecting a row opens a **process detail page** that reuses the table's own fields and
+  helpers, so a value means the same thing in both views;
+- the **bottom bar opens a menu upwards** out of the sidebar footer — a downward menu
+  would fall off the bottom of the window — offering the theme switch, 设置 and 收起侧栏.
+
+**A pre-existing bug this uncovered.** Clicking a dropdown item with the mouse did
+nothing: the menu closed and the action never ran, because the document-level `mousedown`
+handler closed the menu before the item's `onClick` fired. This affected the title bar's
+文件/编辑/视图/帮助 menus too, so 返回应用 and 隐藏到托盘 were unreachable by mouse. It
+survived because the unit tests use `fireEvent.click`, which fires no `mousedown`, and
+the one browser test that activated a menu item used the keyboard. Both handlers now
+ignore presses that start inside the menu.
+
+Verified on the **installed** 0.4.0 against its live service, not demo data:
+
+    group headings: ["Tabby", "Codex 应用", "Selbstlauf", "DeepSeek Harness 网页界面"]
+    rows: 5
+    detail opened: 进程详情 | selected rows: 1
+    menu bottom: 543 | bar top: 551  -> opens UPWARDS: true
+    closed by Escape: true | page errors: (none)
+
+Suites: web 90 to 104, browser 24 to 27.
+
+#### Two testing notes
+
+The browser suite runs the app with `VITE_STATIC_DEMO: 'true'`, so it **never calls
+`/api`** and neither a `page.route` nor a `window.fetch` override can change the session
+list. The scrolling test therefore shrinks the window until the sidebar's own list really
+overflows, rather than inventing data — and it asserts the overflow happened, so it cannot
+pass while proving nothing.
+
+Adding a process list also made `getByRole('button', { name: '进程' })` ambiguous, since a
+nav entry and a process row can share a name; the affected tests now scope that lookup to
+the `nav`.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
