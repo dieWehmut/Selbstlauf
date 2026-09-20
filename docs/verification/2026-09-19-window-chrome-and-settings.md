@@ -626,6 +626,27 @@ value rather than NaN, instead of pinning one behaviour.
 
 Browser suite: 16 to 18 passing.
 
+### The app was never tested with its service gone
+
+Every browser test served a healthy API, so the failure path — the one a user
+actually meets when the watchdog dies mid-session — had no browser coverage at all.
+
+`service-outage.spec.ts` (`6ac44a6`) aborts `**/api/**` with `connectionrefused`
+(a dead service rather than an HTTP error body), waits past a poll interval, and
+then requires:
+
+- the shell, title bar and current page are all still present, since an unhandled
+  rejection would take the tree down;
+- 事件 and 设置 still navigate and render with the service gone;
+- all 18 settings sections still render rather than hanging blank;
+- restoring the API recovers the app with no reload.
+
+It passes with no defect found: the app stays intact, every section still renders,
+and it recovers on its own. The installed-application check below exercised the same
+surface once more against the packaged bundle.
+
+Browser suite: 18 to 19 passing.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
