@@ -1012,6 +1012,49 @@ Two browser tests assert the declared scheme in both themes, that both scroll re
 thin themed scrollbar, that the rail genuinely overflows at 1249x704 so the scrollbar is
 exercised rather than hypothetically styled, and that neither removed label has crept back.
 
+### The settings page had two left columns, and its title bar scrolled away
+
+Both were structural, and both were fixed together (`9c52c73`).
+
+**Two left rails.** 设置 stacked the app sidebar — brand, navigation, process list, footer
+— and then the settings section rail inside the content area. The rail *is* the navigation
+for that page, so it now takes the sidebar's grid slot and the app sidebar is not rendered
+at all on 设置. Leaving the page goes through 返回应用 in the rail or the title bar's history
+arrows. Below the 961px drawer breakpoint the rail is a drawer opened by the same topbar
+button, and picking a section closes it.
+
+**A title bar that scrolled.** The shell was a document that scrolled, so a long settings
+section pushed the window's own title bar off the top. The shell is now a viewport-height
+grid whose middle column scrolls (`height: 100vh; overflow: hidden`, with `.workspace` as
+the scroll container), so the title bar is at the top by construction; the page title row
+sticks inside the scrolling column so the service controls stay reachable.
+
+Verified against the **running service** rather than an invented API stub, at 1249x704 and
+360x780:
+
+    on 设置: app sidebar 0 | rail column 1 | brand / process list / account bar all 0
+    rail column width 268 | content starts at x=268
+    titlebar y: 0 -> 0 after scrolling | stays at top: true
+    topbar pinned at 36 | content actually scrolled: true
+    narrow: drawer opens, picking a section closes it, 0 horizontal overflow
+    page errors: (none)
+
+Two browser tests pin this as **geometry** — the rail's column position and width, the
+content starting to its right, and the title bar's y before and after a scroll that the test
+asserts actually happened — because "at the top" and "is the left column" are layout facts
+that a class name would not prove.
+
+#### A note on how this was verified
+
+The first attempts used hand-written API stubs, and the app crashed with
+`Cannot read properties of undefined`. That was the stub being incomplete — the settings
+pages read `processFilters`, `tools` and more — not a defect in the change. Proxying `/api`
+to the live service removed that whole class of false alarm, and is the reason the numbers
+above can be trusted: a probe that invents its own data ends up testing its own invention.
+
+Several existing tests had to change because they navigated back by clicking the sidebar's
+进程 button, which is no longer on the page; they now use 返回应用.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand

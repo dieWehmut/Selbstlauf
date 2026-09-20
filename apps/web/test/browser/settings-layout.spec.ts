@@ -57,7 +57,7 @@ test('replaces the app sidebar with the settings rail, and keeps the title bar a
   await page.screenshot({ path: testInfo.outputPath('settings-layout.png') });
 
   // 3. The title bar does not move when the content scrolls.
-  const before = Math.round((await page.locator('.titlebar').boundingBox()).y);
+  const before = Math.round((await page.locator('.titlebar').boundingBox())!.y);
   expect(before, 'the title bar does not start at the top of the window').toBe(0);
   const scrolled = await page.locator('.workspace').evaluate((el) => {
     el.scrollTop = el.scrollHeight;
@@ -65,10 +65,10 @@ test('replaces the app sidebar with the settings rail, and keeps the title bar a
   });
   expect(scrolled, 'the content did not scroll, so this proves nothing about the title bar').toBeGreaterThan(0);
   await page.waitForTimeout(300);
-  const after = Math.round((await page.locator('.titlebar').boundingBox()).y);
+  const after = Math.round((await page.locator('.titlebar').boundingBox())!.y);
   expect(after, 'the title bar scrolled away with the content').toBe(0);
   // The page title row sticks under it rather than scrolling off too.
-  expect(Math.round((await page.locator('.topbar').boundingBox()).y)).toBeGreaterThanOrEqual(0);
+  expect(Math.round((await page.locator('.topbar').boundingBox())!.y)).toBeGreaterThanOrEqual(0);
 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
@@ -101,7 +101,7 @@ test('the settings rail is the drawer on a narrow window, and closes when a sect
   await expect(page.getByRole('heading', { name: '关于' })).toBeVisible();
 
   // The title bar is still at the top on a narrow window.
-  expect(Math.round((await page.locator('.titlebar').boundingBox()).y)).toBe(0);
+  expect(Math.round((await page.locator('.titlebar').boundingBox())!.y)).toBe(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
