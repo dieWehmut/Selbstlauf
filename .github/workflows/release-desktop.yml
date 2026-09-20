@@ -39,6 +39,14 @@ jobs:
         shell: pwsh
         run: tests/Test-VersionConsistency.ps1 -Tag "${{ github.ref_name }}"
 
+      # The release workflow is itself code, and a defect in it wastes a whole build: v0.8.4 failed
+      # its package job after every installer had been verified, because the upgrade check called the
+      # GitHub API unauthenticated and hit the anonymous rate limit. That is checked here, before
+      # anything is built.
+      - name: Check the release workflow's own guards
+        shell: pwsh
+        run: tests/Test-ReleaseWorkflow.ps1
+
       - name: Build workspaces
         run: npm run build
 
@@ -98,11 +106,38 @@ jobs:
       # published release is used as the base.
       - name: Verify the x64 installer upgrades an existing install in place
         shell: pwsh
+        env:
+          # Authenticated, because the anonymous limit is 60 requests per hour per IP and the
+          # runners share one. This call is what a release does LAST, so an anonymous 403 here
+          # fails a build whose installers were already verified — and it did, on v0.8.4, with
+          # "API rate limit exceeded". The token raises the limit to 5000/hour.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $installer = Get-ChildItem -LiteralPath tmp/desktop-dist -Filter 'Selbstlauf-Setup-*-x64.exe' | Select-Object -First 1 -ExpandProperty FullName
 
           # The most recent release that is not the one being built.
-          $releases = Invoke-RestMethod -Uri 'https://api.github.com/repos/${{ github.repository }}/releases?per_page=10' -Headers @{ 'User-Agent' = 'selbstlauf-ci' }
+          $headers = @{
+            'User-Agent' = 'selbstlauf-ci'
+            'Accept' = 'application/vnd.github+json'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            # Without a token this would be rate-limited; say so rather than failing a verified
+            # build over a check that could not run.
+            Write-Warning 'no token available; skipping the in-place upgrade check rather than risking a rate-limit failure'
+            exit 0
+          }
+          $headers['Authorization'] = "Bearer $env:GH_TOKEN"
+
+          try {
+            $releases = Invoke-RestMethod -Uri 'https://api.github.com/repos/${{ github.repository }}/releases?per_page=10' -Headers $headers
+          } catch {
+            # An API failure says nothing about the installer, which the previous step already
+            # verified. Report it and carry on instead of failing the release: a transient 403 or
+            # a rate limit is not a defect in the artefact.
+            Write-Warning "could not list releases ($($_.Exception.Message)); skipping the in-place upgrade check"
+            exit 0
+          }
+
           $previous = $releases |
             Where-Object { $_.tag_name -ne "${{ github.ref_name }}" } |
             Where-Object { $_.assets.name -contains 'Selbstlauf-Setup-' + $_.tag_name.TrimStart('v') + '-x64.exe' } |

@@ -1507,6 +1507,40 @@ popup is not open while they run. The colour was restored and all five pass.
 
 Browser suite: 45 -> 47.
 
+#### A release failed by its own last step
+
+`v0.8.4` was a test-only change, yet its `package` job failed. The log named the cause precisely:
+
+    API rate limit exceeded for 52.159.245.176
+
+The in-place upgrade check queried `api.github.com` **without a token**, so it fell under the anonymous
+limit of 60 requests per hour per IP — shared by the runners. The defect is not the rate limit: it is
+that this call happens **last**, after every installer has been verified, so a 403 from an unrelated
+quota failed a release whose artefacts were fine.
+
+Fixed in two layers, because either alone leaves the hole open:
+
+1. The call is now **authenticated** (`GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`), raising the limit to
+   5000/hour.
+2. A failure is **caught**. The check exists to add confidence; when it cannot run it says so and exits
+   0, as it already did when there was no previous release. A transient 403 is not a defect in the
+   artefact.
+
+`tests/Test-ReleaseWorkflow.ps1` guards this and runs in CI **before** anything is built. It requires
+that every `api.github.com` call sits in a step declaring its own token, and that an API failure is
+caught.
+
+#### The guard was wrong first, and passed when it should not have
+
+The first version looked for a token anywhere in a 30-line window before the call. It passed even after
+the token line was **deleted**, because the script body still mentioned `$env:GH_TOKEN` further down — a
+mention is not a declaration, so the guard was reading text rather than structure.
+
+It now walks back to the call's own `- name:` and requires `GH_TOKEN:` inside that step. Proved by
+deleting the token line again: the guard fails with `release-desktop.yml:123 is in a step that does not
+declare GH_TOKEN`, and passes once restored. The second version is what makes the check worth having,
+since the first would have shipped a guard that could never fire.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
