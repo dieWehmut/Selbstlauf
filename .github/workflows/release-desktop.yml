@@ -92,6 +92,36 @@ jobs:
           if (-not $installer) { throw 'no x64 installer was produced' }
           scripts/desktop/verify-installer.ps1 -Installer $installer
 
+      # Installing over an existing version is the path a user actually takes, and it
+      # is a different code path inside NSIS from a fresh install: a duplicated
+      # uninstall entry or a merged-in old payload only appears here. The previous
+      # published release is used as the base.
+      - name: Verify the x64 installer upgrades an existing install in place
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath tmp/desktop-dist -Filter 'Selbstlauf-Setup-*-x64.exe' | Select-Object -First 1 -ExpandProperty FullName
+
+          # The most recent release that is not the one being built.
+          $releases = Invoke-RestMethod -Uri 'https://api.github.com/repos/${{ github.repository }}/releases?per_page=10' -Headers @{ 'User-Agent' = 'selbstlauf-ci' }
+          $previous = $releases |
+            Where-Object { $_.tag_name -ne "${{ github.ref_name }}" } |
+            Where-Object { $_.assets.name -contains 'Selbstlauf-Setup-' + $_.tag_name.TrimStart('v') + '-x64.exe' } |
+            Select-Object -First 1
+
+          if (-not $previous) {
+            # Nothing to upgrade from yet (for example the first release). Say so
+            # instead of silently reporting a pass for a check that did not run.
+            Write-Warning 'no previous release with an x64 installer was found; skipping the in-place upgrade check'
+            exit 0
+          }
+
+          $asset = $previous.assets | Where-Object { $_.name -like 'Selbstlauf-Setup-*-x64.exe' } | Select-Object -First 1
+          $baseInstaller = Join-Path $env:TEMP $asset.name
+          Write-Host "upgrading from $($previous.tag_name) ($($asset.name))"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $baseInstaller -UseBasicParsing
+
+          scripts/desktop/verify-installer.ps1 -Installer $installer -UpgradeFrom $baseInstaller
+
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
