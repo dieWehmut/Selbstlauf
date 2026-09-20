@@ -897,6 +897,29 @@ Adding a process list also made `getByRole('button', { name: '进程' })` ambigu
 nav entry and a process row can share a name; the affected tests now scope that lookup to
 the `nav`.
 
+### A defect I introduced, caught and fixed in the next release
+
+The first version of the sidebar list put `role="listitem"` on its `<button>` rows. That
+overrides the element's button role, so the rows stopped being exposed as activatable at
+all — a screen reader announced list items with no way to know they could be pressed,
+even though a mouse still worked. The browser suite reported `by role button: 0`
+(`20edc63`, released as 0.4.1).
+
+The rows are now plain buttons inside a labelled `role="group"`, which is what they are: a
+group of controls that select a process, not a list of static items. The browser suite now
+asserts the rows are reachable as buttons, that no `listitem` role has taken over, and that
+a row can be focused and activated with the keyboard. The four unit tests and one browser
+test that had located rows by `listitem` now use the real roles, which is itself evidence
+the roles had been wrong.
+
+Verified on the **installed** 0.4.1:
+
+    group found: 1
+    rows exposed as buttons: 3
+    rows exposed as listitem: 0
+    row focused: true
+    h1 after Enter: 进程详情 | selected rows: 1
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
