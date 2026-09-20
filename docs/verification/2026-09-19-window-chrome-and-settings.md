@@ -944,6 +944,39 @@ Verified on the **installed** 0.4.2:
     status readable: 1 | opens UPWARDS: true | closed by Escape: true
     page errors: (none)
 
+### The UI advertised a shortcut that was never bound
+
+The bottom bar's menu displayed `Ctrl+,` beside 设置 — the conventional binding for
+preferences — while **nothing bound it**, so pressing it did nothing. The 键盘快捷键
+settings list had drifted the same way: its own contract is "exactly the shortcuts the
+application honours today", and it listed four keys while the menu displayed a fifth that
+did not exist (`6ebd80a`, 0.4.3).
+
+`Ctrl+,` is now bound alongside `Ctrl+1/2/3` and added to the documented list. The check was
+extended behaviourally rather than just in its strings: the unit test presses it and requires
+it to reach 设置, and a new browser test presses **every** documented page shortcut and then
+reads back both the menu hint and the settings table, so the three cannot disagree.
+
+Verified on the **installed** 0.4.3:
+
+    menu 设置 item: "设置Ctrl+,"
+    h1 after Ctrl+,: Watchdog 设置   -> works: true
+    shortcuts list mentions Ctrl+,: true | Ctrl+1: true
+    page errors: (none)
+
+### A flaky CI failure, distinguished from a defect
+
+The first v0.4.3 run failed at *"Verify the x64 installer installs a complete, self-owned
+app"*. Rather than assume either a flake or a defect, the same check was reproduced locally
+against a freshly built 0.4.3 installer: it **passed**, including the tray, hide-on-close,
+discovery and logon-task checks. Nothing install-related had changed in that release — the
+diff was version numbers and web sources only.
+
+The failed job was then re-run and **passed**, confirming it was environmental rather than a
+regression. Both jobs are green and the release is published. Worth recording because the
+temptation is to treat a re-run as proof of nothing: here the local reproduction is what
+made the re-run meaningful.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
