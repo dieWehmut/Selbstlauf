@@ -27,12 +27,19 @@ export function SidebarProcessList(props: {
   const visible = query.length === 0
     ? props.sessions
     : props.sessions.filter((session) => {
+      // Everything the row displays is searchable, including the conversation label now
+      // that it is on the row: `Goal`, `等待输入` and `未关联` are all visible text, so
+      // searching them must find the row that shows them.
       const haystack = [
         toolLabel(session.tool),
         session.host?.label ?? '',
         session.host?.windowTitle ?? '',
         String(session.rootPid),
         session.conversationId ?? '',
+        // The conversation line the row shows, so a label like 普通对话 or 未关联 — which
+        // appears nowhere in the session's own fields — is still searchable. Without this,
+        // searching text plainly visible on a row returned nothing.
+        conversationDetail(session),
         session.sessionCwd ?? '',
       ].join(' ').toLowerCase();
       return haystack.includes(query);
