@@ -1486,6 +1486,27 @@ unreadable — and the suite failed with contrast violations on all five pages. 
 
 Browser suite: 42 -> 45. Every page now reports zero WCAG A/AA violations.
 
+#### The audit's own blind spot: transient surfaces
+
+The audits above load a page and audit it, so they can only ever see what is on screen when a page is
+loaded. Everything that exists only while it is open — the bottom-bar popup, the four title-bar
+dropdowns, the hover-revealed pin — was invisible to them. The popup in particular had been
+restructured this cycle into a header, label/value rows and two menu groups without ever being audited.
+
+Audits were added for those states, and the gap was then **proved** rather than assumed: the popup's
+keyboard-shortcut colour was temporarily set to an unreadable value, and
+
+    ok  1  process list, detail page and settings rail
+    ok  2  light theme
+    ok  3  settings drawer
+    x   4  bottom bar popup, its menus and the pin control   <- only this one caught it
+    ok  5  popup in the light theme
+
+Only the new test failed, which is exactly the point: the page-level audits pass regardless, because the
+popup is not open while they run. The colour was restored and all five pass.
+
+Browser suite: 45 -> 47.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand

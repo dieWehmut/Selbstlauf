@@ -144,4 +144,69 @@ test.describe('accessibility audit', () => {
       `serious or critical violations in the settings drawer:\n    ${describe(serious)}`,
     ).toEqual([]);
   });
+
+  /**
+   * The transient surfaces, which the page-level audits above never see.
+   *
+   * A popup, a menu and a hover-revealed control only exist while they are open, so a page-level
+   * audit passes over all of them. This is the gap the earlier audits left: the bottom bar's popup
+   * was restructured this cycle into a header, label/value rows and two menu groups, and none of it
+   * had been audited. Opens each state, then audits it.
+   */
+  test('the bottom bar popup, its menus and the pin control have no serious violations', async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(String(error)));
+
+    await page.setViewportSize({ width: 1249, height: 704 });
+    await page.goto('/');
+    await expect(page.locator('.sidebar')).toBeVisible();
+
+    const all: AxeViolation[] = [];
+
+    // Open the popup: header block, three fact rows, two menus and a separated final group.
+    await page.locator('.account-bar__button').click();
+    const popup = page.locator('.account-popup');
+    await expect(popup).toBeVisible();
+    all.push(...await audit(page, '底部面板'));
+
+    // The title-bar dropdowns, which are a different menu implementation.
+    for (const menu of ['文件', '编辑', '视图', '帮助']) {
+      await page.locator('.titlebar').getByRole('button', { name: menu }).click();
+      await expect(page.getByRole('menu')).toBeVisible();
+      all.push(...await audit(page, `标题栏菜单(${menu})`));
+      await page.keyboard.press('Escape');
+    }
+
+    // The pin control is revealed on hover and is only in the accessibility tree as a button, so it
+    // is audited with the row in its hovered state.
+    const row = page.locator('.sidebar-row').first();
+    await row.hover();
+    await expect(row.locator('.sidebar-row__pin')).toBeVisible();
+    all.push(...await audit(page, '进程行(悬停)'));
+
+    expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+    const serious = all.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+    expect(
+      serious,
+      `serious or critical violations in the transient surfaces:\n    ${describe(serious)}`,
+    ).toEqual([]);
+  });
+
+  test('the popup and its menus hold up in the light theme too', async ({ page }) => {
+    // The popup has its own surface colour and the shortcut hints are drawn faint, so it carries the
+    // same per-theme risk as the rest of the palette.
+    await page.goto('/');
+    await page.evaluate(() => localStorage.setItem('watchdog-theme', 'light'));
+    await page.reload();
+    await expect(page.locator('.sidebar')).toBeVisible();
+    await page.locator('.account-bar__button').click();
+    await expect(page.locator('.account-popup')).toBeVisible();
+
+    const all = await audit(page, '底部面板(亮色)');
+    const serious = all.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+    expect(
+      serious,
+      `serious or critical violations in the popup (light theme):\n    ${describe(serious)}`,
+    ).toEqual([]);
+  });
 });
