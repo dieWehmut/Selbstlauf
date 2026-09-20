@@ -1183,6 +1183,65 @@ Two of my own probe assumptions were wrong and would each have produced a false 
 No release came from this round: it changes only tests, so a new installer would carry no
 functional difference from the installed 0.6.1.
 
+### The sidebar rebuilt to the reference's shape, pinning, motion, and a rail without placeholders
+
+Four requests, all verified on the built app (`0.7.0`).
+
+**The sidebar reads like the reference's list.** Rows are two compact lines — the tool and its
+silence, then the conversation — instead of three, and the host is no longer repeated on the row
+because it is the group heading directly above it. A row is now a container with two children
+rather than one button, because a `<button>` cannot contain another `<button>`: the pin control
+would have been invalid HTML and unreachable.
+
+**Pinning.** Hovering a row (or focusing it) reveals a pin that lifts the process into a 置顶
+group on top. It is a *move*, not a copy, so the list stays a partition of the sessions; it keeps
+pin order; it survives a reload; and the group does not appear when nothing is pinned. An id whose
+session has exited is ignored rather than pruned, so a session that returns finds its pin again.
+
+**设置 is gone from the top navigation**, as asked. It is reached from the bottom bar's popup and
+`Ctrl+,` — the binding the popup advertises, and the one every test now uses.
+
+**Motion**, all of it short and small (.18–.22s): rows fade and rise as the list is rebuilt, the
+navigation icon eases on hover, and a settings panel rises when a section is chosen. The panel is
+keyed on the section so React remounts it and the animation actually replays. All of it collapses
+to nothing under `prefers-reduced-motion` — verified by disabling that rule and watching the test
+fail with `.sidebar-row animation is 0.18s`.
+
+#### The rail no longer lists sections that change nothing
+
+Four sections were removed rather than left as placeholders: 家长控制 (a local-only PIN gating one
+switch, never a security boundary), 信任联系人 (a name and email never sent anywhere), 语音 (a
+switch with no implementation) and 使用统计 (counts of what was already on screen). 个性化 folded
+into 外观, 应用快照 went with them, 配置 became 续写与进程 and 账户 became 关于. A new
+**启动与托盘** lifts startup, close behaviour and the preferred terminal out of 电脑操控, where
+window behaviour had been filed under "what the app may do to this machine".
+
+Removing 家长控制 had a consequence worth naming: it put a PIN prompt in front of saving the
+config. Leaving that prompt would have asked a user with the preference already stored for a PIN
+**with no section left to change or clear it**, so the prompt went too.
+
+#### A defect the screenshots caught
+
+The compact row shortened a conversation id to its first eight characters, which turned
+`session-b9dbc639-0a40-4eec-…` into **`session-`** — a prefix every DeepSeek Harness session
+shares, so two rows rendered identically. A leading alphabetic segment is now dropped when enough
+of the id remains, and the id is shown whole when it is short, so `demo-goal` is not clipped to
+`demo-goa`. This was found by looking at the rendered sidebar, not by reading the code; the
+nine tests in `conversation-short-id.test.ts` were written from the failure.
+
+Verified on the built app against the live service:
+
+    nav labels: ["进程","事件"] | nav height 79px for two rows | 设置 in nav: false
+    groups: Tabby / Codex 应用 / DeepSeek Harness 网页界面 -> with a pin: 置顶 first
+    rows: Codex | Goal · complete · 01a0bd1e | 1h 36m
+          DeepSeek Harness | 步骤执行中 · b9dbc639 | 6s      (was `session-`)
+    rail: 常规 外观 通知 键盘快捷键 个人资料 宠物 / 启动与托盘 续写与进程 导入历史
+          电脑操控 插件 浏览器 关于                    (13, was 18)
+    page errors: none
+
+Suites: web 105 -> 101 (four sections' tests removed with them, nine id tests added), browser
+38 -> 41.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand

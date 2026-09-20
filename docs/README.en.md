@@ -444,17 +444,29 @@ Settings now navigate from a grouped rail instead of a tab strip: **返回应用
 a **搜索设置** field that filters the list by name, then every section under the
 **个人** and **集成** headings.
 
-- **个人**: 常规, 通知, 导入, 个人资料, 外观, 家长控制, Trusted contact, 语音,
-  配置, 个性化, 宠物, 键盘快捷键, 使用情况和计费, 账户.
-- **集成**: 电脑操控, 应用快照, 插件, 浏览器.
+- **个人**: 常规, 外观, 通知, 键盘快捷键, 个人资料, 宠物.
+- **集成**: 启动与托盘, 续写与进程, 导入历史, 电脑操控, 插件, 浏览器, 关于.
 
-The figures on 使用情况和计费, 账户 and 应用快照 are computed from the current
-sessions and environment report rather than being placeholders. 电脑操控's
-**允许打开运行位置** switch really disables the matching buttons in the process
-table, 个人资料's display name appears in the sidebar brand block, and 通知's
-event-retention limit really caps the timeline. Enabling 家长控制 requires the PIN
-again before a config save; that PIN is stored obfuscated and is explicitly not a
-security boundary, which the code comments and the UI both say.
+**Every section changes something the application really does.** Four sections that changed
+nothing observable have been removed:
+
+| Removed | Why |
+| --- | --- |
+| 家长控制 | A local-only PIN gating a single switch. It was **never a security boundary** — 4-8 digits is brute-forceable and anyone can edit `localStorage` — and it put a PIN prompt in front of saving the config. That prompt went with the section, since leaving it would have asked a user for a PIN **with nowhere left to change or clear it**. |
+| 信任联系人 | Stored a name and an email that were never sent anywhere. |
+| 语音 | A switch for a feature with no implementation. |
+| 使用统计 | Counted the things already on screen. |
+
+个性化 folded into **外观** (whose palette already carried the accent colour), 应用快照 was
+removed, 配置 became **续写与进程** and 账户 became **关于**. The new **启动与托盘** lifts
+startup, close behaviour and the preferred terminal out of 电脑操控: those are the window's own
+behaviour, and filing them under "what the app may do to this machine" meant nobody looking for
+"what happens when I close the window" would think to open it.
+
+The figures on 关于 are computed from the current sessions and environment report rather than
+being placeholders. 电脑操控's **允许打开运行位置** switch really disables the matching buttons in
+the process table, 个人资料's display name appears in the bottom bar's popup, and 通知's
+event-retention limit really caps the timeline.
 
 ### Window title bar and tray
 

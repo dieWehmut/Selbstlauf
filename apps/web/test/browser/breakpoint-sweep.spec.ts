@@ -77,7 +77,7 @@ test('every page holds its layout across the breakpoint boundaries', async ({ pa
       await page.getByRole('button', { name: '打开菜单' }).click();
       await page.waitForTimeout(200);
     }
-    const row = page.locator('.sidebar-processes__item').first();
+    const row = page.locator('.sidebar-row__open').first();
     expect(await row.count(), `${width}px: no process row to open`).toBeGreaterThan(0);
     await row.click();
     await page.waitForTimeout(300);

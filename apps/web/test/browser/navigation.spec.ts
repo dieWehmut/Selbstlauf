@@ -21,7 +21,7 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
   await sidebar.getByRole('button', { name: '事件' }).click();
   await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();
 
-  await sidebar.getByRole('button', { name: '设置' }).click();
+  await page.keyboard.press('Control+,');
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
 
   const rail = page.getByRole('tablist', { name: '设置分区' });
@@ -38,7 +38,7 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
   // the 进程 nav button is not on the page while settings is open.
   await page.getByRole('button', { name: /返回应用/u }).click();
   await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
-  await sidebar.getByRole('button', { name: '设置' }).click();
+  await page.keyboard.press('Control+,');
   await rail.getByRole('tab', { name: '常规' }).click();
 
   // The draft is component state; the page remounts per visit, so the field must
@@ -65,7 +65,7 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
     await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
     await sidebar.getByRole('button', { name: '事件' }).click();
     await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();
-    await sidebar.getByRole('button', { name: '设置' }).click();
+    await page.keyboard.press('Control+,');
     await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
   }
 

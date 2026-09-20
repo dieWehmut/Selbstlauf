@@ -1,20 +1,25 @@
+import { Pin, PinOff } from 'lucide-react';
+
 import type { SessionView } from '../api/client';
-import {
-  conversationDetail,
-  formatSilence,
-  groupSessionsByHost,
-  sessionTone,
-  sessionToneLabel,
-  toolLabel,
-} from './session-groups';
+import { conversationShortId, formatSilence, groupSessionsByHost, sessionTone, sessionToneLabel, toolLabel } from './session-groups';
 
 /**
- * The list of discovered processes, grouped by the application they run inside.
+ * The list of discovered processes, grouped the way the reference sidebar groups its
+ * conversations: a small grey heading, then compact two-line rows, with the selected row
+ * highlighted across its full width and its pin control revealed on hover.
  *
- * It sits between the brand and the main navigation and scrolls on its own, so a long
- * list never pushes 事件/设置 or the footer out of reach. The selected row is
- * highlighted across its full width, and in the same accent as the process table's
- * active session, so the two views agree about what is selected.
+ * Two lines per row:
+ *
+ *     ● Codex                                    12m 33s
+ *       Goal · active · 01a0bd1e
+ *
+ * The host is not repeated on the row: it is the group heading directly above it. The
+ * conversation id is shown, shortened, because two sessions of the same tool in the same
+ * host are otherwise indistinguishable — that is what the id is for.
+ *
+ * Each row is a container with two children rather than one button, because a `<button>`
+ * cannot contain another `<button>`: the pin control would be invalid HTML and unreachable.
+ * The container is a `group` and the row body is the button that opens the process.
  */
 export function SidebarProcessList(props: {
   readonly sessions: readonly SessionView[];
@@ -22,30 +27,31 @@ export function SidebarProcessList(props: {
   readonly onSelect: (session: SessionView) => void;
   readonly filter: string;
   readonly onFilterChange: (value: string) => void;
+  /** Ids in pin order; the pinned ones are lifted into their own group on top. */
+  readonly pinnedIds: readonly string[];
+  readonly onTogglePin: (session: SessionView) => void;
 }) {
   const query = props.filter.trim().toLowerCase();
   const visible = query.length === 0
     ? props.sessions
     : props.sessions.filter((session) => {
-      // Everything the row displays is searchable, including the conversation label now
-      // that it is on the row: `Goal`, `等待输入` and `未关联` are all visible text, so
-      // searching them must find the row that shows them.
+      // Everything a row displays must be searchable, including the conversation line:
+      // `Goal`, `等待输入` and `未关联` are visible text, so searching them must find the
+      // row that shows them.
       const haystack = [
         toolLabel(session.tool),
         session.host?.label ?? '',
         session.host?.windowTitle ?? '',
         String(session.rootPid),
         session.conversationId ?? '',
-        // The conversation line the row shows, so a label like 普通对话 or 未关联 — which
-        // appears nowhere in the session's own fields — is still searchable. Without this,
-        // searching text plainly visible on a row returned nothing.
-        conversationDetail(session),
+        conversationLine(session),
         session.sessionCwd ?? '',
       ].join(' ').toLowerCase();
       return haystack.includes(query);
     });
 
-  const groups = groupSessionsByHost(visible);
+  const groups = groupSessionsByHost(visible, props.pinnedIds);
+  const pinned = new Set(props.pinnedIds);
 
   return (
     <div className="sidebar-processes">
@@ -64,11 +70,6 @@ export function SidebarProcessList(props: {
         />
       </div>
 
-      {/* A labelled group of buttons, not `role="list"` with `role="listitem"` rows.
-          Putting `listitem` on a `<button>` overrides its button role: the rows stopped
-          being exposed as activatable at all, so assistive technology announced a list
-          item with no way to know it could be pressed. The rows stay buttons, which is
-          what they are, and the group keeps the label. */}
       <div className="sidebar-processes__scroll" role="group" aria-label="进程列表">
         {groups.length === 0 && (
           <p className="sidebar-processes__empty">
@@ -81,35 +82,42 @@ export function SidebarProcessList(props: {
             {group.sessions.map((session) => {
               const tone = sessionTone(session);
               const selected = session.id === props.selectedId;
+              const isPinned = pinned.has(session.id);
+              const line = conversationLine(session);
               return (
-                <button
+                <div
                   key={session.id}
-                  type="button"
-                  className={`sidebar-processes__item ${selected ? 'is-selected' : ''}`}
-                  aria-current={selected ? 'true' : undefined}
-                  title={`${toolLabel(session.tool)} · PID ${session.rootPid} · ${sessionToneLabel(tone)} · ${conversationDetail(session)}`}
-                  onClick={() => props.onSelect(session)}
+                  className={`sidebar-row ${selected ? 'is-selected' : ''} ${isPinned ? 'is-pinned' : ''}`}
                 >
-                  <span className={`process-dot process-dot--${tone}`} aria-hidden="true" />
-                  <span className="sidebar-processes__body">
-                    <span className="sidebar-processes__top">
-                      <span className="sidebar-processes__name">{toolLabel(session.tool)}</span>
-                      <span className="sidebar-processes__meta">
-                        {formatSilence(session.quietForMs ?? 0)}
+                  <button
+                    type="button"
+                    className="sidebar-row__open"
+                    aria-current={selected ? 'true' : undefined}
+                    title={`${toolLabel(session.tool)} · PID ${session.rootPid} · ${sessionToneLabel(tone)} · ${line}`}
+                    onClick={() => props.onSelect(session)}
+                  >
+                    <span className={`process-dot process-dot--${tone}`} aria-hidden="true" />
+                    <span className="sidebar-row__text">
+                      <span className="sidebar-row__top">
+                        <span className="sidebar-row__label">{toolLabel(session.tool)}</span>
+                        <span className="sidebar-row__meta">{formatSilence(session.quietForMs ?? 0)}</span>
+                      </span>
+                      <span className="sidebar-row__conversation" title={session.conversationId ?? undefined}>
+                        {line}
                       </span>
                     </span>
-                    {/* Every row names its conversation, not just the selected one: which
-                        conversation a process is in is what decides whether continuing it
-                        makes sense, so it belongs on the row rather than one click away. */}
-                    <span className="sidebar-processes__conversation" title={session.conversationId ?? undefined}>
-                      {conversationDetail(session)}
-                    </span>
-                    <span className="sidebar-processes__where">
-                      {session.host?.label ?? '未识别宿主'}
-                      {' · '}PID {session.rootPid}
-                    </span>
-                  </span>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    className="sidebar-row__pin"
+                    aria-pressed={isPinned}
+                    aria-label={`${isPinned ? '取消置顶' : '置顶'} PID ${session.rootPid}`}
+                    title={isPinned ? '取消置顶' : '置顶'}
+                    onClick={() => props.onTogglePin(session)}
+                  >
+                    {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -117,4 +125,16 @@ export function SidebarProcessList(props: {
       </div>
     </div>
   );
+}
+
+/**
+ * The conversation line a row shows: what kind of conversation it is, and a short id so two
+ * sessions of one tool in one host stay distinguishable.
+ */
+export function conversationLine(session: SessionView): string {
+  const kind = session.tool === 'dsh'
+    ? (session.runningTurn ? '步骤执行中' : '等待输入')
+    : (session.goal ? `Goal · ${session.goal.status}` : '普通对话');
+  const short = conversationShortId(session.conversationId);
+  return short === null ? kind : `${kind} · ${short}`;
 }

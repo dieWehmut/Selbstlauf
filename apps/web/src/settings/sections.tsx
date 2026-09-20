@@ -14,6 +14,7 @@ import {
   MonitorCog,
   Palette,
   Plug,
+  Power,
   ScrollText,
   ShieldCheck,
   Upload,
@@ -287,108 +288,6 @@ export function ProfileSection(props: {
 
 const PIN_SHAPE = /^[0-9]{4,8}$/;
 
-export function ParentalSection(props: {
-  readonly locked: boolean;
-  readonly onLockChange: (locked: boolean) => void;
-}) {
-  const [pref, setPref] = usePref(PREF_KEYS.parental, PARENTAL_DEFAULTS, isParentalPref);
-  const [pin, setPin] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [error, setError] = useState('');
-
-  const setAllowlist = (allowlist: string) => {
-    const entries = allowlist
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-    setPref({ ...pref, allowlist: entries });
-  };
-
-  const enable = () => {
-    if (!PIN_SHAPE.test(pin)) {
-      setError('PIN 需要 4 到 8 位数字');
-      return;
-    }
-    if (pin !== confirm) {
-      setError('两次输入的 PIN 不一致');
-      return;
-    }
-    setError('');
-    // Only the obfuscated hash is stored; the plaintext PIN is dropped here.
-    setPref({ enabled: true, pinHash: hashPin(pin), allowlist: pref.allowlist });
-    setPin('');
-    setConfirm('');
-    props.onLockChange(true);
-  };
-
-  const disable = () => {
-    if (pref.pinHash === null || hashPin(pin) !== pref.pinHash) {
-      setError('PIN 不正确');
-      return;
-    }
-    setError('');
-    setPref({ enabled: false, pinHash: null, allowlist: pref.allowlist });
-    setPin('');
-    setConfirm('');
-    props.onLockChange(false);
-  };
-
-  return (
-    <Section
-      eyebrow="Parental"
-      title="家长控制"
-      hint="本机 PIN 锁只用于避免误操作，不构成安全边界。"
-      icon={<ShieldCheck size={20} />}
-    >
-      <SwitchRow
-        label="家长控制"
-        hint={pref.enabled ? '已启用：关闭需要重新输入 PIN' : '启用后需要 PIN 才能关闭'}
-        checked={pref.enabled}
-        onChange={(next) => {
-          if (next) enable();
-          else disable();
-        }}
-      />
-      <div className="pref-pin-fields">
-        <div className="pref-field">
-          <span className="pref-field__label">PIN</span>
-          <input
-            aria-label="PIN"
-            type="password"
-            inputMode="numeric"
-            autoComplete="off"
-            value={pin}
-            onChange={(event) => setPin(event.target.value.trim())}
-          />
-        </div>
-        {!pref.enabled && (
-          <div className="pref-field">
-            <span className="pref-field__label">确认 PIN</span>
-            <input
-              aria-label="确认 PIN"
-              type="password"
-              inputMode="numeric"
-              autoComplete="off"
-              value={confirm}
-              onChange={(event) => setConfirm(event.target.value.trim())}
-            />
-          </div>
-        )}
-      </div>
-      <div className="field-stack">
-        <Field label="仅允许监控白名单目录">
-          <input
-            aria-label="仅允许监控白名单目录"
-            value={pref.allowlist.join(', ')}
-            placeholder="用英文逗号分隔"
-            onChange={(event) => setAllowlist(event.target.value)}
-          />
-        </Field>
-      </div>
-      {error && <ResultChip tone="error">{error}</ResultChip>}
-    </Section>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* 5. Trusted contact                                                  */
@@ -409,44 +308,6 @@ export function describeTrustedContact(value: TrustedContactPref): string {
   return `${name} · ${email} · ${TRUSTED_CONDITION_LABELS[value.condition]}`;
 }
 
-export function TrustedContactSection() {
-  const [pref, setPref] = usePref(PREF_KEYS.trustedContact, TRUSTED_CONTACT_DEFAULTS, isTrustedContactPref);
-  const patch = (next: Partial<TrustedContactPref>) => setPref({ ...pref, ...next });
-  const emailInvalid = pref.email.trim().length > 0 && !EMAIL_SHAPE.test(pref.email.trim());
-
-  return (
-    <Section
-      eyebrow="Trusted contact"
-      title="信任联系人"
-      hint="在本机记录一位联系人，以及触发提醒的条件。"
-      icon={<Mail size={20} />}
-    >
-      <div className="field-grid">
-        <Field label="名称">
-          <input value={pref.name} onChange={(event) => patch({ name: event.target.value })} />
-        </Field>
-        <Field label="邮箱">
-          <input value={pref.email} onChange={(event) => patch({ email: event.target.value })} />
-        </Field>
-      </div>
-      <div className="field-stack">
-        <Field label="通知条件">
-          <select
-            aria-label="通知条件"
-            value={pref.condition}
-            onChange={(event) => patch({ condition: event.target.value as TrustedContactCondition })}
-          >
-            <option value="severe">仅严重错误</option>
-            <option value="any">任何错误</option>
-            <option value="always">始终</option>
-          </select>
-        </Field>
-      </div>
-      {emailInvalid && <ResultChip tone="error">邮箱格式不正确</ResultChip>}
-      <p className="settings-rail-note">{describeTrustedContact(pref)}</p>
-    </Section>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* 6. Voice                                                            */
@@ -460,109 +321,8 @@ export function speechSupport(): SpeechSynthesis | null {
   return typeof window.SpeechSynthesisUtterance === 'function' ? synth : null;
 }
 
-/** Reads one event aloud. A no-op when the preference is off or unsupported. */
-export function speakEvent(text: string, prefs: VoicePref): void {
-  if (!prefs.enabled || text.trim().length === 0) return;
-  const synth = speechSupport();
-  if (!synth) return;
-  try {
-    const utterance = new window.SpeechSynthesisUtterance(text);
-    utterance.rate = prefs.rate;
-    if (prefs.voice) {
-      const match = synth.getVoices().find((voice) => voice.voiceURI === prefs.voice || voice.name === prefs.voice);
-      if (match) utterance.voice = match;
-    }
-    synth.speak(utterance);
-  } catch {
-    // Speech is a convenience; a hostile or partial API must never break the panel.
-  }
-}
 
-/** Announces the newest audit event, tolerating a missing speech API entirely. */
-export function announceLatest(prefs: VoicePref, event: AuditEvent): void {
-  try {
-    speakEvent(`${event.type}${event.sessionId ? ` ${event.sessionId}` : ''}`, prefs);
-  } catch {
-    // Never let an announcement failure surface as an application error.
-  }
-}
 
-export function VoiceSection() {
-  const [pref, setPref] = usePref(PREF_KEYS.voice, VOICE_DEFAULTS, isVoicePref);
-  const [voices, setVoices] = useState<readonly SpeechSynthesisVoice[]>([]);
-  // The API object does not change over a session, so reading it during render is stable.
-  const supported = speechSupport();
-  const patch = (next: Partial<VoicePref>) => setPref({ ...pref, ...next });
-
-  useEffect(() => {
-    if (!supported) return;
-    const refresh = () => setVoices(supported.getVoices());
-    refresh();
-    if (typeof supported.addEventListener === 'function') {
-      supported.addEventListener('voiceschanged', refresh);
-      return () => supported.removeEventListener('voiceschanged', refresh);
-    }
-    return undefined;
-  }, [supported]);
-
-  return (
-    <Section
-      eyebrow="Voice"
-      title="语音朗读"
-      hint="使用本机语音合成朗读事件，仅在受支持的浏览器中可用。"
-      icon={<Volume2 size={20} />}
-    >
-      {!supported && (
-        <p className="pref-result">
-          <span className="state-chip state-chip--limited">
-            <span className="state-chip__dot" />当前环境不支持语音合成
-          </span>
-        </p>
-      )}
-      <SwitchRow
-        label="朗读事件"
-        hint="新的审计事件到达时朗读一次"
-        checked={pref.enabled}
-        disabled={!supported}
-        onChange={(enabled) => patch({ enabled })}
-      />
-      <div className="switch-row">
-        <div>
-          <strong>语速</strong>
-          <span>0.5 到 2 倍速</span>
-        </div>
-        <span className="appearance-slider">
-          <input
-            aria-label="语速"
-            type="range"
-            min={0.5}
-            max={2}
-            step={0.1}
-            disabled={!supported}
-            value={pref.rate}
-            onChange={(event) => patch({ rate: Number(event.target.value) })}
-          />
-          <code>{pref.rate.toFixed(1)}</code>
-        </span>
-      </div>
-      <div className="field-stack">
-        <Field label="音色">
-          <select
-            aria-label="音色"
-            disabled={!supported}
-            value={pref.voice ?? ''}
-            onChange={(event) => patch({ voice: event.target.value === '' ? null : event.target.value })}
-          >
-            <option value="">系统默认</option>
-            {voices.map((voice) => (
-              <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name}</option>
-            ))}
-          </select>
-        </Field>
-      </div>
-    </Section>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* 7. Personalization                                                  */
@@ -576,57 +336,6 @@ export const ACCENT_PRESETS = Object.freeze([
   { label: '紫色', value: '#8b5cf6' },
 ] as const);
 
-export function PersonalizationSection(props: {
-  readonly accent: string;
-  readonly onAccentChange: (accent: string) => void;
-}) {
-  const [pref, setPref] = usePref(PREF_KEYS.personalization, PERSONALIZATION_DEFAULTS, isPersonalizationPref);
-
-  // Published on the document so unrelated CSS can react to the density choice.
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    document.documentElement.dataset.density = pref.density;
-  }, [pref.density]);
-
-  return (
-    <Section
-      eyebrow="Personalization"
-      title="个性化"
-      hint="调整界面密度，并选择强调色。"
-      icon={<Palette size={20} />}
-    >
-      <div className="segmented segmented--labels" role="group" aria-label="界面密度">
-        {([['comfortable', '舒适'], ['compact', '紧凑']] as const).map(([value, label]) => (
-          <button
-            key={value}
-            className={pref.density === value ? 'segmented__option is-active' : 'segmented__option'}
-            type="button"
-            aria-pressed={pref.density === value}
-            onClick={() => setPref({ density: value })}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <p className="pref-field__label">强调色预设</p>
-      <div className="pref-swatches" role="group" aria-label="强调色预设">
-        {ACCENT_PRESETS.map((preset) => (
-          <button
-            key={preset.value}
-            className={preset.value.toLowerCase() === props.accent.toLowerCase() ? 'pref-swatch is-active' : 'pref-swatch'}
-            type="button"
-            aria-pressed={preset.value.toLowerCase() === props.accent.toLowerCase()}
-            onClick={() => props.onAccentChange(preset.value)}
-          >
-            <span className="pref-swatch__dot" style={{ background: preset.value }} />
-            {preset.label}
-            <code>{preset.value}</code>
-          </button>
-        ))}
-      </div>
-    </Section>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* 8. Desktop pet                                                      */
@@ -757,49 +466,6 @@ export function eventDecision(event: AuditEvent): string {
   return '未记录';
 }
 
-export function UsageSection(props: {
-  readonly sessions: readonly SessionView[];
-  readonly events: readonly AuditEvent[];
-}) {
-  const now = Date.now();
-  const writableCount = props.sessions.filter(isWritableSession).length;
-
-  const breakdown = new Map<string, number>();
-  for (const event of props.events) {
-    const decision = eventDecision(event);
-    breakdown.set(decision, (breakdown.get(decision) ?? 0) + 1);
-  }
-
-  const newestMs = props.events.reduce<number | null>(
-    (newest, event) => (newest === null || event.timestampMs > newest ? event.timestampMs : newest),
-    null,
-  );
-
-  return (
-    <Section eyebrow="Usage" title="使用统计" hint="全部数值由当前会话与事件列表实时计算。" icon={<ChartColumn size={20} />}>
-      <div className="pref-rows">
-        <div className="pref-row"><span>发现进程</span><span className="pref-row__value">{props.sessions.length}</span></div>
-        <div className="pref-row"><span>可写入</span><span className="pref-row__value">{writableCount}</span></div>
-        <div className="pref-row"><span>事件总数</span><span className="pref-row__value">{props.events.length}</span></div>
-        <div className="pref-row">
-          <span>最近事件</span>
-          <span className="pref-row__value">{newestMs === null ? '暂无事件' : relativeAge(newestMs, now)}</span>
-        </div>
-      </div>
-      <p className="pref-field__label">决策分布</p>
-      <div className="pref-list">
-        {breakdown.size === 0
-          ? <p className="settings-rail-note">暂无事件</p>
-          : [...breakdown.entries()].map(([decision, count]) => (
-            <div className="pref-list__item" key={decision}>
-              <span>{decision}</span>
-              <span>{count}</span>
-            </div>
-          ))}
-      </div>
-    </Section>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* 11. Account / about                                                 */
@@ -861,6 +527,35 @@ export const TERMINAL_OPTIONS = Object.freeze([
 export function ComputerControlSection(props: {
   readonly allowReveal: boolean;
   readonly onAllowRevealChange: (allowed: boolean) => void;
+}) {
+  return (
+    <Section
+      eyebrow="Desktop"
+      title="电脑操控"
+      hint="控制本应用能对这台电脑做什么。"
+      icon={<MonitorCog size={20} />}
+    >
+      <SwitchRow
+        label="允许打开运行位置"
+        hint="关闭后进程表里的“打开运行位置”按钮将被禁用"
+        checked={props.allowReveal}
+        onChange={props.onAllowRevealChange}
+      />
+    </Section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 12b. Startup and tray                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How the desktop application starts and what closing its window does.
+ *
+ * These lived inside 电脑操控, which is about what the app may do to the machine, so the
+ * window's own behaviour was filed under the wrong heading and was easy to miss.
+ */
+export function StartupSection(props: {
   readonly startupInstalled: boolean;
   readonly onToggleStartup: () => Promise<void> | void;
   readonly busy?: boolean;
@@ -881,9 +576,9 @@ export function ComputerControlSection(props: {
   return (
     <Section
       eyebrow="Desktop"
-      title="系统集成"
-      hint="开机自启、托盘行为，以及终端按钮使用的应用。"
-      icon={<MonitorCog size={20} />}
+      title="启动与托盘"
+      hint="开机自启、关闭窗口的行为，以及终端按钮使用的应用。"
+      icon={<Power size={20} />}
     >
       <SwitchRow
         label="开机自启"
@@ -891,12 +586,6 @@ export function ComputerControlSection(props: {
         checked={props.startupInstalled}
         disabled={props.busy === true}
         onChange={() => void props.onToggleStartup()}
-      />
-      <SwitchRow
-        label="允许打开运行位置"
-        hint="关闭后进程表里的“打开运行位置”按钮将被禁用"
-        checked={props.allowReveal}
-        onChange={props.onAllowRevealChange}
       />
       <SwitchRow
         label="关闭时最小化到托盘"
@@ -941,75 +630,6 @@ export interface UsageSnapshot {
   readonly toolCount: number;
 }
 
-export function SnapshotsSection(props: {
-  readonly sessions: readonly SessionView[];
-  readonly environment: EnvironmentView | null;
-}) {
-  const [snapshots, setSnapshots] = useState<readonly UsageSnapshot[]>([]);
-  const [result, setResult] = useState<{ readonly ok: boolean; readonly text: string } | null>(null);
-  const sequence = useRef(0);
-
-  const take = () => {
-    const atMs = Date.now();
-    sequence.current += 1;
-    const snapshot: UsageSnapshot = {
-      id: `snapshot-${sequence.current}`,
-      atMs,
-      sessionCount: props.sessions.length,
-      writableCount: props.sessions.filter(isWritableSession).length,
-      toolCount: props.environment?.tools.length ?? 0,
-    };
-    setSnapshots((current) => [...current, snapshot]);
-    setResult(null);
-  };
-
-  const copy = async (snapshot: UsageSnapshot) => {
-    try {
-      const clipboard = navigator.clipboard;
-      if (!clipboard || typeof clipboard.writeText !== 'function') {
-        throw new Error('当前环境不支持写入剪贴板');
-      }
-      await clipboard.writeText(JSON.stringify(snapshot, null, 2));
-      setResult({ ok: true, text: '已复制快照' });
-    } catch (error) {
-      setResult({ ok: false, text: `复制失败：${messageOf(error)}` });
-    }
-  };
-
-  return (
-    <Section
-      eyebrow="Snapshots"
-      title="快照"
-      hint="记录此刻的进程与工具数量，方便前后对比。"
-      icon={<Camera size={20} />}
-    >
-      <div className="pref-actions">
-        <button className="button button--primary" type="button" onClick={take}>生成快照</button>
-        <button
-          className="button button--secondary"
-          type="button"
-          disabled={snapshots.length === 0}
-          onClick={() => { setSnapshots([]); setResult(null); }}
-        >
-          清空
-        </button>
-      </div>
-      {result && <ResultChip tone={result.ok ? 'ready' : 'error'}>{result.text}</ResultChip>}
-      <div className="pref-list">
-        {snapshots.length === 0
-          ? <p className="settings-rail-note">暂无快照</p>
-          : snapshots.map((snapshot) => (
-            <div className="pref-list__item" key={snapshot.id}>
-              <span>
-                {new Date(snapshot.atMs).toLocaleTimeString()} · 进程 {snapshot.sessionCount} · 可写入 {snapshot.writableCount} · 工具 {snapshot.toolCount}
-              </span>
-              <button className="text-button" type="button" onClick={() => void copy(snapshot)}>复制</button>
-            </div>
-          ))}
-      </div>
-    </Section>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* 14. Plugins                                                         */

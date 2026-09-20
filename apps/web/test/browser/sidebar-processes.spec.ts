@@ -47,11 +47,13 @@ test('groups the sidebar processes by host and opens the detail page', async ({ 
   // Selecting a row opens that process and marks exactly that row.
   await rows.first().click();
   await expect(page.getByRole('heading', { name: '进程详情' })).toBeVisible();
-  const selected = list.locator('.sidebar-processes__item.is-selected');
+  const selected = list.locator('.sidebar-row.is-selected');
   await expect(selected).toHaveCount(1);
-  expect(await selected.getAttribute('aria-current')).toBe('true');
+  // `aria-current` belongs to the button that opens the process, which is the row's body;
+  // the wrapper is only a container so the pin control can sit beside it.
+  await expect(selected.locator('.sidebar-row__open')).toHaveAttribute('aria-current', 'true');
 
-  const rowPid = await selected.getAttribute('title');
+  const rowPid = await selected.locator('.sidebar-row__open').getAttribute('title');
   // The detail page reports the same process the row named, including its PID.
   const detail = page.locator('.process-detail');
   await expect(detail).toBeVisible();
@@ -134,7 +136,7 @@ test('the list scrolls on its own rather than pushing the navigation or footer a
   // scrolling behaviour without inventing data.
   await page.setViewportSize({ width: 1280, height: 420 });
   await page.goto('/');
-  await expect(page.locator('.sidebar-processes__item').first()).toBeVisible();
+  await expect(page.locator('.sidebar-row__open').first()).toBeVisible();
 
   const scroll = page.locator('.sidebar-processes__scroll');
   const metrics = await scroll.evaluate((el) => ({
@@ -168,7 +170,7 @@ test('the list scrolls on its own rather than pushing the navigation or footer a
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 
   // The last row must be reachable by scrolling, not clipped away.
-  const lastRow = page.locator('.sidebar-processes__item').last();
+  const lastRow = page.locator('.sidebar-row__open').last();
   await lastRow.scrollIntoViewIfNeeded();
   await expect(lastRow).toBeVisible();
 

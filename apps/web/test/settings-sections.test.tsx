@@ -15,18 +15,11 @@ import {
   ComputerControlSection,
   ImportSection,
   NotificationsSection,
-  ParentalSection,
-  PersonalizationSection,
   PetSection,
   PluginsSection,
   ShortcutsSection,
-  SnapshotsSection,
-  TrustedContactSection,
-  UsageSection,
-  VoiceSection,
-  announceLatest,
+  StartupSection,
   describeTrustedContact,
-  speakEvent,
 } from '../src/settings/sections';
 
 beforeEach(() => {
@@ -141,251 +134,16 @@ describe('ImportSection', () => {
   });
 });
 
-function typePin(label: string, value: string) {
-  fireEvent.change(screen.getByLabelText(label), { target: { value } });
-}
 
-function storedParental() {
-  return JSON.parse(localStorage.getItem(PREF_KEYS.parental) ?? 'null') as unknown;
-}
-
-describe('ParentalSection', () => {
-  it('refuses to enable when the PINs do not match', () => {
-    const onLockChange = vi.fn();
-    render(<ParentalSection locked={false} onLockChange={onLockChange} />);
-    typePin('PIN', '1234');
-    typePin('确认 PIN', '4321');
-
-    fireEvent.click(screen.getByLabelText('家长控制'));
-
-    expect(screen.getByText('两次输入的 PIN 不一致')).toBeInTheDocument();
-    expect(screen.getByLabelText('家长控制')).not.toBeChecked();
-    expect(onLockChange).not.toHaveBeenCalled();
-    expect(storedParental()).toBeNull();
-  });
-
-  it('refuses to enable a too-short PIN', () => {
-    render(<ParentalSection locked={false} onLockChange={vi.fn()} />);
-    typePin('PIN', '12');
-    typePin('确认 PIN', '12');
-
-    fireEvent.click(screen.getByLabelText('家长控制'));
-
-    expect(screen.getByText('PIN 需要 4 到 8 位数字')).toBeInTheDocument();
-    expect(screen.getByLabelText('家长控制')).not.toBeChecked();
-  });
-
-  it('enables on a valid pair, reports the lock, and stores no plaintext PIN', () => {
-    const onLockChange = vi.fn();
-    render(<ParentalSection locked={false} onLockChange={onLockChange} />);
-    typePin('PIN', '482913');
-    typePin('确认 PIN', '482913');
-
-    fireEvent.click(screen.getByLabelText('家长控制'));
-
-    expect(onLockChange).toHaveBeenCalledWith(true);
-    expect(screen.getByLabelText('家长控制')).toBeChecked();
-    const stored = storedParental() as { enabled: boolean; pinHash: string; allowlist: string[] };
-    expect(stored.enabled).toBe(true);
-    expect(stored.pinHash).toBe(hashPin('482913'));
-    expect(JSON.stringify(stored)).not.toContain('482913');
-  });
-
-  it('requires the correct PIN to disable', () => {
-    const onLockChange = vi.fn();
-    writePref(PREF_KEYS.parental, { enabled: true, pinHash: hashPin('482913'), allowlist: [] });
-    render(<ParentalSection locked onLockChange={onLockChange} />);
-
-    typePin('PIN', '111111');
-    fireEvent.click(screen.getByLabelText('家长控制'));
-    expect(screen.getByText('PIN 不正确')).toBeInTheDocument();
-    expect(onLockChange).not.toHaveBeenCalled();
-
-    typePin('PIN', '482913');
-    fireEvent.click(screen.getByLabelText('家长控制'));
-    expect(onLockChange).toHaveBeenCalledWith(false);
-    expect(storedParental()).toEqual({ enabled: false, pinHash: null, allowlist: [] });
-  });
-
-  it('keeps the allowlist as trimmed entries', async () => {
-    render(<ParentalSection locked={false} onLockChange={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText('仅允许监控白名单目录'), {
-      target: { value: 'D:\\a, E:\\b ,  ' },
-    });
-    await waitFor(() => {
-      const stored = storedParental() as { allowlist: string[] };
-      expect(stored.allowlist).toEqual(['D:\\a', 'E:\\b']);
-    });
-  });
-});
-
-describe('TrustedContactSection', () => {
-  it('flags an invalid e-mail and clears the error for a valid one', () => {
-    render(<TrustedContactSection />);
-    const email = screen.getByLabelText('邮箱');
-
-    fireEvent.change(email, { target: { value: 'not-an-email' } });
-    expect(screen.getByText('邮箱格式不正确')).toBeInTheDocument();
-
-    fireEvent.change(email, { target: { value: 'ops@example.com' } });
-    expect(screen.queryByText('邮箱格式不正确')).not.toBeInTheDocument();
-  });
-
-  it('persists the condition and name', async () => {
-    render(<TrustedContactSection />);
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: '运维' } });
-    fireEvent.change(screen.getByLabelText('通知条件'), { target: { value: 'always' } });
-    await waitFor(() => {
-      const stored = JSON.parse(localStorage.getItem(PREF_KEYS.trustedContact) ?? 'null');
-      expect(stored).toEqual({ name: '运维', email: '', condition: 'always' });
-    });
-  });
-
-  it('summarises the contact in one line for other sections', () => {
-    expect(describeTrustedContact({ name: '', email: '', condition: 'severe' }))
-      .toBe('未设置联系人 · 未设置邮箱 · 仅严重错误');
-    expect(describeTrustedContact({ name: '运维', email: 'ops@example.com', condition: 'always' }))
-      .toBe('运维 · ops@example.com · 始终');
-  });
-});
 
 describe('Section chrome', () => {
   it('uses the shared section frame with a title and hint', () => {
-    render(<TrustedContactSection />);
+    render(<PluginsSection />);
     const section = document.querySelector('.settings-section');
     expect(section).toHaveClass('settings-section--wide');
-    expect(within(section as HTMLElement).getByRole('heading', { level: 2 })).toHaveTextContent('信任联系人');
-    expect(section?.querySelector('.eyebrow')).toHaveTextContent('Trusted contact');
+    expect(within(section as HTMLElement).getByRole('heading', { level: 2 })).toBeInTheDocument();
+    expect(section?.querySelector('.eyebrow')).not.toBeNull();
     expect(section?.querySelector('.section-hint')).not.toBeNull();
-  });
-});
-
-describe('VoiceSection', () => {
-  const original = Object.getOwnPropertyDescriptor(window, 'speechSynthesis');
-
-  afterEach(() => {
-    if (original) Object.defineProperty(window, 'speechSynthesis', original);
-    else Reflect.deleteProperty(window, 'speechSynthesis');
-  });
-
-  it('renders the unavailable treatment when speechSynthesis is absent', () => {
-    Reflect.deleteProperty(window, 'speechSynthesis');
-    render(<VoiceSection />);
-
-    const chip = screen.getByText('当前环境不支持语音合成');
-    expect(chip).toHaveClass('state-chip--limited');
-    expect(screen.getByLabelText('朗读事件')).toBeDisabled();
-    expect(screen.getByLabelText('语速')).toBeDisabled();
-    expect(screen.getByLabelText('音色')).toBeDisabled();
-  });
-
-  it('lists the voices the API reports and persists the choice', async () => {
-    const voices = [{ name: 'Microsoft Huihui', voiceURI: 'zh-CN-huihui', lang: 'zh-CN' }];
-    const listeners = new Set<() => void>();
-    Object.defineProperty(window, 'speechSynthesis', {
-      configurable: true,
-      value: {
-        getVoices: () => voices,
-        speak: vi.fn(),
-        addEventListener: (_: string, listener: () => void) => listeners.add(listener),
-        removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
-      },
-    });
-    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
-      configurable: true,
-      value: class { text: string; rate = 1; voice: unknown = null; constructor(text: string) { this.text = text; } },
-    });
-
-    render(<VoiceSection />);
-    expect(screen.queryByText('当前环境不支持语音合成')).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('option', { name: 'Microsoft Huihui' })).toBeInTheDocument());
-
-    fireEvent.change(screen.getByLabelText('音色'), { target: { value: 'zh-CN-huihui' } });
-    await waitFor(() => {
-      expect(JSON.parse(localStorage.getItem(PREF_KEYS.voice) ?? 'null')).toMatchObject({ voice: 'zh-CN-huihui' });
-    });
-  });
-});
-
-describe('speakEvent / announceLatest', () => {
-  const originalSynthesis = Object.getOwnPropertyDescriptor(window, 'speechSynthesis');
-  const originalUtterance = Object.getOwnPropertyDescriptor(window, 'SpeechSynthesisUtterance');
-
-  afterEach(() => {
-    if (originalSynthesis) Object.defineProperty(window, 'speechSynthesis', originalSynthesis);
-    else Reflect.deleteProperty(window, 'speechSynthesis');
-    if (originalUtterance) Object.defineProperty(window, 'SpeechSynthesisUtterance', originalUtterance);
-    else Reflect.deleteProperty(window, 'SpeechSynthesisUtterance');
-  });
-
-  function stubSpeech() {
-    const speak = vi.fn();
-    Object.defineProperty(window, 'speechSynthesis', {
-      configurable: true,
-      value: { getVoices: () => [], speak },
-    });
-    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
-      configurable: true,
-      value: class { text: string; rate = 1; voice: unknown = null; constructor(text: string) { this.text = text; } },
-    });
-    return speak;
-  }
-
-  it('is a no-op when the preference is disabled or the API is missing', () => {
-    const speak = stubSpeech();
-    speakEvent('hello', { enabled: false, rate: 1, voice: null });
-    expect(speak).not.toHaveBeenCalled();
-
-    Reflect.deleteProperty(window, 'speechSynthesis');
-    expect(() => speakEvent('hello', { enabled: true, rate: 1, voice: null })).not.toThrow();
-    expect(() => announceLatest({ enabled: true, rate: 2, voice: null }, { id: 'e', timestampMs: 1, type: 'decision' }))
-      .not.toThrow();
-  });
-
-  it('speaks at the stored rate when enabled', () => {
-    const speak = stubSpeech();
-    speakEvent('需要续写', { enabled: true, rate: 1.5, voice: null });
-    expect(speak).toHaveBeenCalledTimes(1);
-    expect(speak.mock.calls[0][0]).toMatchObject({ text: '需要续写', rate: 1.5 });
-  });
-});
-
-describe('PersonalizationSection', () => {
-  afterEach(() => {
-    delete document.documentElement.dataset.density;
-  });
-
-  it('publishes the density on the document and persists it', async () => {
-    render(<PersonalizationSection accent="#e6b65b" onAccentChange={vi.fn()} />);
-    expect(document.documentElement.dataset.density).toBe('comfortable');
-
-    fireEvent.click(screen.getByRole('button', { name: '紧凑' }));
-
-    expect(document.documentElement.dataset.density).toBe('compact');
-    await waitFor(() => {
-      expect(JSON.parse(localStorage.getItem(PREF_KEYS.personalization) ?? 'null')).toEqual({ density: 'compact' });
-    });
-  });
-
-  it('calls onAccentChange with the exact preset hex and marks the active chip', () => {
-    const onAccentChange = vi.fn();
-    render(<PersonalizationSection accent="#8b5cf6" onAccentChange={onAccentChange} />);
-
-    const purple = screen.getByRole('button', { name: /紫色/ });
-    expect(purple).toHaveAttribute('aria-pressed', 'true');
-
-    fireEvent.click(screen.getByRole('button', { name: /蓝色/ }));
-    expect(onAccentChange).toHaveBeenCalledWith('#2563eb');
-
-    for (const value of ['#e6b65b', '#2563eb', '#0ea5e9', '#e05c93', '#8b5cf6']) {
-      expect(document.querySelector(`.pref-swatch code`)?.textContent).toBeDefined();
-      expect(screen.getByRole('group', { name: '强调色预设' }).textContent).toContain(value);
-    }
-  });
-
-  it('offers exactly the five documented presets', () => {
-    render(<PersonalizationSection accent="#e6b65b" onAccentChange={vi.fn()} />);
-    expect(ACCENT_PRESETS.map((preset) => preset.value)).toEqual(['#e6b65b', '#2563eb', '#0ea5e9', '#e05c93', '#8b5cf6']);
   });
 });
 
@@ -413,37 +171,6 @@ const events: readonly AuditEvent[] = [
   { id: 'e2', timestampMs: Date.now() - 60_000, type: 'decision', sessionId: 'writable', details: { decision: 'injected' } },
   { id: 'e3', timestampMs: Date.now() - 30_000, type: 'activity', sessionId: 'paused' },
 ];
-
-describe('UsageSection', () => {
-  it('computes every count from the fixtures', () => {
-    render(<UsageSection sessions={sessions} events={events} />);
-
-    const rows = document.querySelectorAll('.pref-row');
-    expect(rows[0].textContent).toContain('发现进程');
-    expect(rows[0].textContent).toContain('4');
-    // Only the alive, enabled, unpaused session is writable.
-    expect(rows[1].textContent).toContain('可写入');
-    expect(rows[1].textContent).toContain('1');
-    expect(rows[2].textContent).toContain('事件总数');
-    expect(rows[2].textContent).toContain('3');
-    expect(rows[3].textContent).toContain('最近事件');
-    expect(rows[3].textContent).toContain('刚刚');
-
-    expect(screen.getByText('injected')).toBeInTheDocument();
-    expect(screen.getByText('activity')).toBeInTheDocument();
-  });
-
-  it('shows 暂无事件 for an empty event list', () => {
-    render(<UsageSection sessions={sessions} events={[]} />);
-    expect(screen.getAllByText('暂无事件').length).toBeGreaterThan(0);
-    expect(document.querySelectorAll('.pref-list__item')).toHaveLength(0);
-  });
-
-  it('falls back to 未记录 when an event has neither a decision nor a type', () => {
-    render(<UsageSection sessions={[]} events={[{ id: 'x', timestampMs: 1_000, type: '' }]} />);
-    expect(screen.getByText('未记录')).toBeInTheDocument();
-  });
-});
 
 describe('AccountSection', () => {
   it('links to the real project pages and renders no update strip', () => {
@@ -475,10 +202,8 @@ describe('AccountSection', () => {
   });
 });
 
-function desktopProps(overrides: Partial<Parameters<typeof ComputerControlSection>[0]> = {}) {
+function startupProps(overrides: Partial<Parameters<typeof StartupSection>[0]> = {}) {
   return {
-    allowReveal: true,
-    onAllowRevealChange: vi.fn(),
     startupInstalled: false,
     onToggleStartup: vi.fn(),
     busy: false,
@@ -492,8 +217,34 @@ function desktopProps(overrides: Partial<Parameters<typeof ComputerControlSectio
 }
 
 describe('ComputerControlSection', () => {
+  it('offers only the reveal permission, and reports its change', () => {
+    const onAllowRevealChange = vi.fn();
+    render(<ComputerControlSection allowReveal onAllowRevealChange={onAllowRevealChange} />);
+
+    const reveal = screen.getByLabelText('允许打开运行位置');
+    expect(reveal).toBeChecked();
+    fireEvent.click(reveal);
+    expect(onAllowRevealChange).toHaveBeenCalledWith(false);
+  });
+
+  /**
+   * The window's own behaviour belongs to 启动与托盘, not to 电脑操控.
+   *
+   * Startup, the tray and the terminal used to sit under 电脑操控, which is about what the
+   * application may do to the machine — so a person looking for "what happens when I close
+   * the window" would not have thought to open it.
+   */
+  it('keeps startup, tray and terminal out of the computer-control panel', () => {
+    render(<ComputerControlSection allowReveal onAllowRevealChange={vi.fn()} />);
+    expect(screen.queryByLabelText('开机自启')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('关闭时最小化到托盘')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('首选终端')).not.toBeInTheDocument();
+  });
+});
+
+describe('StartupSection', () => {
   it('disables the tray row and explains why when the bridge is absent', () => {
-    render(<ComputerControlSection {...desktopProps({ desktopBridgeAvailable: false })} />);
+    render(<StartupSection {...startupProps({ desktopBridgeAvailable: false })} />);
 
     expect(screen.getByLabelText('关闭时最小化到托盘')).toBeDisabled();
     expect(screen.getByText('需要桌面应用')).toHaveClass('state-chip--limited');
@@ -502,7 +253,7 @@ describe('ComputerControlSection', () => {
 
   it('reports tray changes only when available, and reflects the stored value', () => {
     const onCloseToTrayChange = vi.fn();
-    render(<ComputerControlSection {...desktopProps({ closeToTray: true, onCloseToTrayChange })} />);
+    render(<StartupSection {...startupProps({ closeToTray: true, onCloseToTrayChange })} />);
 
     const tray = screen.getByLabelText('关闭时最小化到托盘');
     expect(tray).toBeChecked();
@@ -514,7 +265,7 @@ describe('ComputerControlSection', () => {
 
   it('reflects startup state, never optimistically, and is disabled while busy', () => {
     const onToggleStartup = vi.fn();
-    const { rerender } = render(<ComputerControlSection {...desktopProps({ startupInstalled: false, onToggleStartup })} />);
+    const { rerender } = render(<StartupSection {...startupProps({ startupInstalled: false, onToggleStartup })} />);
     const startup = screen.getByLabelText('开机自启');
     expect(startup).not.toBeChecked();
 
@@ -523,13 +274,13 @@ describe('ComputerControlSection', () => {
     // Still unchecked: the row only ever reflects the prop.
     expect(startup).not.toBeChecked();
 
-    rerender(<ComputerControlSection {...desktopProps({ startupInstalled: false, onToggleStartup, busy: true })} />);
+    rerender(<StartupSection {...startupProps({ startupInstalled: false, onToggleStartup, busy: true })} />);
     expect(screen.getByLabelText('开机自启')).toBeDisabled();
   });
 
   it('reflects the preferred terminal and reports a change', () => {
     const onPreferredTerminalChange = vi.fn();
-    render(<ComputerControlSection {...desktopProps({ onPreferredTerminalChange })} />);
+    render(<StartupSection {...startupProps({ onPreferredTerminalChange })} />);
     expect(screen.getByLabelText('首选终端')).toHaveValue('powershell');
 
     fireEvent.change(screen.getByLabelText('首选终端'), { target: { value: 'windows-terminal' } });
@@ -559,34 +310,6 @@ describe('ShortcutsSection', () => {
    * `App.test.tsx` presses every documented page shortcut and requires it to work, which
    * is where the fixture for a full app lives.
    */
-});
-
-describe('SnapshotsSection', () => {
-  it('derives each snapshot from the props and shows 暂无快照 when empty', async () => {
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText: vi.fn(async () => undefined) },
-    });
-    render(<SnapshotsSection sessions={sessions} environment={null} />);
-    expect(screen.getByText('暂无快照')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '生成快照' }));
-    const item = document.querySelector('.pref-list__item');
-    expect(item?.textContent).toContain('进程 4');
-    expect(item?.textContent).toContain('可写入 1');
-    expect(item?.textContent).toContain('工具 0');
-
-    fireEvent.click(screen.getByRole('button', { name: '复制' }));
-    const writeText = navigator.clipboard.writeText as unknown as ReturnType<typeof vi.fn>;
-    expect(JSON.parse(writeText.mock.calls[0][0] as string)).toMatchObject({
-      sessionCount: 4, writableCount: 1, toolCount: 0,
-    });
-    await screen.findByText('已复制快照');
-
-    fireEvent.click(screen.getByRole('button', { name: '清空' }));
-    expect(screen.getByText('暂无快照')).toBeInTheDocument();
-    Reflect.deleteProperty(navigator, 'clipboard');
-  });
 });
 
 describe('PetSection', () => {

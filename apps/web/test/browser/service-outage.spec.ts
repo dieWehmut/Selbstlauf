@@ -37,7 +37,7 @@ test('survives the service going away mid-session', async ({ page }, testInfo) =
   // Navigate anyway; every page must still render with the service gone.
   await page.locator('.sidebar').getByRole('button', { name: '事件' }).click();
   await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();
-  await page.locator('.sidebar').getByRole('button', { name: '设置' }).click();
+  await page.keyboard.press('Control+,');
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
 
   // And every settings section must still render rather than hang.

@@ -1,15 +1,18 @@
 import { expect, test } from '@playwright/test';
 
+import { SETTINGS_SECTION_IDS } from '../../src/settings/SettingsRail';
+
 /**
  * Every settings section must render without throwing.
  *
- * The rail advertises 18 sections, but the suite only ever clicked four of them,
- * so a section that threw on mount — a bad prop, a missing guard, an unavailable
- * browser API — would have shipped unseen. React unmounts the whole tree on an
- * uncaught render error, so the symptom would be a blank settings page with no
- * obvious cause.
+ * The rail advertises more sections than the suite used to click — it only ever exercised
+ * four — so a section that threw on mount (a bad prop, a missing guard, an unavailable browser
+ * API) would have shipped unseen. React unmounts the whole tree on an uncaught render error,
+ * so the symptom would be a blank settings page with no obvious cause.
  *
- * This walks all of them and requires each to produce a heading and no page error.
+ * This walks all of them and requires each to produce a heading and no page error. The count
+ * comes from the rail's own definition, so the test follows the rail rather than a number that
+ * has to be remembered.
  */
 test('renders every settings section without a page error', async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
@@ -17,13 +20,17 @@ test('renders every settings section without a page error', async ({ page }, tes
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
-  await page.getByRole('button', { name: '设置' }).click();
+  await page.keyboard.press('Control+,');
 
   const rail = page.getByRole('tablist', { name: '设置分区' });
   await expect(rail).toBeVisible();
 
   const labels = await rail.getByRole('tab').allTextContents();
-  expect(labels).toHaveLength(18);
+  // Derived from the rail's own definition rather than a magic number, so adding or removing a
+  // section updates one place. The loop below still checks each one actually renders, which is
+  // what catches a section listed in the rail with no panel behind it.
+  expect(labels).toHaveLength(SETTINGS_SECTION_IDS.length);
+  expect(labels.length).toBeGreaterThan(0);
 
   const failures: string[] = [];
   for (const label of labels) {

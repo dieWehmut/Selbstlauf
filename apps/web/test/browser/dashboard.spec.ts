@@ -1,3 +1,4 @@
+import { SETTINGS_SECTION_IDS } from '../../src/settings/SettingsRail';
 import { expect, test } from '@playwright/test';
 
 test.describe('Selbstlauf watchdog workbench', () => {
@@ -104,8 +105,8 @@ test.describe('Selbstlauf watchdog workbench', () => {
   test('manages Claude Stop Hook settings in the static Pages demo', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
-    await page.getByRole('button', { name: '设置' }).click();
-    await page.getByRole('tab', { name: '配置' }).click();
+    await page.keyboard.press('Control+,');
+    await page.getByRole('tab', { name: '续写与进程' }).click();
     const hookSection = page.locator('.hook-settings');
     await expect(hookSection.getByRole('heading', { name: 'Claude Stop Hook' })).toBeVisible();
     await expect(hookSection.getByText('~/.claude/settings.json')).toBeVisible();
@@ -124,8 +125,8 @@ test.describe('Selbstlauf watchdog workbench', () => {
   test('switches Codex endpoints from the settings page', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
-    await page.getByRole('button', { name: '设置' }).click();
-    await page.getByRole('tab', { name: '配置' }).click();
+    await page.keyboard.press('Control+,');
+    await page.getByRole('tab', { name: '续写与进程' }).click();
     const section = page.locator('.codex-endpoints');
     await expect(section.getByRole('heading', { name: '端点配置' })).toBeVisible();
     await expect(section.getByLabel('接口地址')).toHaveValue('https://external-api-platform.hkgai.net/v1');
@@ -139,8 +140,8 @@ test.describe('Selbstlauf watchdog workbench', () => {
   test('reports the local agent environment and the manual install commands', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
-    await page.getByRole('button', { name: '设置' }).click();
-    await page.getByRole('tab', { name: '账户' }).click();
+    await page.keyboard.press('Control+,');
+    await page.getByRole('tab', { name: '关于' }).click();
     const panel = page.locator('.environment-panel');
     await expect(panel.getByRole('heading', { name: '本地环境检查' })).toBeVisible();
 
@@ -173,7 +174,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     // layout and needs no hamburger click (the button is hidden there by design).
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.keyboard.press('Control+,');
     await page.getByRole('tab', { name: '外观' }).click();
 
     // The three previews paint from the live palette, not a static image.
@@ -203,7 +204,7 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.keyboard.press('Control+,');
     // 设置 replaces the sidebar with the settings rail, which is itself a drawer at this
     // width, so reopening the drawer is how a section gets picked on a narrow window.
     await page.getByRole('button', { name: '打开菜单' }).click();
@@ -223,10 +224,10 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.keyboard.press('Control+,');
     // The settings rail is a drawer here, so reopen it to choose a section.
     await page.getByRole('button', { name: '打开菜单' }).click();
-    await page.getByRole('tab', { name: '账户' }).click();
+    await page.getByRole('tab', { name: '关于' }).click();
     const panel = page.locator('.environment-panel');
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId('tool-claude')).toBeVisible();
@@ -242,10 +243,10 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.keyboard.press('Control+,');
     // The settings rail is a drawer here, so reopen it to choose a section.
     await page.getByRole('button', { name: '打开菜单' }).click();
-    await page.getByRole('tab', { name: '配置' }).click();
+    await page.getByRole('tab', { name: '续写与进程' }).click();
     const section = page.locator('.codex-endpoints');
     await expect(section).toBeVisible();
     const sectionBox = await section.boundingBox();
@@ -260,10 +261,10 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.keyboard.press('Control+,');
     // The settings rail is a drawer here, so reopen it to choose a section.
     await page.getByRole('button', { name: '打开菜单' }).click();
-    await page.getByRole('tab', { name: '配置' }).click();
+    await page.getByRole('tab', { name: '续写与进程' }).click();
     const hookSection = page.locator('.hook-settings');
     await expect(hookSection).toBeVisible();
     await expect(hookSection.getByRole('button', { name: '安装 Stop Hook' })).toBeVisible();
@@ -324,28 +325,28 @@ test.describe('Selbstlauf watchdog workbench', () => {
   test('navigates every settings section from the rail', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.keyboard.press('Control+,');
 
     const rail = page.getByRole('tablist', { name: '设置分区' });
     await expect(rail).toBeVisible();
-    await expect(rail.getByRole('tab')).toHaveCount(18);
+    await expect(rail.getByRole('tab')).toHaveCount(SETTINGS_SECTION_IDS.length);
     await expect(page.getByRole('button', { name: '返回应用' })).toBeVisible();
 
     // 返回应用 leaves the settings page.
     await page.getByRole('button', { name: '返回应用' }).click();
     await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.keyboard.press('Control+,');
 
     // Search really filters the rail.
-    await page.getByRole('searchbox', { name: '搜索设置' }).fill('家长');
+    await page.getByRole('searchbox', { name: '搜索设置' }).fill('托盘');
     await expect(rail.getByRole('tab')).toHaveCount(1);
-    await expect(rail.getByRole('tab', { name: '家长控制' })).toBeVisible();
+    await expect(rail.getByRole('tab', { name: '启动与托盘' })).toBeVisible();
 
     // Selecting a section brings its content into view and marks the rail entry.
     await page.getByRole('searchbox', { name: '搜索设置' }).fill('');
-    await rail.getByRole('tab', { name: '使用统计' }).click();
-    await expect(rail.getByRole('tab', { name: '使用统计' })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('heading', { name: '使用统计' })).toBeVisible();
+    await rail.getByRole('tab', { name: '启动与托盘' }).click();
+    await expect(rail.getByRole('tab', { name: '启动与托盘' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { name: '启动与托盘' })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 
     await page.screenshot({ path: testInfo.outputPath('settings-rail-1280x900.png'), fullPage: true });
@@ -355,14 +356,14 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 360, height: 780 });
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
-    await page.getByRole('button', { name: '设置' }).click();
+    await page.keyboard.press('Control+,');
 
     // 设置 replaces the app sidebar with the settings rail. At this width that rail is a
     // drawer, so it opens from the same topbar button and must be reachable there.
     await page.getByRole('button', { name: '打开菜单' }).click();
     const rail = page.getByRole('tablist', { name: '设置分区' });
     await expect(rail).toBeVisible();
-    await rail.getByRole('tab', { name: '账户' }).click();
+    await rail.getByRole('tab', { name: '关于' }).click();
     await expect(page.getByRole('heading', { name: '关于' })).toBeVisible();
     // Picking a section closes the drawer so the content is readable.
     await expect(page.locator('.sidebar--settings')).not.toHaveClass(/is-open/u);

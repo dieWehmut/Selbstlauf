@@ -102,7 +102,7 @@ test('reserves the native window-button gutter only in desktop shell mode', asyn
       .__commandHandler?.({ command: 'open-settings', section: 'account' });
   });
   const rail = page.getByRole('tablist', { name: '设置分区' });
-  await expect(rail.getByRole('tab', { name: '账户' })).toHaveAttribute('aria-selected', 'true');
+  await expect(rail.getByRole('tab', { name: '关于' })).toHaveAttribute('aria-selected', 'true');
 
   // Returning to the dashboard uses the same channel.
   await page.evaluate(() => {

@@ -2,21 +2,18 @@ import { useMemo, useState, type ComponentType } from 'react';
 import {
   ArrowLeft,
   Bell,
-  Camera,
   CircleUser,
   Download,
   Gauge,
   Globe,
+  Info,
   Keyboard,
-  Mic,
   MonitorCog,
   Palette,
   PawPrint,
   Plug,
+  Power,
   Search,
-  ShieldCheck,
-  SlidersHorizontal,
-  UserCheck,
   Wrench,
 } from 'lucide-react';
 
@@ -43,43 +40,38 @@ export interface SettingsCategory {
 }
 
 /**
- * The two categories and their sections, in reference order.
+ * The two categories and their sections.
  *
- * A section with no component yet is still listed, because the rail is the
- * documented map of the console; `SettingsRail` marks which one is in view.
+ * Every entry here must change something the application actually does. Several sections used
+ * to be listed that changed nothing a person could observe — 家长控制 (a local-only PIN that
+ * gated one switch), 信任联系人 (a name and an email that were never sent anywhere), 语音 (a
+ * switch for a feature that has no implementation) and 使用统计 (counts of the things already
+ * on screen) — and they have been removed rather than left as placeholders. What replaced them
+ * are settings for behaviour this app really has: when it starts, what closing it does, how
+ * much history it keeps, and where its files live.
  */
 export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = Object.freeze([
   Object.freeze({
     label: '个人',
     entries: Object.freeze([
       Object.freeze({ id: 'general', label: '常规', icon: Gauge }),
-      Object.freeze({ id: 'notifications', label: '通知', icon: Bell }),
-      Object.freeze({ id: 'import', label: '导入', icon: Download }),
-      Object.freeze({ id: 'profile', label: '个人资料', icon: CircleUser }),
       Object.freeze({ id: 'appearance', label: '外观', icon: Palette }),
-      Object.freeze({ id: 'parental', label: '家长控制', icon: ShieldCheck }),
-      // The rail names a section the same way the section titles itself, so this reads
-      // 信任联系人 rather than the English "Trusted contact" that used to sit among
-      // otherwise Chinese labels while its own panel said 信任联系人.
-      Object.freeze({ id: 'trusted-contact', label: '信任联系人', icon: UserCheck }),
-      Object.freeze({ id: 'voice', label: '语音', icon: Mic }),
-      Object.freeze({ id: 'config', label: '配置', icon: Wrench }),
-      Object.freeze({ id: 'personalization', label: '个性化', icon: SlidersHorizontal }),
-      Object.freeze({ id: 'pet', label: '宠物', icon: PawPrint }),
+      Object.freeze({ id: 'notifications', label: '通知', icon: Bell }),
       Object.freeze({ id: 'shortcuts', label: '键盘快捷键', icon: Keyboard }),
-      // The section itself is titled 使用统计 and computes session and event counts. The rail
-      // used to promise 计费 ("billing"), which the application has no concept of at all.
-      Object.freeze({ id: 'usage', label: '使用统计', icon: Gauge }),
-      Object.freeze({ id: 'account', label: '账户', icon: Globe }),
+      Object.freeze({ id: 'profile', label: '个人资料', icon: CircleUser }),
+      Object.freeze({ id: 'pet', label: '宠物', icon: PawPrint }),
     ]),
   }),
   Object.freeze({
     label: '集成',
     entries: Object.freeze([
+      Object.freeze({ id: 'startup', label: '启动与托盘', icon: Power }),
+      Object.freeze({ id: 'config', label: '续写与进程', icon: Wrench }),
+      Object.freeze({ id: 'import', label: '导入历史', icon: Download }),
       Object.freeze({ id: 'computer-control', label: '电脑操控', icon: MonitorCog }),
-      Object.freeze({ id: 'snapshots', label: '应用快照', icon: Camera }),
       Object.freeze({ id: 'plugins', label: '插件', icon: Plug }),
       Object.freeze({ id: 'browser', label: '浏览器', icon: Globe }),
+      Object.freeze({ id: 'account', label: '关于', icon: Info }),
     ]),
   }),
 ]);

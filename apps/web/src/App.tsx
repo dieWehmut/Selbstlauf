@@ -56,34 +56,31 @@ import {
 } from './api/client';
 import { SettingsRail, SETTINGS_SECTION_IDS } from './settings/SettingsRail';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
-import { sessionTone, sessionToneLabel, conversationLabel } from './sidebar/session-groups';
+import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
 import {
   AccountSection,
   BrowserSection,
   ComputerControlSection,
   ImportSection,
   NotificationsSection,
-  ParentalSection,
-  PersonalizationSection,
   PetSection,
   PluginsSection,
   ProfileSection,
   ShortcutsSection,
-  SnapshotsSection,
-  TrustedContactSection,
-  UsageSection,
-  VoiceSection,
+  StartupSection,
   describeTrustedContact,
 } from './settings/sections';
 import {
   NOTIFICATIONS_DEFAULTS,
   PARENTAL_DEFAULTS,
+  PINNED_SESSIONS_DEFAULTS,
   PREF_KEYS,
   PROFILE_DEFAULTS,
   TRUSTED_CONTACT_DEFAULTS,
   hashPin,
   isNotificationsPref,
   isParentalPref,
+  isPinnedSessionsPref,
   isProfilePref,
   isTrustedContactPref,
   readPref,
@@ -92,7 +89,7 @@ import {
 } from './settings/desktop-prefs';
 
 /** Shown by the account section and the sidebar; tracks the package version. */
-const APP_VERSION = '0.6.1';
+const APP_VERSION = '0.7.0';
 
 /** 电脑操控's single switch. */
 function isRevealPref(value: unknown): value is { allowReveal: boolean } {
@@ -157,22 +154,6 @@ function desktopBridge(): DesktopBridge | null {
  * hands each one its live data.
  */
 export const DEFAULT_SETTINGS_SECTION = 'general';
-
-/**
- * The trusted contact summary shown beside the notification switches.
- *
- * The contact is edited on its own rail entry, so this is the read-only line the
- * reference console puts next to the notifications.
- */
-function TrustedContactSummarySection() {
-  const contact = readPref(PREF_KEYS.trustedContact, TRUSTED_CONTACT_DEFAULTS, isTrustedContactPref);
-  return (
-    <section className="settings-section settings-section--wide">
-      <div className="section-title"><div><span className="eyebrow">Contact</span><h2>Trusted contact</h2></div><UserCheck size={20} /></div>
-      <p className="section-hint">{describeTrustedContact(contact)}</p>
-    </section>
-  );
-}
 
 const THEME_QUERY = '(prefers-color-scheme: light)';
 
@@ -1344,8 +1325,6 @@ function SettingsPanel(props: {
   preferredTerminal: string | null;
   onPreferredTerminalChange: (value: string) => void;
   desktopBridgeAvailable: boolean;
-  parentalLocked: boolean;
-  onParentalLockChange: (locked: boolean) => void;
   /** Origin this WebUI is served from. */
   origin: string;
 }) {
@@ -1381,8 +1360,11 @@ function SettingsPanel(props: {
   return (
     <form className="settings-shell" onSubmit={submit}>
       {/* The section rail is this page's left column now, so the app shell renders it
-          beside the content rather than inside this form. */}
-      <div className="settings-content">
+          beside the content rather than inside this form.
+          Keyed on the active section so React replaces the subtree when the section changes,
+          which restarts the CSS enter animation: switching sections then reads as a change of
+          place rather than as text silently swapping under the cursor. */}
+      <div className="settings-content" key={activeSection}>
       {activeSection === 'appearance' && (
         <>
           <AppearancePanel
@@ -1505,29 +1487,15 @@ function SettingsPanel(props: {
           {saveBar}
         </>
       )}
-      {activeSection === 'notifications' && (
-        <>
-          <NotificationsSection />
-          <TrustedContactSummarySection />
-        </>
-      )}
+      {activeSection === 'notifications' && <NotificationsSection />}
       {activeSection === 'import' && (
         <ImportSection onImportTheme={props.onImportThemeText} onImportConfig={props.onImportConfigText} />
       )}
       {activeSection === 'profile' && (
         <ProfileSection onDisplayNameChange={props.onDisplayNameChange} />
       )}
-      {activeSection === 'parental' && (
-        <ParentalSection locked={props.parentalLocked} onLockChange={props.onParentalLockChange} />
-      )}
-      {activeSection === 'trusted-contact' && <TrustedContactSection />}
-      {activeSection === 'voice' && <VoiceSection />}
-      {activeSection === 'personalization' && (
-        <PersonalizationSection accent={props.palette.accent} onAccentChange={(accent) => props.onPaletteChange({ accent })} />
-      )}
       {activeSection === 'pet' && <PetSection sessionCount={props.sessions.length} />}
       {activeSection === 'shortcuts' && <ShortcutsSection />}
-      {activeSection === 'usage' && <UsageSection sessions={props.sessions} events={props.events} />}
       {activeSection === 'account' && (
         <>
           <AccountSection connected={props.connected} running={props.running} version={APP_VERSION} />
@@ -1541,10 +1509,8 @@ function SettingsPanel(props: {
           />
         </>
       )}
-      {activeSection === 'computer-control' && (
-        <ComputerControlSection
-          allowReveal={props.allowReveal}
-          onAllowRevealChange={props.onAllowRevealChange}
+      {activeSection === 'startup' && (
+        <StartupSection
           startupInstalled={props.startupInstalled}
           onToggleStartup={props.onToggleStartup}
           busy={props.saving}
@@ -1555,8 +1521,11 @@ function SettingsPanel(props: {
           desktopBridgeAvailable={props.desktopBridgeAvailable}
         />
       )}
-      {activeSection === 'snapshots' && (
-        <SnapshotsSection sessions={props.sessions} environment={props.environment} />
+      {activeSection === 'computer-control' && (
+        <ComputerControlSection
+          allowReveal={props.allowReveal}
+          onAllowRevealChange={props.onAllowRevealChange}
+        />
       )}
       {activeSection === 'plugins' && <PluginsSection />}
       {activeSection === 'browser' && (
@@ -1834,8 +1803,22 @@ export default function App({ api: suppliedApi }: AppProps) {
   const [settingsSection, setSettingsSection] = useState<string>(DEFAULT_SETTINGS_SECTION);
   /** The name the sidebar brand block shows once 个人资料 sets one. */
   const [displayName, setDisplayName] = useState(() => readPref<ProfilePref>(PREF_KEYS.profile, PROFILE_DEFAULTS, isProfilePref).displayName);
-  /** Parental control: while locked, saving the config requires the PIN again. */
-  const [parentalLocked, setParentalLocked] = useState(() => readPref(PREF_KEYS.parental, PARENTAL_DEFAULTS, isParentalPref).enabled);
+  /**
+   * The pinned sessions, in pin order.
+   *
+   * Held as a preference rather than in the session list so a pin survives the list being
+   * rebuilt on every poll, and survives a restart.
+   */
+  const [pinnedIds, setPinnedIds] = useState<readonly string[]>(
+    () => readPref(PREF_KEYS.pinnedSessions, PINNED_SESSIONS_DEFAULTS, isPinnedSessionsPref).ids,
+  );
+  const togglePinned = (session: SessionView) => {
+    setPinnedIds((current) => {
+      const next = togglePinnedId(current, session.id);
+      writePref(PREF_KEYS.pinnedSessions, { ids: next });
+      return next;
+    });
+  };
   /** 电脑操控: whether the process table may reveal a session's window. */
   const [allowReveal, setAllowReveal] = useState(() => readPref(PREF_KEYS.computerControl, { allowReveal: true }, isRevealPref).allowReveal);
   /** Desktop-shell preferences, mirrored from the main process when available. */
@@ -2337,21 +2320,13 @@ export default function App({ api: suppliedApi }: AppProps) {
   /**
    * Save the service config.
    *
-   * When 家长控制 is on this first demands the PIN: the read view is never
-   * hidden, only the ability to persist an edited draft. The supplied PIN is
-   * obfuscated with the same function the section used, so the plaintext only
-   * ever exists in the prompt.
+   * This used to demand a PIN first when 家长控制 was on. That section is gone — it gated a
+   * single switch with a local-only obfuscation that was never a security boundary — so the
+   * prompt is gone with it. Leaving it would have been worse than removing it: a profile that
+   * still had the preference set would have been asked for a PIN with no section left to
+   * change or clear it.
    */
   const saveConfig = async (nextConfig: WatchdogConfig) => {
-    if (parentalLocked) {
-      const stored = readPref(PREF_KEYS.parental, PARENTAL_DEFAULTS, isParentalPref);
-      const supplied = window.prompt('家长控制已启用，请输入 PIN 以保存配置');
-      if (supplied === null) return;
-      if (stored.pinHash === null || hashPin(supplied) !== stored.pinHash) {
-        setNotice('PIN 不正确，未保存配置');
-        return;
-      }
-    }
     setSaving(true); setNotice(null);
     try {
       const saved = await api.updateConfig(nextConfig);
@@ -2468,10 +2443,16 @@ export default function App({ api: suppliedApi }: AppProps) {
   const ready = sessions.filter(canInject).length;
   const goalCount = sessions.filter((session) => session.tool === 'codex' && session.goal && ['active', 'paused'].includes(session.goal.status)).length;
 
+  /**
+   * The top navigation.
+   *
+   * 设置 is deliberately not here: the settings rail becomes the left column on that page, and
+   * settings is reached from the bottom bar's popup or `Ctrl+,`, the way the reference puts it
+   * in the account menu rather than in the page list.
+   */
   const nav = [
     { id: 'overview' as const, label: '进程', icon: LayoutDashboard },
     { id: 'timeline' as const, label: '事件', icon: ListTree },
-    { id: 'settings' as const, label: '设置', icon: Settings2 },
   ];
 
   /**
@@ -2544,6 +2525,8 @@ export default function App({ api: suppliedApi }: AppProps) {
           }}
           filter={processFilter}
           onFilterChange={setProcessFilter}
+          pinnedIds={pinnedIds}
+          onTogglePin={togglePinned}
         />
         {/* The bottom bar. Selecting it opens a menu upwards, out of the sidebar's
             bottom edge, the way the reference sidebar's user bar does. It is a menu
@@ -2670,7 +2653,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={sessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} parentalLocked={parentalLocked} onParentalLockChange={setParentalLocked} origin={window.location.origin} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={sessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
       </main>
     </div>
   );

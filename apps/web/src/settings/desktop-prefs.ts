@@ -20,6 +20,7 @@ export const PREF_KEYS = Object.freeze({
   computerControl: 'watchdog-computer-control',
   plugins: 'watchdog-plugins',
   codexHistory: 'watchdog-codex-history',
+  pinnedSessions: 'watchdog-pinned-sessions',
 } as const);
 
 /** Returns the storage object, or null when the environment does not expose one. */
@@ -133,6 +134,18 @@ export interface PluginsPref {
   readonly prompts: readonly string[];
 }
 
+/**
+ * The pinned sessions, most recently pinned first.
+ *
+ * Pinning is by session id, which the service derives from the tool and the root pid, so a
+ * pin follows the process rather than its position in the list. Ids of sessions that have
+ * exited are dropped when the list is rendered rather than pruned here, so a session that
+ * comes back — the same CLI restarted with the same pid — returns to the pinned group.
+ */
+export interface PinnedSessionsPref {
+  readonly ids: readonly string[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -192,6 +205,11 @@ export function isPluginsPref(value: unknown): value is PluginsPref {
   return Array.isArray(value.prompts) && value.prompts.every((entry) => typeof entry === 'string');
 }
 
+export function isPinnedSessionsPref(value: unknown): value is PinnedSessionsPref {
+  if (!isRecord(value)) return false;
+  return Array.isArray(value.ids) && value.ids.every((entry) => typeof entry === 'string');
+}
+
 export const NOTIFICATIONS_DEFAULTS: NotificationsPref = Object.freeze({
   inPanel: true,
   onSuccess: true,
@@ -234,6 +252,10 @@ export const PET_DEFAULTS: PetPref = Object.freeze({
 
 export const PLUGINS_DEFAULTS: PluginsPref = Object.freeze({
   prompts: [],
+});
+
+export const PINNED_SESSIONS_DEFAULTS: PinnedSessionsPref = Object.freeze({
+  ids: [],
 });
 
 /**

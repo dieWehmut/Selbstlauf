@@ -92,14 +92,14 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
 
   it('organizes settings into tabs and follows the system theme', async () => {
     render(<App api={api()} />);
-    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    openSettings();
 
     // The settings page opens on the general section and can switch sections.
     const tabs = await screen.findByRole('tablist', { name: '设置分区' });
     // The watchdog settings are the working view and open first.
     expect(within(tabs).getByRole('tab', { name: '常规' })).toHaveAttribute('aria-selected', 'true');
-    fireEvent.click(within(tabs).getByRole('tab', { name: '账户' }));
-    expect(within(tabs).getByRole('tab', { name: '账户' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
+    expect(within(tabs).getByRole('tab', { name: '关于' })).toHaveAttribute('aria-selected', 'true');
     expect(await screen.findByText('本地环境检查')).toBeInTheDocument();
 
     // The appearance control offers light, dark, and follow-system previews.
@@ -122,25 +122,28 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
    */
   it('lists every settings section under its category and filters them by search', async () => {
     render(<App api={api()} />);
-    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    openSettings();
 
     const rail = await screen.findByRole('tablist', { name: '设置分区' });
     const expected = [
-      '常规', '通知', '导入', '个人资料', '外观', '家长控制', '信任联系人',
-      '语音', '配置', '个性化', '宠物', '键盘快捷键', '使用统计', '账户',
-      '电脑操控', '应用快照', '插件', '浏览器',
+      '常规', '外观', '通知', '键盘快捷键', '个人资料', '宠物',
+      '启动与托盘', '续写与进程', '导入历史', '电脑操控', '插件', '浏览器', '关于',
     ];
     const labels = within(rail).getAllByRole('tab').map((tab) => tab.textContent);
     expect(labels).toEqual(expected);
 
     /**
-     * The rail must not name a section something the app does not have.
+     * The rail must name only sections whose controls change something observable.
      *
-     * Two entries had drifted: 信任联系人 appeared in English as "Trusted contact" while
-     * its own panel said 信任联系人, and 使用统计 was labelled 使用情况和计费 — promising
-     * billing, of which the application has no concept at all. Both were found by reading
-     * the labels against the panels they open, so the labels are pinned here.
+     * Four entries used to sit here that changed nothing a person could see: 家长控制 gated a
+     * single switch with a local-only PIN that was never a security boundary, 信任联系人 stored
+     * a name and an email that were never sent anywhere, 语音 switched a feature with no
+     * implementation, and 使用统计 counted the things already on screen. They are pinned as
+     * absent so a placeholder cannot quietly return.
      */
+    for (const placeholder of ['家长控制', '信任联系人', '语音', '使用统计', '个性化', '应用快照']) {
+      expect(labels, `${placeholder} is a section that changes nothing`).not.toContain(placeholder);
+    }
     expect(labels).not.toContain('Trusted contact');
     expect(labels.some((label) => label?.includes('计费')), 'the rail promises billing again').toBe(false);
 
@@ -148,11 +151,12 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     expect(screen.getByText('个人')).toBeInTheDocument();
     expect(screen.getByText('集成')).toBeInTheDocument();
 
-    // Search narrows the rail to matching entries only.
+    // Search narrows the rail to matching entries only. The query matches one section's
+    // label and nothing else, so a single row must survive.
     const search = screen.getByRole('searchbox', { name: '搜索设置' });
-    fireEvent.change(search, { target: { value: '家长' } });
+    fireEvent.change(search, { target: { value: '托盘' } });
     const filtered = within(rail).getAllByRole('tab').map((tab) => tab.textContent);
-    expect(filtered).toEqual(['家长控制']);
+    expect(filtered).toEqual(['启动与托盘']);
 
     // A query matching nothing says so instead of showing an empty rail.
     fireEvent.change(search, { target: { value: 'zzz-no-such-section' } });
@@ -167,7 +171,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
   /** 返回应用 leaves the settings page again. */
   it('returns to the overview from the settings rail', async () => {
     render(<App api={api()} />);
-    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    openSettings();
     await screen.findByRole('tablist', { name: '设置分区' });
 
     fireEvent.click(screen.getByRole('button', { name: '返回应用' }));
@@ -217,7 +221,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     const reveal = await within(table).findByRole('button', { name: /打开运行位置 PID 10/u });
     expect(reveal).toBeEnabled();
 
-    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    openSettings();
     fireEvent.click(await screen.findByRole('tab', { name: '电脑操控' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '允许打开运行位置' }));
 
@@ -241,7 +245,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     // The top brand block is gone from the sidebar.
     expect(document.querySelector('.sidebar > .brand')).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: '设置' }));
+    openSettings();
     fireEvent.click(await screen.findByRole('tab', { name: '个人资料' }));
     fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: 'Orchester' } });
 
@@ -264,7 +268,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     localStorage.setItem('watchdog-theme', 'dark');
     localStorage.removeItem('watchdog-palette');
     render(<App api={api()} />);
-    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    openSettings();
     const tabs = await screen.findByRole('tablist', { name: '设置分区' });
     fireEvent.click(within(tabs).getByRole('tab', { name: '外观' }));
 
@@ -322,7 +326,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
       accent: '#4c9cd4', background: '#102030', foreground: '#f0e0d0', ...optionalSettings,
     }) } });
     render(<ImportErrorBoundary><App api={api()} /></ImportErrorBoundary>);
-    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    openSettings();
     fireEvent.click(screen.getByRole('tab', { name: '外观' }));
     fireEvent.click(screen.getByRole('button', { name: '导入' }));
 
@@ -347,11 +351,11 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
   it('reports the local environment and offers the install commands', async () => {
     const fake = api();
     render(<App api={fake} />);
-    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    openSettings();
 
     // The environment check lives on the About tab, beside the version card.
     const tabs = await screen.findByRole('tablist', { name: '设置分区' });
-    fireEvent.click(within(tabs).getByRole('tab', { name: '账户' }));
+    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
 
     // The panel names each agent with its installed and published version.
     expect(await screen.findByText('Claude Code')).toBeInTheDocument();
@@ -436,8 +440,8 @@ describe('watchdog dashboard', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '暂停 PID 10' })[0]);
     await waitFor(() => expect(screen.getAllByRole('button', { name: '恢复 PID 10' })[0]).toBeEnabled());
 
-    fireEvent.click(screen.getByRole('button', { name: '设置' }));
-    fireEvent.click(screen.getByRole('tab', { name: '账户' }));
+    openSettings();
+    fireEvent.click(screen.getByRole('tab', { name: '关于' }));
     expect(screen.queryByRole('heading', { name: '本地环境检查' })).not.toBeInTheDocument();
     await act(async () => pendingEnvironment.resolve(environment));
     expect(await screen.findByRole('heading', { name: '本地环境检查' })).toBeInTheDocument();
@@ -514,22 +518,27 @@ describe('watchdog dashboard', () => {
   it('shows a conversation on every sidebar process row', async () => {
     render(<App api={api()} />);
     const list = await screen.findByRole('group', { name: '进程列表' });
-    const rows = within(list).getAllByRole('button');
+    // A row holds two controls — the body that opens the process and the pin — so the rows
+    // are read by their wrapper rather than by counting buttons.
+    const rows = list.querySelectorAll('.sidebar-row');
     expect(rows.length).toBeGreaterThan(1);
 
     for (const row of rows) {
-      const conversation = row.querySelector('.sidebar-processes__conversation');
+      const conversation = row.querySelector('.sidebar-row__conversation');
       expect(conversation, `a row has no conversation: ${row.textContent}`).not.toBeNull();
-      // Either a real conversation id or the explicit 未关联, never an empty line.
       const text = conversation?.textContent ?? '';
       expect(text.length, 'the conversation line is empty').toBeGreaterThan(0);
-      expect(text).toMatch(/·/u);
+      // The compact row shows the label and, when there is one, a short id.
+      expect(text).toMatch(/Goal|普通对话|等待输入|步骤执行中/u);
+      // Every row still offers both actions.
+      expect(row.querySelector('.sidebar-row__open'), 'row has no open control').not.toBeNull();
+      expect(row.querySelector('.sidebar-row__pin'), 'row has no pin control').not.toBeNull();
     }
 
     // The fixtures carry both cases, so both must be visible somewhere in the list.
-    const all = rows.map((row) => row.querySelector('.sidebar-processes__conversation')?.textContent ?? '');
-    expect(all.some((text) => text.includes('未关联'))).toBe(true);
-    expect(all.some((text) => text.includes('Goal') || text.includes('普通对话') || text.includes('等待输入') || text.includes('步骤执行中'))).toBe(true);
+    const all = [...rows].map((row) => row.querySelector('.sidebar-row__conversation')?.textContent ?? '');
+    expect(all.some((text) => text.includes('Goal'))).toBe(true);
+    expect(all.some((text) => text.includes('普通对话'))).toBe(true);
   });
 
   it('shows the age of the most recent watchdog poll', async () => {
@@ -555,7 +564,7 @@ describe('watchdog dashboard', () => {
   it('persists the harness write switch through the API', async () => {
     const fake = api();
     render(<App api={fake} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    openSettings();
     fireEvent.click(screen.getByRole('checkbox', { name: '允许续写 DeepSeek Harness' }));
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
     await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
@@ -577,7 +586,7 @@ describe('watchdog dashboard', () => {
   it('persists editable prompt settings through the API', async () => {
     const fake = api();
     render(<App api={fake} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    openSettings();
     const claude = await screen.findByDisplayValue('请继续');
     fireEvent.change(claude, { target: { value: '继续工作' } });
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
@@ -587,7 +596,7 @@ describe('watchdog dashboard', () => {
   it('persists process ownership and include/exclude filters through the API', async () => {
     const fake = api();
     render(<App api={fake} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    openSettings();
     fireEvent.click(screen.getByRole('checkbox', { name: '仅监控当前用户进程' }));
     fireEvent.change(screen.getByLabelText('包含匹配'), { target: { value: 'Nexus, study-os' } });
     fireEvent.change(screen.getByLabelText('排除匹配'), { target: { value: 'node_modules' } });
@@ -600,10 +609,10 @@ describe('watchdog dashboard', () => {
   it('renders and manages the explicit Claude Stop Hook settings', async () => {
     const fake = api();
     render(<App api={fake} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    openSettings();
     // The Claude Stop Hook lives on 配置, beside the endpoint panel; it used to be
     // mounted on 常规 while the rail's 配置 entry rendered nothing at all.
-    fireEvent.click(await screen.findByRole('tab', { name: '配置' }));
+    fireEvent.click(await screen.findByRole('tab', { name: '续写与进程' }));
 
     expect(await screen.findByRole('heading', { name: 'Claude Stop Hook' })).toBeInTheDocument();
     expect(screen.getByText(/~\/\.claude\/settings\.json/)).toBeInTheDocument();
@@ -644,8 +653,8 @@ describe('watchdog dashboard', () => {
       current: { name: 'first.example', fields: [{ key: 'base_url', value: 'https://first.example/v1' }, { key: 'model', value: 'gpt-6-astra' }] },
     }));
     render(<App api={fake} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
-    fireEvent.click(await screen.findByRole('tab', { name: '配置' }));
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '续写与进程' }));
 
     expect(await screen.findByRole('heading', { name: '端点配置' })).toBeInTheDocument();
     expect(screen.getByDisplayValue('https://first.example/v1')).toBeInTheDocument();
@@ -669,8 +678,8 @@ describe('watchdog dashboard', () => {
       current: { name: 'first.example', fields: [{ key: 'base_url', value: 'https://first.example/v1' }] },
     }));
     render(<App api={fake} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
-    fireEvent.click(await screen.findByRole('tab', { name: '配置' }));
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '续写与进程' }));
 
     const url = await screen.findByLabelText('接口地址');
     fireEvent.change(url, { target: { value: 'https://third.example/v1' } });
@@ -723,7 +732,7 @@ describe('watchdog dashboard', () => {
   it('offers lifecycle and uninstall controls in settings', async () => {
     const fake = stoppedApi();
     render(<App api={fake} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    openSettings();
     expect((await screen.findAllByRole('button', { name: '启动 Watchdog' })).length).toBe(2);
     fireEvent.click(screen.getByRole('button', { name: '安装 Watchdog' }));
     await waitFor(() => expect(fake.install).toHaveBeenCalledTimes(1));
@@ -768,6 +777,18 @@ describe('watchdog dashboard', () => {
   });
 });
 
+/**
+ * Open 设置 the way the app now offers it.
+ *
+ * The top navigation no longer lists 设置 — the settings rail becomes the left column on that
+ * page, and settings lives in the bottom bar's popup and on `Ctrl+,`, as the reference does.
+ * Tests go through the shortcut because it is the shortest path a person has and it stays
+ * valid whatever the popup looks like.
+ */
+function openSettings() {
+  fireEvent.keyDown(document, { key: ',', ctrlKey: true });
+}
+
 describe('window title bar', () => {
   const titlebar = () => document.querySelector('.titlebar') as HTMLElement;
 
@@ -811,7 +832,7 @@ describe('window title bar', () => {
     // group rather than being dropped from the list.
     const list = await screen.findByRole('group', { name: '进程列表' });
     expect(within(list).getByText('未识别宿主')).toBeInTheDocument();
-    const rows = within(list).getAllByRole('button');
+    const rows = list.querySelectorAll('.sidebar-row__open');
     expect(rows).toHaveLength(4);
     // Each row names its tool and its silence, which is what makes it findable.
     expect(rows[0].textContent).toMatch(/Codex|Claude|DeepSeek Harness/u);
@@ -821,13 +842,13 @@ describe('window title bar', () => {
     const fake = api();
     render(<App api={fake} />);
     const list = await screen.findByRole('group', { name: '进程列表' });
-    const row = within(list).getAllByRole('button')[0];
+    const row = list.querySelectorAll('.sidebar-row__open')[0] as HTMLElement;
     fireEvent.click(row);
 
     // The main area switches to that process, and the row stays marked as selected.
     expect(await screen.findByRole('heading', { name: '进程详情' })).toBeInTheDocument();
     expect(row).toHaveAttribute('aria-current', 'true');
-    expect(within(list).getAllByRole('button').filter((item) => item.getAttribute('aria-current') === 'true')).toHaveLength(1);
+    expect(list.querySelectorAll('.sidebar-row__open[aria-current="true"]')).toHaveLength(1);
     // And it can be left again.
     fireEvent.click(screen.getByRole('button', { name: /返回列表/u }));
     expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
@@ -837,10 +858,10 @@ describe('window title bar', () => {
     const fake = api();
     render(<App api={fake} />);
     const list = await screen.findByRole('group', { name: '进程列表' });
-    expect(within(list).getAllByRole('button')).toHaveLength(4);
+    expect(list.querySelectorAll('.sidebar-row')).toHaveLength(4);
 
     fireEvent.change(screen.getByLabelText('搜索进程'), { target: { value: 'zzz-no-match' } });
-    expect(within(list).queryAllByRole('button')).toHaveLength(0);
+    expect(list.querySelectorAll('.sidebar-row')).toHaveLength(0);
     expect(within(list).getByText('没有匹配的进程')).toBeInTheDocument();
     // The page itself must not have changed.
     expect(screen.getByRole('heading', { name: '进程监控' })).toBeInTheDocument();
@@ -921,7 +942,7 @@ describe('window title bar', () => {
     const fake = api();
     render(<App api={fake} />);
     // Start somewhere other than the overview so 返回应用 has work to do.
-    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    openSettings();
     expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
 
     fireEvent.click(within(titlebar()).getByRole('button', { name: '文件' }));
@@ -1030,7 +1051,7 @@ describe('window title bar', () => {
        */
       act(() => deliver?.({ command: 'open-settings', section: 'account' }));
       const rail = await screen.findByRole('tablist', { name: '设置分区' });
-      expect(within(rail).getByRole('tab', { name: '账户' })).toHaveAttribute('aria-selected', 'true');
+      expect(within(rail).getByRole('tab', { name: '关于' })).toHaveAttribute('aria-selected', 'true');
       expect(await screen.findByRole('heading', { name: '关于' })).toBeInTheDocument();
 
       // An unknown section opens the settings page rather than doing nothing.
@@ -1074,7 +1095,7 @@ describe('window title bar', () => {
     expect(back()).toHaveAttribute('aria-disabled', 'true');
     expect(forward()).toBeDisabled();
 
-    fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    openSettings();
     expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
     expect(back()).toBeEnabled();
     expect(back()).toHaveAttribute('aria-disabled', 'false');
@@ -1105,7 +1126,7 @@ describe('window title bar', () => {
     expect(forward()).toBeEnabled();
 
     // A fresh navigation forks the history, exactly like a browser.
-    fireEvent.click(screen.getAllByRole('button', { name: '设置' })[0]);
+    openSettings();
     expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
     expect(forward()).toBeDisabled();
   });

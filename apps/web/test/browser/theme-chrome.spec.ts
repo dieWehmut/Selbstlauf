@@ -35,7 +35,7 @@ test('declares the colour scheme so native chrome follows the theme', async ({ p
   expect(sidebarStyle.scrollbarWidth, 'the process list does not use a thin scrollbar').toBe('thin');
   expect(sidebarStyle.scrollbarColor, 'the process list has no themed scrollbar colour').not.toBe('');
 
-  await page.getByRole('button', { name: '设置' }).first().click();
+  await page.keyboard.press('Control+,');
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
 
   const rail = page.locator('.settings-rail__list');
@@ -69,7 +69,7 @@ test('the settings rail scrolls without a light band and keeps its labels readab
 
   await page.setViewportSize({ width: 1249, height: 704 });
   await page.goto('/');
-  await page.getByRole('button', { name: '设置' }).first().click();
+  await page.keyboard.press('Control+,');
 
   const rail = page.getByRole('tablist', { name: '设置分区' });
   await expect(rail).toBeVisible();
@@ -84,11 +84,10 @@ test('the settings rail scrolls without a light band and keeps its labels readab
   await rail.evaluate((el) => { el.scrollTop = el.scrollHeight; });
   expect(await page.evaluate(() => window.scrollY)).toBe(before);
 
-  // Every label must still be readable in the dark theme, including the two that used to
-  // name something the app does not have.
+  // Every label must still be readable in the dark theme.
   const labels = await rail.getByRole('tab').allTextContents();
-  expect(labels).toContain('信任联系人');
-  expect(labels).toContain('使用统计');
+  expect(labels).toContain('启动与托盘');
+  expect(labels).toContain('续写与进程');
   expect(labels.some((label) => label.includes('计费'))).toBe(false);
 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);

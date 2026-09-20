@@ -83,7 +83,7 @@ test('the settings rail is the drawer on a narrow window, and closes when a sect
 
   // Enter settings from the app sidebar's drawer.
   await page.getByRole('button', { name: '打开菜单' }).click();
-  await page.getByRole('button', { name: '设置' }).click();
+  await page.keyboard.press('Control+,');
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
 
   // The left column is the settings rail here too, but as a closed drawer.
@@ -97,7 +97,7 @@ test('the settings rail is the drawer on a narrow window, and closes when a sect
   await expect(page.getByRole('tablist', { name: '设置分区' })).toBeVisible();
 
   // Picking a section closes the drawer so its panel is readable.
-  await page.getByRole('tab', { name: '账户' }).click();
+  await page.getByRole('tab', { name: '关于' }).click();
   await expect(column).not.toHaveClass(/is-open/u);
   await expect(page.getByRole('heading', { name: '关于' })).toBeVisible();
 

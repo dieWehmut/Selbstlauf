@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { SETTINGS_SECTION_IDS } from '../../src/settings/SettingsRail';
+
 /**
  * The settings rail declares `role="tablist"` with `role="tab"` children, so it is
  * claiming to implement the WAI-ARIA tabs pattern. That pattern requires two things:
@@ -16,11 +18,12 @@ test('the settings rail behaves like the tablist it declares itself to be', asyn
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
-  await page.getByRole('button', { name: '设置' }).click();
+  await page.keyboard.press('Control+,');
 
   const rail = page.getByRole('tablist', { name: '设置分区' });
   const tabs = rail.getByRole('tab');
-  await expect(tabs).toHaveCount(18);
+  // From the rail's own definition, so this follows the rail rather than a remembered number.
+  await expect(tabs).toHaveCount(SETTINGS_SECTION_IDS.length);
 
   const state = () => tabs.evaluateAll((els) => els.map((el, index) => ({
     index,
@@ -57,7 +60,7 @@ test('the settings rail behaves like the tablist it declares itself to be', asyn
   // 3. Home and End jump to the ends, which the pattern also requires.
   await page.keyboard.press('End');
   const afterEnd = (await state()).find((t) => t.selected);
-  expect(afterEnd?.index, 'End did not move to the last section').toBe(17);
+  expect(afterEnd?.index, 'End did not move to the last section').toBe(SETTINGS_SECTION_IDS.length - 1);
 
   await page.keyboard.press('Home');
   expect((await state()).find((t) => t.selected)?.index, 'Home did not return to the first').toBe(0);
