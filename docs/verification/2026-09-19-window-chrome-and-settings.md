@@ -1083,6 +1083,42 @@ rule cannot regress for one while passing for the other. They were shown to catc
 rather than merely pass: with the fix removed they fail with `Expected: 1249, Received: 268`
 — precisely the squeezed layout — and pass again once it is restored.
 
+### The sidebar's brand header, and a conversation on every row
+
+Two changes at the user's request (`5be3cf7`, 0.6.0).
+
+**No brand block at the top of the sidebar.** It repeated the app's own name above the
+navigation on every page without carrying anything actionable. The identity is not dropped:
+the mark and the display name that 个人资料 sets moved into the popup the bottom bar opens,
+beside the service status they belong with.
+
+**Every process row names its conversation**, not only the selected one — which conversation
+a process is in is what decides whether continuing it makes sense, so it belongs on the row
+rather than one click away. `conversationLabel` moved into `./sidebar/session-groups` and is
+imported by the process table too, so the two views cannot describe one session differently.
+
+#### A defect this uncovered, of the same class as the previous one
+
+Removing the header left the drawer's close control as the sidebar's only first child, and
+it appeared at **every** width — including column widths where there is no drawer — pushing
+the navigation down a whole row. `.icon-button` sets `display: inline-grid` and comes later
+in the stylesheet, so at equal specificity it outranked `.sidebar-close { display: none }`.
+
+That is the **same mistake as the collapsed-column fix in 0.5.1**: two single-class selectors
+of equal specificity, decided by file order rather than by intent. Both selectors are now
+doubled with `.icon-button` so the outcome does not depend on where a rule sits.
+
+Verified on the **installed** 0.6.0, against its live service:
+
+    1249px: sidebar brand 0 | app name in sidebar 0 | drawer close VISIBLE? no
+            nav starts at y=52 | 4 of 4 rows carry a conversation
+    360px:  sidebar brand 0 | drawer close VISIBLE? yes (drawer mode) | nav y=96
+    popup carries the identity: true | status: true | page errors: none
+
+A browser test compares every sidebar row against the process-table row for the same session
+part by part — the table splits the label and the id into two elements while the sidebar shows
+one line — so the shared helper is checked end to end rather than assumed.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
