@@ -209,4 +209,60 @@ test.describe('accessibility audit', () => {
       `serious or critical violations in the popup (light theme):\n    ${describe(serious)}`,
     ).toEqual([]);
   });
+
+  /**
+   * The composer's own subtree, audited directly rather than as part of the page.
+   *
+   * A page-level audit that passes proves nothing about a specific component unless axe actually examined
+   * it — that is how the bottom-bar popup went unaudited for a cycle, since it is not open when a page is
+   * loaded. So this runs axe against the composer element itself and asserts a non-zero number of rules
+   * passed, which is the evidence that the subtree was inspected rather than skipped.
+   */
+  test('the session composer is audited as its own subtree, and its field is properly labelled', async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(String(error)));
+
+    await page.setViewportSize({ width: 1249, height: 704 });
+    await page.goto('/');
+    await page.locator('.sidebar-row__open').first().click();
+    await expect(page.getByRole('heading', { name: '进程详情' })).toBeVisible();
+    await expect(page.locator('.prompt-composer')).toBeVisible();
+
+    // The wiring a field needs: a name to announce, and a hint connected to it.
+    const wiring = await page.evaluate(() => {
+      const root = document.querySelector('.prompt-composer');
+      const field = root?.querySelector('input') ?? null;
+      const button = root?.querySelector('button[type=submit]') ?? null;
+      const describedBy = field?.getAttribute('aria-describedby') ?? null;
+      return {
+        fieldLabel: field?.closest('label')?.textContent?.trim() ?? '',
+        describedByResolves: describedBy !== null && document.getElementById(describedBy) !== null,
+        buttonLabel: button?.getAttribute('aria-label') ?? '',
+      };
+    });
+    expect(wiring.fieldLabel.length, 'the field has no accessible name').toBeGreaterThan(0);
+    expect(wiring.describedByResolves, 'the hint is not connected to the field').toBe(true);
+    expect(wiring.buttonLabel, 'the send button has no label').toMatch(/PID \d+/u);
+
+    // axe needs to be on the page; the shared `audit` helper injects it, so this does the same.
+    await page.addScriptTag({ content: AXE_SOURCE });
+    await page.evaluate(async () => {
+      await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
+    });
+
+    const result = await page.evaluate(async () => {
+      const axe = (window as unknown as { axe: { run: (c: Element, o: unknown) => Promise<{ violations: unknown[]; passes: unknown[] }> } }).axe;
+      const root = document.querySelector('.prompt-composer');
+      if (root === null) return null;
+      const outcome = await axe.run(root, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } });
+      return { violations: outcome.violations as AxeViolation[], passes: outcome.passes.length };
+    });
+    expect(result, 'the composer element was not found').not.toBeNull();
+    // A non-zero pass count is what shows the subtree was really examined.
+    expect(result!.passes, 'axe examined nothing inside the composer').toBeGreaterThan(0);
+
+    const serious = result!.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+    expect(serious, `serious violations inside the composer:\n    ${describe(serious)}`).toEqual([]);
+    expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+  });
 });

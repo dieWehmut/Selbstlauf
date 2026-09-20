@@ -1753,6 +1753,33 @@ passes once restored.
 
 Suites: web 113 -> 127, browser 51 -> 53.
 
+#### The composer is audited as its own subtree, not merely as part of a page
+
+The composer was added after the accessibility audits were written, so it was checked rather than assumed.
+The page-level audit over 进程详情 does include it — but a passing page audit proves nothing about a specific
+component unless axe actually examined it, which is exactly how the bottom-bar popup went unaudited for a
+cycle.
+
+So axe was run against the composer element directly, and the evidence recorded is a **non-zero pass count**
+rather than the absence of violations:
+
+    composer present=1 visible=true
+    fieldLabel:        "要发送到该会话的文字"
+    fieldDescribedBy:  "prompt-composer-hint"  (resolves: true)
+    buttonLabel:       "发送到 PID 336756"
+    violations: []   passes: 12   incomplete: []
+
+Twelve rules were evaluated inside the subtree, which is what shows it was inspected rather than skipped.
+That is now a permanent test: it asserts the field's accessible name, that its `aria-describedby` resolves,
+that the send button names its target PID, and that the pass count is above zero.
+
+Proved by removing the field's `aria-describedby`: the test fails with `the hint is not connected to the
+field`, and passes once restored. Browser suite 53 -> 54.
+
+**No release came from this round.** It changes only tests, so a new installer would be functionally identical
+to the installed 0.9.0 — the same reasoning applied to the breakpoint sweep, and the same reasoning that
+0.8.7 and 0.8.8 should have followed and did not.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
