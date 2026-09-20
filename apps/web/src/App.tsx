@@ -1381,7 +1381,8 @@ function SettingsPanel(props: {
 
   return (
     <form className="settings-shell" onSubmit={submit}>
-      <SettingsRail active={activeSection} onSelect={props.onSectionChange} onBack={props.onBack} />
+      {/* The section rail is this page's left column now, so the app shell renders it
+          beside the content rather than inside this form. */}
       <div className="settings-content">
       {activeSection === 'appearance' && (
         <>
@@ -2474,8 +2475,18 @@ export default function App({ api: suppliedApi }: AppProps) {
     { id: 'settings' as const, label: '设置', icon: Settings2 },
   ];
 
+  /**
+   * What occupies the left column.
+   *
+   * On 设置 the column is the settings section rail, so the app's own sidebar — brand,
+   * navigation, process list and footer — is not drawn at all: two stacked left rails
+   * would be one column too many, and the settings rail is the navigation for that page.
+   * The title bar spans the full width either way, so it stays at the top regardless.
+   */
+  const settingsMode = page === 'settings';
+
   return (
-    <div className={`app-shell ${sidebarCompact ? 'app-shell--compact' : ''}`}>
+    <div className={`app-shell ${sidebarCompact ? 'app-shell--compact' : ''} ${settingsMode ? 'app-shell--settings' : ''}`}>
       {/* Row 1 spans both grid columns: it is the window's title bar, so the
           sidebar must not sit beside it. */}
       <TitleBar
@@ -2489,6 +2500,30 @@ export default function App({ api: suppliedApi }: AppProps) {
         onAction={runMenuAction}
       />
       <button className={`mobile-overlay ${sidebarOpen ? 'is-open' : ''}`} type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)} />
+      {settingsMode ? (
+        /* The settings column. On the settings page this *is* the left rail, so it owns
+           the same slot the app sidebar would. Below the drawer breakpoint it is a
+           drawer like the sidebar, opened by the same topbar button, which is why it
+           carries the open state and the close control too. */
+        <aside
+          id="watchdog-sidebar"
+          className={`sidebar sidebar--settings ${sidebarOpen ? 'is-open' : ''}`}
+          aria-label="设置分区"
+        >
+          <button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button>
+          <SettingsRail
+            active={settingsSection}
+            onSelect={(id) => {
+              setSettingsSection(id);
+              // Picking a section closes the drawer so the panel it opened is readable,
+              // the same way choosing a page closes the app sidebar's drawer. At column
+              // widths this is a no-op because the rail is not a drawer there.
+              setSidebarOpen(false);
+            }}
+            onBack={() => { navigate('overview'); setSidebarOpen(false); }}
+          />
+        </aside>
+      ) : (
       <aside id="watchdog-sidebar" className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="brand"><span className="brand__mark" data-testid="brand-mark"><img src={brandIcon} alt="" width={34} height={34} /></span><div><strong>{displayName.trim().length > 0 ? displayName : 'Selbstlauf'}</strong><span>continuation watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
         <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { navigate(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
@@ -2562,6 +2597,7 @@ export default function App({ api: suppliedApi }: AppProps) {
           </div>
         </div>
       </aside>
+      )}
 
       <main className="workspace">
         <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'process' ? '进程详情' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><span className="poll-age" aria-label="Last watchdog poll"><Activity size={14} />轮询 {health.lastPollAtMs === null ? '--' : duration(Math.max(0, Date.now() - health.lastPollAtMs))} 前</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>

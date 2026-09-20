@@ -34,12 +34,19 @@ test('honours the documented page shortcuts, including the advertised Ctrl+,', a
   }
 
   // The hint on the menu and the documented list must agree with each other and with the
-  // app, so both are read back rather than assumed.
+  // app, so both are read back rather than assumed. The bottom bar belongs to the app
+  // sidebar, which 设置 replaces with the settings rail, so check it before entering
+  // settings rather than after.
+  await page.keyboard.press('Control+1');
+  await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
   await expect(page.locator('.account-bar__button')).toBeVisible();
   await page.locator('.account-bar__button').click();
-  await expect(page.getByRole('menuitem', { name: /设置/u })).toContainText('Ctrl+,');
-  await page.keyboard.press('Escape');
+  const menuItem = page.getByRole('menuitem', { name: /设置/u });
+  await expect(menuItem).toContainText('Ctrl+,');
 
+  // The menu's own entry must work when clicked, which is the mouse path the document
+  // mousedown handler used to swallow.
+  await menuItem.click();
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
   await page.getByRole('tab', { name: '键盘快捷键' }).click();
   const table = page.locator('.shortcuts-table');
