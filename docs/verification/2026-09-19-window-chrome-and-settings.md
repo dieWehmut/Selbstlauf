@@ -676,6 +676,36 @@ rather than the CSS, which is why the breakpoint is now pinned from both sides.
 
 Browser suite: 19 to 20 passing.
 
+### The rail declared itself a tablist and did not behave like one
+
+No browser test had ever asserted a focus state, an `aria-expanded`, or a tab index
+anywhere in the app. Checking the rail against the roles it advertises found two
+missing pieces of the WAI-ARIA tabs pattern (`1376966`):
+
+- **No roving tabindex**: all 18 tabs were in the page tab order, so reaching the
+  last section cost one Tab press per section.
+- **No arrow-key navigation**: the keys did nothing on a control that announces
+  itself as a tab list. The file's only `onKeyDown` was on the search input,
+  guarding Enter against submitting the form.
+
+Fixed with an `onKeyDown` on the list and `tabIndex={selected ? 0 : -1}` per tab:
+Arrow Up/Down and Left/Right move by one, Home/End jump to the ends, and focus
+follows the selection via `requestAnimationFrame` — needed because the newly selected
+tab becomes the only one in the tab order, so without moving focus the roving
+tabindex would strand the user.
+
+`rail-aria.spec.ts` pins it: exactly one tab in the page tab order and it is the
+selected one, ArrowDown/ArrowUp move by one with focus following, Home/End reach
+indices 0 and 17, and focus never leaves the rail. It reported `18 of 18` before the
+fix and passes after.
+
+`titlebar-keyboard.spec.ts` covers the same ground for the title bar menus, which
+were already correct: `aria-haspopup`/`aria-expanded` track the open state, Escape
+closes, opening one menu closes the other, outside clicks dismiss, and focus does not
+fall to the body.
+
+Browser suite: 20 to 22 passing.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
