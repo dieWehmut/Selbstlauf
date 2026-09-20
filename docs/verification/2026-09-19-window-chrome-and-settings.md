@@ -1119,6 +1119,42 @@ A browser test compares every sidebar row against the process-table row for the 
 part by part — the table splits the label and the id into two elements while the sidebar shows
 one line — so the shared helper is checked end to end rather than assumed.
 
+### The conversation on a row was visible but not searchable
+
+Adding the conversation to each sidebar row made text visible that the row's filter did not
+look at: it matched `conversationId` but not the label, so typing 普通对话, 未关联 or 等待输入 —
+all plainly on screen — returned **nothing** (`dc4ad31`, 0.6.1). The filter now searches the
+same line the row displays.
+
+#### A test that passed while the bug was present
+
+The first version of the regression test searched the *first* row's label. That row's label
+was "Goal" for a session whose `conversationId` is `demo-goal` — the id matched incidentally,
+so the test **passed with the bug still in the code**. What exposed it was removing the fix
+and finding the test still green.
+
+The test now collects every distinct label on screen, requires at least one that cannot appear
+in a session's own fields, and searches those. Proved by removing the fix again: it fails with
+`searching "普通对话" found nothing, but that label is on a row`, and passes once restored.
+
+Verified on the **installed** 0.6.1 against its live service:
+
+    labels on screen: ["Goal", "普通对话", "步骤执行中"]
+      search "Goal"      -> 2 rows, all show it
+      search "普通对话"   -> 1 row,  all show it
+      search "步骤执行中" -> 1 row,  all show it
+    cleared -> 4 rows | page errors: none
+
+#### Why the defects in this area were found behaviourally, not statically
+
+Three defects in the sidebar have now been found by driving the real interface — the reserved
+collapsed column (0.5.1), the drawer close control showing at every width (0.6.0), and this
+one. The first two share a cause (equal-specificity rules decided by file order), so a static
+audit of the stylesheet was attempted for that pattern. It was abandoned: a careful version
+reported **19,256 candidates**, almost all ordinary CSS, which is a worse signal than the three
+targeted behavioural checks that found the real ones. A report nobody can act on is not a
+check.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
