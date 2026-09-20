@@ -29,6 +29,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Fail before anything is built: a tag that disagrees with the declared version
+      # produces an installer named after the package version and attached to the
+      # wrong release. That is not hypothetical — v0.2.8 once shipped a
+      # Selbstlauf-Setup-0.2.7-x64.exe, built from a commit whose package files still
+      # said 0.2.7, because nothing checked.
+      - name: Assert the tag matches the declared version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: tests/Test-VersionConsistency.ps1 -Tag "${{ github.ref_name }}"
+
       - name: Build workspaces
         run: npm run build
 
