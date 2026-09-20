@@ -797,6 +797,33 @@ never appear in any response, which is stronger than asserting a status code.
 
 CLI suite: 243 to 249 passing.
 
+### A real concurrency bug in the config store
+
+Testing repeated and concurrent saves — a path with no coverage — found a genuine
+defect (`ccf8697`). The existing test proved a *rejected* save leaves no temporary
+file, but nothing exercised the branch that runs on **every** real save. On Windows
+`rename` refuses to replace an existing file, so `replaceAtomically` falls into its
+backup branch (move the old file aside, move the new one in, delete the backup), and
+that branch was untested under concurrency.
+
+Two concurrent saves raced there: the first moved `config.json` aside, the second then
+failed with ENOENT because only EEXIST/EPERM/ENOTEMPTY were treated as recoverable.
+
+    Error: ENOENT: no such file or directory, rename '...\config.json' -> '...\config.json.<uuid>.bak'
+
+This is reachable in normal use — the renderer's settings form, the tray and the
+service's lifecycle routes can all write at once — and it presents to a user as a
+setting that reverts after appearing to save.
+
+Two changes: `save()` now serializes through a promise queue (validating before
+queueing, and absorbing a rejection so later saves are not poisoned), and
+`replaceAtomically` treats an already-vanished destination as "nothing to back up".
+
+Verified three ways: 25 sequential saves, 12 concurrent saves in-process, and **8
+independent processes** writing the same file at once — zero failures, a document that
+parses, one complete writer's value rather than a blend, and no `.tmp`/`.bak`
+leftovers. Released as 0.2.9 and confirmed present in the shipped bundle.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
