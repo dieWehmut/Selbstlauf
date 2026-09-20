@@ -126,12 +126,23 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
 
     const rail = await screen.findByRole('tablist', { name: '设置分区' });
     const expected = [
-      '常规', '通知', '导入', '个人资料', '外观', '家长控制', 'Trusted contact',
-      '语音', '配置', '个性化', '宠物', '键盘快捷键', '使用情况和计费', '账户',
+      '常规', '通知', '导入', '个人资料', '外观', '家长控制', '信任联系人',
+      '语音', '配置', '个性化', '宠物', '键盘快捷键', '使用统计', '账户',
       '电脑操控', '应用快照', '插件', '浏览器',
     ];
     const labels = within(rail).getAllByRole('tab').map((tab) => tab.textContent);
     expect(labels).toEqual(expected);
+
+    /**
+     * The rail must not name a section something the app does not have.
+     *
+     * Two entries had drifted: 信任联系人 appeared in English as "Trusted contact" while
+     * its own panel said 信任联系人, and 使用统计 was labelled 使用情况和计费 — promising
+     * billing, of which the application has no concept at all. Both were found by reading
+     * the labels against the panels they open, so the labels are pinned here.
+     */
+    expect(labels).not.toContain('Trusted contact');
+    expect(labels.some((label) => label?.includes('计费')), 'the rail promises billing again').toBe(false);
 
     // The two category headings are present, in order.
     expect(screen.getByText('个人')).toBeInTheDocument();

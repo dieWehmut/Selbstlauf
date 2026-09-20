@@ -58,13 +58,18 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = Object.freeze([
       Object.freeze({ id: 'profile', label: '个人资料', icon: CircleUser }),
       Object.freeze({ id: 'appearance', label: '外观', icon: Palette }),
       Object.freeze({ id: 'parental', label: '家长控制', icon: ShieldCheck }),
-      Object.freeze({ id: 'trusted-contact', label: 'Trusted contact', icon: UserCheck }),
+      // The rail names a section the same way the section titles itself, so this reads
+      // 信任联系人 rather than the English "Trusted contact" that used to sit among
+      // otherwise Chinese labels while its own panel said 信任联系人.
+      Object.freeze({ id: 'trusted-contact', label: '信任联系人', icon: UserCheck }),
       Object.freeze({ id: 'voice', label: '语音', icon: Mic }),
       Object.freeze({ id: 'config', label: '配置', icon: Wrench }),
       Object.freeze({ id: 'personalization', label: '个性化', icon: SlidersHorizontal }),
       Object.freeze({ id: 'pet', label: '宠物', icon: PawPrint }),
       Object.freeze({ id: 'shortcuts', label: '键盘快捷键', icon: Keyboard }),
-      Object.freeze({ id: 'usage', label: '使用情况和计费', icon: Gauge }),
+      // The section itself is titled 使用统计 and computes session and event counts. The rail
+      // used to promise 计费 ("billing"), which the application has no concept of at all.
+      Object.freeze({ id: 'usage', label: '使用统计', icon: Gauge }),
       Object.freeze({ id: 'account', label: '账户', icon: Globe }),
     ]),
   }),
