@@ -1155,6 +1155,34 @@ reported **19,256 candidates**, almost all ordinary CSS, which is a worse signal
 targeted behavioural checks that found the real ones. A report nobody can act on is not a
 check.
 
+### A sweep of every breakpoint boundary, which found nothing
+
+Three defects in this area had been found by driving the interface, so the useful complement
+was a systematic sweep rather than another targeted probe. Breakpoint boundaries are where
+layout regressions hide: the rule one pixel either side of 700 or 960 is different, and each
+side had only ever been checked at the two or three widths an existing test happened to use.
+
+`breakpoint-sweep.spec.ts` (`189b737`) covers sixteen widths — both sides of each declared
+breakpoint, plus 320 through 1920 — across all four pages (进程, 事件, 设置, 进程详情), checking
+each for horizontal overflow, a missing or collapsed key element, anything past the right edge,
+and that the settings rail is a column above the drawer breakpoint and off-canvas below it.
+
+**It reported no defects.** That is the result worth recording: the layout holds across the
+range rather than only at the widths already covered.
+
+Two of my own probe assumptions were wrong and would each have produced a false report:
+
+- `isVisible()` returned true for the settings rail while its drawer was closed, which looked
+  like a defect at **eleven** widths. The rail is deliberately parked off-canvas with a
+  `transform`, and `isVisible()` only means "not `display:none`" — the check is now whether it
+  is genuinely on screen (measured: `x = -236` while closed, content not squeezed, and
+  `elementFromPoint` returns the workspace rather than the rail).
+- A generic "starts off the left edge" check flagged that same off-canvas drawer, for the same
+  reason. Being off-canvas is the correct state there, so it is asserted separately.
+
+No release came from this round: it changes only tests, so a new installer would carry no
+functional difference from the installed 0.6.1.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
