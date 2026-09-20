@@ -1055,6 +1055,34 @@ above can be trusted: a probe that invents its own data ends up testing its own 
 Several existing tests had to change because they navigated back by clicking the sidebar's
 进程 button, which is no longer on the page; they now use 返回应用.
 
+### Collapsing on 设置 left the rail's column behind
+
+Found immediately after the layout change above, by collapsing the rail on 设置 and reading
+the geometry rather than by looking at the page (`4745767`, 0.5.1). The rail disappeared but
+its **268px column stayed reserved**, squeezing the content into the left third of a 1249px
+window — a collapsed page that looked broken rather than collapsed.
+
+The cause was CSS rule order, not logic: `.app-shell--settings` and `.app-shell--compact`
+are both single-class selectors, so they have equal specificity and whichever appears later
+in the stylesheet wins. The settings rule is later, so it kept overriding the collapsed
+state's single-column grid. Doubling the class on the collapsed selector —
+`.app-shell--settings.app-shell--compact` — makes the collapsed state authoritative wherever
+it sits in the file, instead of depending on the order of two unrelated blocks.
+
+Verified on the **installed** 0.5.1:
+
+    on 设置: app sidebar 0 | rail column 268px 981px | content x=268
+    titlebar y 0 -> 0 after scrolling | stays at top: true
+    collapsed: 1249px | content x=0 width=1249 | column reclaimed: true
+    rail hidden: true | panels still rendered: 5
+    restored: 268px 981px | exact geometry back: true
+    page errors: (none)
+
+The two new browser tests assert the invariant as geometry on **both** pages, so a shared
+rule cannot regress for one while passing for the other. They were shown to catch the bug
+rather than merely pass: with the fix removed they fail with `Expected: 1249, Received: 268`
+— precisely the squeezed layout — and pass again once it is restored.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
