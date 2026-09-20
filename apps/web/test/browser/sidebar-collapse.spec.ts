@@ -76,7 +76,7 @@ test('a collapsed sidebar does not remove the mobile drawer', async ({ page }, t
   const box = (await sidebar.boundingBox())!;
   expect(Math.round(box.width), 'the drawer is not the full sidebar width').toBe(236);
   await expect(sidebar.locator('.brand strong')).toBeVisible();
-  await expect(sidebar.getByRole('button', { name: '进程' })).toBeVisible();
+  await expect(sidebar.locator('nav').getByRole('button', { name: '进程' })).toBeVisible();
   const labelVisible = await sidebar.locator('.nav-button span').first().evaluate(
     (el) => getComputedStyle(el).display !== 'none',
   );

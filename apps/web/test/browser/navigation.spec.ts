@@ -34,7 +34,7 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
   await idle.fill(edited);
   expect(await idle.inputValue()).toBe(edited);
 
-  await sidebar.getByRole('button', { name: '进程' }).click();
+  await sidebar.locator('nav').getByRole('button', { name: '进程' }).click();
   await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
   await sidebar.getByRole('button', { name: '设置' }).click();
   await rail.getByRole('tab', { name: '常规' }).click();
@@ -58,7 +58,7 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
 
   // Revisit each page several times; the shell must not degrade.
   for (let i = 0; i < 3; i += 1) {
-    await sidebar.getByRole('button', { name: '进程' }).click();
+    await sidebar.locator('nav').getByRole('button', { name: '进程' }).click();
     await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
     await sidebar.getByRole('button', { name: '事件' }).click();
     await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();

@@ -15,6 +15,7 @@ import {
   Monitor,
   Moon,
   Network,
+  ChevronUp,
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
@@ -36,7 +37,7 @@ import {
 } from 'lucide-react';
 /** Bundled with the app so the Pages sub-path rewrites it like any other asset. */
 import brandIcon from './assets/brand.png';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createApi,
   type AuditEvent,
@@ -53,6 +54,8 @@ import {
   type WatchdogConfig,
 } from './api/client';
 import { SettingsRail, SETTINGS_SECTION_IDS } from './settings/SettingsRail';
+import { SidebarProcessList } from './sidebar/SidebarProcessList';
+import { sessionTone, sessionToneLabel } from './sidebar/session-groups';
 import {
   AccountSection,
   BrowserSection,
@@ -96,7 +99,7 @@ function isRevealPref(value: unknown): value is { allowReveal: boolean } {
     && typeof (value as { allowReveal?: unknown }).allowReveal === 'boolean';
 }
 
-type Page = 'overview' | 'timeline' | 'settings';
+type Page = 'overview' | 'process' | 'timeline' | 'settings';
 /** What the person chose; 'system' resolves against the OS preference. */
 type ThemePreference = 'light' | 'dark' | 'system';
 type Theme = 'light' | 'dark';
@@ -665,6 +668,102 @@ function ProcessTable(props: {
         ))}
       </div>
     </>
+  );
+}
+
+/**
+ * One process in full, reached by selecting it in the sidebar list.
+ *
+ * It reuses the process table's own fields and helpers rather than introducing a
+ * second vocabulary, so a value here always means the same thing it does in the table.
+ * Actions are the same session actions as the table row, including the reveal gate.
+ */
+function ProcessDetail(props: {
+  readonly session: SessionView | null;
+  readonly config: WatchdogConfig;
+  readonly busy: string | null;
+  readonly sessions: readonly SessionView[];
+  readonly onBack: () => void;
+  readonly onSelect: (session: SessionView) => void;
+  readonly onPause: (session: SessionView) => void;
+  readonly onInject: (session: SessionView) => void;
+  readonly onFocus: (session: SessionView) => void;
+  readonly allowReveal: boolean;
+}) {
+  const session = props.session;
+  if (session === null) {
+    return (
+      <div className="empty-state">
+        <p>请选择一个进程</p>
+        <p className="subtle">
+          {props.sessions.length === 0
+            ? '尚未发现进程。进程出现后会自动出现在左侧列表。'
+            : '在左侧列表中选择一个进程即可查看它的详情。'}
+        </p>
+      </div>
+    );
+  }
+
+  const quiet = session.quietForMs ?? (session.lastActivityAtMs ? Date.now() - session.lastActivityAtMs : null);
+  const tone = sessionTone(session);
+
+  return (
+    <section className="process-detail">
+      <header className="process-detail__header">
+        <button className="button button--ghost" type="button" onClick={props.onBack}>
+          <ArrowLeft size={17} />返回列表
+        </button>
+        <div className="process-id">
+          <ToolMark tool={session.tool} />
+          <div>
+            <strong>{toolLabel(session.tool)}</strong>
+            <span>PID {session.rootPid}{session.childPids.length > 0 ? ` + ${session.childPids.length}` : ''}</span>
+          </div>
+        </div>
+        <span className={`process-dot process-dot--${tone}`} aria-hidden="true" />
+        <span className="subtle">{sessionToneLabel(tone)}</span>
+      </header>
+
+      <dl className="process-detail__grid">
+        <div><dt>运行位置</dt><dd><HostCell session={session} /></dd></div>
+        <div><dt>能力</dt><dd><CapabilityBadge session={session} /></dd></div>
+        <div><dt>对话</dt><dd>{conversationLabel(session)}</dd></div>
+        <div><dt>静默</dt><dd>{duration(quiet ?? 0)}</dd></div>
+        <div><dt>状态</dt><dd><DecisionChip decision={session.lastDecision} /></dd></div>
+        <div><dt>启动于</dt><dd>{time(session.startedAtMs)}</dd></div>
+        {session.sessionCwd ? <div className="process-detail__wide"><dt>工作目录</dt><dd><code>{session.sessionCwd}</code></dd></div> : null}
+        <div className="process-detail__wide"><dt>下一输入</dt><dd><code className="prompt-code">{nextPrompt(session, props.config)}</code></dd></div>
+        {session.transportError ? <div className="process-detail__wide"><dt>传输错误</dt><dd className="process-detail__error">{session.transportError}</dd></div> : null}
+      </dl>
+
+      <footer className="process-detail__actions">
+        <SessionActions
+          session={session}
+          busy={props.busy}
+          onPause={props.onPause}
+          onInject={props.onInject}
+          onFocus={props.onFocus}
+          allowReveal={props.allowReveal}
+        />
+      </footer>
+
+      {props.sessions.length > 1 && (
+        <nav className="process-detail__siblings" aria-label="其他进程">
+          {props.sessions.filter((other) => other.id !== session.id).map((other) => (
+            <button
+              key={other.id}
+              type="button"
+              className="process-detail__sibling"
+              onClick={() => props.onSelect(other)}
+            >
+              <span className={`process-dot process-dot--${sessionTone(other)}`} aria-hidden="true" />
+              {toolLabel(other.tool)}
+              <span className="subtle">PID {other.rootPid}</span>
+            </button>
+          ))}
+        </nav>
+      )}
+    </section>
   );
 }
 
@@ -1540,12 +1639,22 @@ function TitleBar(props: {
   readonly onAction: (entry: MenuEntry) => void;
 }) {
   const [openMenu, setOpenMenu] = useState<MenuLabel | null>(null);
+  /** The open dropdown, so a press inside it is not mistaken for a press outside. */
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const shell = props.bridge?.shell;
 
   // Clicking anywhere outside, or pressing Escape, dismisses the open dropdown.
   useEffect(() => {
     if (openMenu === null) return undefined;
-    const close = () => setOpenMenu(null);
+    const close = (event: MouseEvent) => {
+      // Ignore presses that start inside the menu. Closing on the mousedown of the
+      // item itself unmounted the menu before the item's onClick could run, so a
+      // mouse click on 返回应用 or 隐藏到托盘 did nothing at all — the menu just
+      // vanished. Keyboard activation worked, which is why the unit tests passed:
+      // `fireEvent.click` fires no mousedown.
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      setOpenMenu(null);
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpenMenu(null);
     };
@@ -1610,7 +1719,7 @@ function TitleBar(props: {
                 {label}
               </button>
               {openMenu === label && (
-                <div className="titlebar__dropdown" role="menu" aria-label={label}>
+                <div className="titlebar__dropdown" role="menu" aria-label={label} ref={menuRef}>
                   {entries.map((entry, index) => {
                     if (entry === 'separator') {
                       return <div className="titlebar__separator" role="separator" key={`sep-${index}`} />;
@@ -1713,6 +1822,14 @@ export default function App({ api: suppliedApi }: AppProps) {
   const theme = resolveTheme(themePreference, prefersLight);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCompact, setSidebarCompact] = useState(false);
+  /** The session shown on the 进程详情 page, chosen from the sidebar list. */
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  /** The sidebar list's own filter, kept out of the page's state. */
+  const [processFilter, setProcessFilter] = useState('');
+  /** The bottom bar's menu, which opens upwards out of the sidebar footer. */
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  /** The open menu, so a press inside it is not mistaken for a press outside. */
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
   /** Which settings rail entry is in view; the tray can open one by name. */
   const [settingsSection, setSettingsSection] = useState<string>(DEFAULT_SETTINGS_SECTION);
   /** The name the sidebar brand block shows once 个人资料 sets one. */
@@ -1853,6 +1970,27 @@ export default function App({ api: suppliedApi }: AppProps) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [page]);
+
+  // The bottom bar's menu closes the way the title bar's dropdowns do: on Escape, and
+  // on the press that starts outside it rather than on a completed click.
+  useEffect(() => {
+    if (!accountMenuOpen) return undefined;
+    const close = (event: MouseEvent) => {
+      // Same reason as the title bar's dropdowns: closing on the mousedown of the
+      // item itself would unmount the menu before its onClick could run.
+      if (event.target instanceof Node && accountMenuRef.current?.contains(event.target)) return;
+      setAccountMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAccountMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [accountMenuOpen]);
 
   /**
    * Notification preferences.
@@ -2346,11 +2484,72 @@ export default function App({ api: suppliedApi }: AppProps) {
       <aside id="watchdog-sidebar" className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="brand"><span className="brand__mark" data-testid="brand-mark"><img src={brandIcon} alt="" width={34} height={34} /></span><div><strong>{displayName.trim().length > 0 ? displayName : 'Selbstlauf'}</strong><span>continuation watchdog</span></div><button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
         <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { navigate(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
-        <div className="sidebar__footer"><div className="service-mini"><span className={`status-light ${connected ? 'is-online' : ''}`} /><div><strong>{connected ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong><span>{sessions.length} 个进程</span></div></div><button className="nav-button" type="button" title={theme === 'dark' ? '切换亮色' : '切换暗色'} onClick={() => setThemePreference(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{theme === 'dark' ? '亮色' : '暗色'}</span></button><button className="compact-toggle icon-button" type="button" title={sidebarCompact ? '展开侧栏' : '收起侧栏'} aria-label={sidebarCompact ? '展开侧栏' : '收起侧栏'} onClick={() => setSidebarCompact(!sidebarCompact)}>{sidebarCompact ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button></div>
+        {/* The discovered processes, grouped by the application they run inside. This
+            is the list the reference sidebar's structure is modelled on: a heading per
+            group and a full-width highlight on the selected row. It scrolls on its own
+            so a long list never pushes the navigation or the footer out of reach. */}
+        <SidebarProcessList
+          sessions={sessions}
+          selectedId={selectedSessionId}
+          onSelect={(session) => {
+            setSelectedSessionId(session.id);
+            navigate('process');
+            setSidebarOpen(false);
+          }}
+          filter={processFilter}
+          onFilterChange={setProcessFilter}
+        />
+        {/* The bottom bar. Selecting it opens a menu upwards, out of the sidebar's
+            bottom edge, the way the reference sidebar's user bar does. It is a menu
+            rather than a row of buttons so the sidebar footer stays one line however
+            many entries it grows. */}
+        <div className="sidebar__footer">
+          <div className={`account-bar ${accountMenuOpen ? 'is-open' : ''}`} ref={accountMenuRef}>
+            {accountMenuOpen && (
+              <div className="account-menu" role="menu" aria-label="账户与状态">
+                <div className="account-menu__status">
+                  <span className={`process-dot process-dot--${connected ? 'writable' : 'error'}`} aria-hidden="true" />
+                  <div>
+                    <strong>{connected ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong>
+                    <span>{sessions.length} 个进程 · {ready} 个可写入</span>
+                  </div>
+                </div>
+                <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setThemePreference(theme === 'dark' ? 'light' : 'dark'); setAccountMenuOpen(false); }}>
+                  {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+                  <span>切换到{theme === 'dark' ? '亮色' : '暗色'}主题</span>
+                </button>
+                <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
+                  <Settings2 size={17} />
+                  <span>设置</span>
+                  <kbd>Ctrl+,</kbd>
+                </button>
+                <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setSidebarCompact(true); setAccountMenuOpen(false); }}>
+                  <PanelLeftClose size={17} />
+                  <span>收起侧栏</span>
+                </button>
+              </div>
+            )}
+            <button
+              className="account-bar__button"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={accountMenuOpen}
+              onClick={() => setAccountMenuOpen((current) => !current)}
+            >
+              <span className="brand__mark" aria-hidden="true"><img src={brandIcon} alt="" width={34} height={34} /></span>
+              <div>
+                <strong>{connected ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong>
+                {/* The count is its own text node so it reads on its own. */}
+                <span>{`${sessions.length} 个进程`}</span>
+              </div>
+              <ChevronUp size={17} />
+            </button>
+          </div>
+        </div>
       </aside>
 
       <main className="workspace">
-        <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><span className="poll-age" aria-label="Last watchdog poll"><Activity size={14} />轮询 {health.lastPollAtMs === null ? '--' : duration(Math.max(0, Date.now() - health.lastPollAtMs))} 前</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>
+        <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'process' ? '进程详情' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><span className="poll-age" aria-label="Last watchdog poll"><Activity size={14} />轮询 {health.lastPollAtMs === null ? '--' : duration(Math.max(0, Date.now() - health.lastPollAtMs))} 前</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>
 
         {notice && <div className="notice" role="status"><span>{notice}</span><button className="icon-button" type="button" aria-label="关闭通知" onClick={() => setNotice(null)}><X size={15} /></button></div>}
 
@@ -2358,6 +2557,24 @@ export default function App({ api: suppliedApi }: AppProps) {
           <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{sessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>服务状态</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : connected ? '已停止' : '离线'}</strong></div></section>
           <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : staticDemo ? '样例数据' : '等待连接'}</span></div><ProcessTable sessions={sessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
           <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => navigate('timeline')}>查看全部</button></div><Timeline events={visibleEvents.slice(0, 5)} /></section>
+        </div>}
+
+        {/* The session chosen in the sidebar list. The id is resolved against the
+            current sessions every render, so a session that exits while its detail is
+            open falls back to the empty state rather than showing stale data. */}
+        {page === 'process' && <div className="page-content">
+          <ProcessDetail
+            session={sessions.find((session) => session.id === selectedSessionId) ?? null}
+            sessions={sessions}
+            config={config}
+            busy={busy}
+            allowReveal={allowReveal}
+            onBack={() => navigate('overview')}
+            onSelect={(session) => setSelectedSessionId(session.id)}
+            onPause={(session) => void mutateSession(session, 'pause')}
+            onInject={(session) => void mutateSession(session, 'inject')}
+            onFocus={(session) => void focusSession(session)}
+          />
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
