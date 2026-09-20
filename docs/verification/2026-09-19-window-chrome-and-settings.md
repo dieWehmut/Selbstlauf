@@ -1316,6 +1316,44 @@ production module (`apps/desktop/dist/src/window-preview.js` — the same file p
 
 Suites: desktop 92 -> 109, web 101 -> 111, browser 41 -> 42.
 
+#### The captured path on a real watched session
+
+Every window the user's sessions ran in was minimized, so the first packaged run could only reach
+the `minimized` state, and the happy path had been proven only against a window this session created
+itself. That is a real gap, since seeing a live process's window is the point of the feature.
+
+Closed by driving the **published** install: the app's own `focus` endpoint — the exact call the
+切换到该窗口 button makes — was used to raise the Tabby window that Codex sessions share, the preview
+was requested again, and the window was then put back to minimized, the state it was found in.
+
+    target: codex pid=30780 hwnd=67008 title="copilot-segmentation"
+    state before:              minimized=True
+    preview before:            minimized
+    focus endpoint -> 200 {"ok":true,"sessionId":"codex:30780","focused":true}
+    state after focus:         minimized=False
+    preview after:             captured
+      size 960x569 | sharedBy 3
+      136541 bytes | decodes to a real PNG: true
+    panel shows an image:      true
+      caption: 此窗口内有 3 个受监控进程，画面为整个窗口 · copilot-segmentation
+    state restored:            minimized=True
+    preview after restore:     minimized
+
+The captured image was inspected by eye: it is the real Tabby terminal with its live Codex session in
+it, which is exactly the "what is happening in the session I cannot see" case the feature exists for.
+`sharedBy` read 3 rather than the earlier 2 because a further Codex session had appeared in the same
+window in the meantime — the count is live, as intended.
+
+#### The published asset, verified rather than assumed
+
+The push to `github.com` failed for a period: the API and npm were reachable while the git endpoint
+returned connection resets and timeouts. The local commits and the `v0.8.0` tag were kept, the remote
+was queried and confirmed to still be at 0.7.0 with no `v0.8.0` tag and no release, and the push was
+retried until it succeeded rather than left as an unstated failure. CI then succeeded and published
+three assets. The downloaded `Selbstlauf-Setup-0.8.0-x64.exe` matched the published digest, and the
+installed app was confirmed to be running the **released** bundle (`index-CwC321Gp.js`, on disk and
+loaded) rather than a local build — a distinction a version check alone cannot make.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
