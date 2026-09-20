@@ -2506,7 +2506,12 @@ export default function App({ api: suppliedApi }: AppProps) {
         <div className="sidebar__footer">
           <div className={`account-bar ${accountMenuOpen ? 'is-open' : ''}`} ref={accountMenuRef}>
             {accountMenuOpen && (
-              <div className="account-menu" role="menu" aria-label="账户与状态">
+              // The status block sits outside the `role="menu"`, in the popup region that
+              // contains it. A menu may only hold menu items, separators and groups, so a
+              // plain status block among the items is invalid and some screen readers skip
+              // the whole menu for it. The status is still announced, because it is a
+              // region with its own label.
+              <div className="account-popup" role="region" aria-label="账户与状态">
                 <div className="account-menu__status">
                   <span className={`process-dot process-dot--${connected ? 'writable' : 'error'}`} aria-hidden="true" />
                   <div>
@@ -2514,19 +2519,21 @@ export default function App({ api: suppliedApi }: AppProps) {
                     <span>{sessions.length} 个进程 · {ready} 个可写入</span>
                   </div>
                 </div>
-                <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setThemePreference(theme === 'dark' ? 'light' : 'dark'); setAccountMenuOpen(false); }}>
-                  {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
-                  <span>切换到{theme === 'dark' ? '亮色' : '暗色'}主题</span>
-                </button>
-                <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
-                  <Settings2 size={17} />
-                  <span>设置</span>
-                  <kbd>Ctrl+,</kbd>
-                </button>
-                <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setSidebarCompact(true); setAccountMenuOpen(false); }}>
-                  <PanelLeftClose size={17} />
-                  <span>收起侧栏</span>
-                </button>
+                <div className="account-menu" role="menu" aria-label="账户与状态菜单">
+                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setThemePreference(theme === 'dark' ? 'light' : 'dark'); setAccountMenuOpen(false); }}>
+                    {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+                    <span>切换到{theme === 'dark' ? '亮色' : '暗色'}主题</span>
+                  </button>
+                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
+                    <Settings2 size={17} />
+                    <span>设置</span>
+                    <kbd>Ctrl+,</kbd>
+                  </button>
+                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setSidebarCompact(true); setAccountMenuOpen(false); }}>
+                    <PanelLeftClose size={17} />
+                    <span>收起侧栏</span>
+                  </button>
+                </div>
               </div>
             )}
             <button

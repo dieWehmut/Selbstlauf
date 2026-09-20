@@ -661,9 +661,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .account-bar__button strong { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-bar__button > div > span { display: block; margin-top: 2px; color: var(--faint); font: 10px var(--mono); }
 .account-bar__button .brand__mark { width: 28px; height: 28px; flex: 0 0 28px; }
-/* Anchored to the bar's bottom edge and positioned upwards, so the menu opens out of
+/* Anchored to the bar's bottom edge and positioned upwards, so the popup opens out of
    the sidebar footer rather than downwards off the bottom of the window. */
-.account-menu {
+.account-popup {
   position: absolute;
   left: 0;
   right: 0;
@@ -671,13 +671,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   z-index: 30;
   display: flex;
   flex-direction: column;
-  gap: 2px;
   padding: 6px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
   background: var(--panel-raised);
   box-shadow: var(--shadow-lift);
 }
+.account-menu { display: flex; flex-direction: column; gap: 2px; }
 .account-menu__status { display: flex; align-items: center; gap: 9px; padding: 8px 10px 10px; border-bottom: 1px solid var(--line-whisper); margin-bottom: 4px; }
 .account-menu__status strong { display: block; font-size: 12px; }
 .account-menu__status span { display: block; margin-top: 2px; color: var(--faint); font: 10px var(--mono); }

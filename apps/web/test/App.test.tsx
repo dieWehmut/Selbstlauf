@@ -785,22 +785,36 @@ describe('window title bar', () => {
 
     const trigger = screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('menu', { name: '账户与状态' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menu', { name: '账户与状态菜单' })).not.toBeInTheDocument();
 
     fireEvent.click(trigger);
-    const menu = screen.getByRole('menu', { name: '账户与状态' });
+    const menu = screen.getByRole('menu', { name: '账户与状态菜单' });
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     // The entries the menu offers, using capabilities the app already has. The theme
-// entry names the scheme it switches *to*, so it is matched by shape rather than by
-// an exact string that depends on the environment's colour scheme.
+    // entry names the scheme it switches *to*, so it is matched by shape rather than by
+    // an exact string that depends on the environment's colour scheme.
     const labels = within(menu).getAllByRole('menuitem').map((item) => item.textContent);
     expect(labels).toHaveLength(3);
     expect(labels[0]).toMatch(/^切换到(亮色|暗色)主题$/u);
     expect(labels[1]).toBe('设置Ctrl+,');
     expect(labels[2]).toBe('收起侧栏');
 
+    /**
+     * A `role="menu"` may only contain menu items, separators and groups.
+     *
+     * The service-status block used to sit inside the menu as a plain `<div>`, which is
+     * invalid and can make a screen reader skip the menu entirely. It now lives in the
+     * popup region that contains the menu, so the menu's own children are all valid —
+     * checked here so it cannot drift back.
+     */
+    const childRoles = Array.from(menu.children).map((child) => child.getAttribute('role'));
+    expect(childRoles).toEqual(['menuitem', 'menuitem', 'menuitem']);
+    // The status must still be reachable, just outside the menu.
+    expect(screen.getByText(/个可写入/u)).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '账户与状态' })).toContainElement(menu);
+
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByRole('menu', { name: '账户与状态' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menu', { name: '账户与状态菜单' })).not.toBeInTheDocument();
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -809,10 +823,11 @@ describe('window title bar', () => {
     render(<App api={fake} />);
     await screen.findByText('0 个进程');
     fireEvent.click(screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u }));
-    expect(screen.getByRole('menu', { name: '账户与状态' })).toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: '账户与状态菜单' })).toBeInTheDocument();
 
     fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole('menu', { name: '账户与状态' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menu', { name: '账户与状态菜单' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '账户与状态' })).not.toBeInTheDocument();
   });
 
   it('collapses the sidebar from the bottom bar menu', async () => {

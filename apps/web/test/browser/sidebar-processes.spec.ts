@@ -78,7 +78,7 @@ test('the bottom bar menu opens upwards, not downwards', async ({ page }, testIn
   await page.goto('/');
 
   const trigger = page.locator('.account-bar__button');
-  const menu = page.getByRole('menu', { name: '账户与状态' });
+  const menu = page.getByRole('menu', { name: '账户与状态菜单' });
   await expect(menu).toHaveCount(0);
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
 
