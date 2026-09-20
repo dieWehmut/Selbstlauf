@@ -856,30 +856,41 @@ describe('window title bar', () => {
     expect(screen.queryByRole('menu', { name: '账户与状态菜单' })).not.toBeInTheDocument();
 
     fireEvent.click(trigger);
-    const menu = screen.getByRole('menu', { name: '账户与状态菜单' });
+    const popup = screen.getByRole('region', { name: '账户与状态' });
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
-    // The entries the menu offers, using capabilities the app already has. The theme
-    // entry names the scheme it switches *to*, so it is matched by shape rather than by
-    // an exact string that depends on the environment's colour scheme.
+
+    // The popup follows the reference's grammar: one header block, then label/value facts,
+    // then icon rows, with the final group set apart.
+    expect(within(popup).getAllByRole('menu')).toHaveLength(2);
+    expect(popup.querySelectorAll('.account-popup__header')).toHaveLength(1);
+    expect(popup.querySelectorAll('.account-popup__fact')).toHaveLength(3);
+
+    const menu = screen.getByRole('menu', { name: '账户与状态菜单' });
+    // The entries, using capabilities the app already has. The theme entry names the scheme
+    // it switches *to*, so it is matched by shape rather than by an exact string that depends
+    // on the environment's colour scheme.
     const labels = within(menu).getAllByRole('menuitem').map((item) => item.textContent);
     expect(labels).toHaveLength(3);
     expect(labels[0]).toMatch(/^切换到(亮色|暗色)主题$/u);
-    expect(labels[1]).toBe('设置Ctrl+,');
-    expect(labels[2]).toBe('收起侧栏');
+    expect(labels[1]).toBe('显示宠物Ctrl+3');
+    expect(labels[2]).toBe('设置Ctrl+,');
+    // The final group stands apart: it changes the window rather than navigating.
+    const separated = screen.getByRole('menu', { name: '窗口' });
+    expect(within(separated).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['收起侧栏']);
 
     /**
      * A `role="menu"` may only contain menu items, separators and groups.
      *
      * The service-status block used to sit inside the menu as a plain `<div>`, which is
-     * invalid and can make a screen reader skip the menu entirely. It now lives in the
-     * popup region that contains the menu, so the menu's own children are all valid —
+     * invalid and can make a screen reader skip the menu entirely. It now lives outside both
+     * menus, in the popup region that contains them, so each menu's own children are valid —
      * checked here so it cannot drift back.
      */
-    const childRoles = Array.from(menu.children).map((child) => child.getAttribute('role'));
-    expect(childRoles).toEqual(['menuitem', 'menuitem', 'menuitem']);
-    // The status must still be reachable, just outside the menu.
-    expect(screen.getByText(/个可写入/u)).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: '账户与状态' })).toContainElement(menu);
+    for (const each of [menu, separated]) {
+      for (const child of Array.from(each.children)) {
+        expect(child.getAttribute('role'), `${each.getAttribute('aria-label')} has a non-menuitem child`).toBe('menuitem');
+      }
+    }
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('menu', { name: '账户与状态菜单' })).not.toBeInTheDocument();
