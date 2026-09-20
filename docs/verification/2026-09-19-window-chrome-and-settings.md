@@ -920,6 +920,30 @@ Verified on the **installed** 0.4.1:
     row focused: true
     h1 after Enter: 进程详情 | selected rows: 1
 
+### A second ARIA mistake in the same popup
+
+The bottom bar's popup put its service-status block inside `role="menu"` as a plain
+`<div>`. ARIA allows only menu items, separators and groups as menu children, so the
+markup was invalid and a screen reader may skip the entire menu because of it — the three
+items would then be unreachable, a worse outcome than the visual problem it was meant to
+avoid. Fixed in `c893471` (0.4.2): the popup is now a labelled `role="region"` containing
+the status block and a `role="menu"` holding only the three items.
+
+This is the **second ARIA mistake in this one popup**, and both were found the same way —
+by asking what the accessibility tree actually exposes rather than reading the markup:
+`role="listitem"` on the previous release's rows hid that they were buttons, and this one
+hid the menu items. Both now have assertions that pin the real roles: every child of the
+menu must carry `role="menuitem"`, the status must remain reachable, and the menu must sit
+inside its region.
+
+Verified on the **installed** 0.4.2:
+
+    sidebar rows as buttons: 3 | as listitem: 0
+    detail page: 进程详情 | selected rows: 1
+    menu children roles: ["menuitem","menuitem","menuitem"]
+    status readable: 1 | opens UPWARDS: true | closed by Escape: true
+    page errors: (none)
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
