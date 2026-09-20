@@ -576,6 +576,27 @@ bearings would move the layout away from the reference's intentions, not toward
 them. This is recorded so the remaining offset is a known, reasoned limit rather
 than an untested claim.
 
+### One rail entry rendered nothing at all
+
+The rail advertises 18 sections and a test pinned that count, but only four of them
+were ever opened by any test. Adding one that walks all eighteen and requires each
+to render a heading found that **配置 produced an empty panel**: it had no render
+branch whatsoever. The panels that belong to it — the Claude Stop Hook block and
+the Codex endpoint panel — were mounted under 常规 instead, which is why the entry
+had never been noticed as broken.
+
+Fixed in `55fff6f`: 配置 renders the Stop Hook block and the endpoint panel with the
+config save bar, and the three unit tests plus four browser tests that located those
+panels right after opening settings now select 配置 first, which is where the rail
+says they live.
+
+The new `settings-sections.spec.ts` visits every entry, requires a heading, and
+fails on any page error — the check that found this. Browser suite: 15 to 16 passing.
+
+This is the second defect in this work found only by exercising the surface rather
+than the code that describes it: the rail's *data* was correct and tested, while one
+of its *sections* was not wired up.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
