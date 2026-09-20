@@ -1,5 +1,6 @@
 import type { SessionView } from '../api/client';
 import {
+  conversationDetail,
   formatSilence,
   groupSessionsByHost,
   sessionTone,
@@ -79,13 +80,27 @@ export function SidebarProcessList(props: {
                   type="button"
                   className={`sidebar-processes__item ${selected ? 'is-selected' : ''}`}
                   aria-current={selected ? 'true' : undefined}
-                  title={`${toolLabel(session.tool)} · PID ${session.rootPid} · ${sessionToneLabel(tone)}`}
+                  title={`${toolLabel(session.tool)} · PID ${session.rootPid} · ${sessionToneLabel(tone)} · ${conversationDetail(session)}`}
                   onClick={() => props.onSelect(session)}
                 >
                   <span className={`process-dot process-dot--${tone}`} aria-hidden="true" />
-                  <span className="sidebar-processes__name">{toolLabel(session.tool)}</span>
-                  <span className="sidebar-processes__meta">
-                    {formatSilence(session.quietForMs ?? 0)}
+                  <span className="sidebar-processes__body">
+                    <span className="sidebar-processes__top">
+                      <span className="sidebar-processes__name">{toolLabel(session.tool)}</span>
+                      <span className="sidebar-processes__meta">
+                        {formatSilence(session.quietForMs ?? 0)}
+                      </span>
+                    </span>
+                    {/* Every row names its conversation, not just the selected one: which
+                        conversation a process is in is what decides whether continuing it
+                        makes sense, so it belongs on the row rather than one click away. */}
+                    <span className="sidebar-processes__conversation" title={session.conversationId ?? undefined}>
+                      {conversationDetail(session)}
+                    </span>
+                    <span className="sidebar-processes__where">
+                      {session.host?.label ?? '未识别宿主'}
+                      {' · '}PID {session.rootPid}
+                    </span>
                   </span>
                 </button>
               );

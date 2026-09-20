@@ -230,22 +230,27 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     localStorage.removeItem('watchdog-computer-control');
   });
 
-  /** 个人资料's display name is adopted by the sidebar brand block. */
-  it('shows the profile display name in the sidebar', async () => {
+  /**
+   * 个人资料's display name is adopted by the bottom bar's popup.
+   *
+   * The sidebar has no header block any more, so the identity it used to show — the mark
+   * and the display name — lives in the popup the bottom bar opens.
+   */
+  it('shows the profile display name in the bottom bar popup', async () => {
     render(<App api={api()} />);
-    expect(await screen.findByText('Selbstlauf')).toBeInTheDocument();
+    // The top brand block is gone from the sidebar.
+    expect(document.querySelector('.sidebar > .brand')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }));
     fireEvent.click(await screen.findByRole('tab', { name: '个人资料' }));
     fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: 'Orchester' } });
 
-    // The name is shown by the app sidebar, which 设置 replaces with the settings rail,
-    // so it becomes visible on the way back rather than while the settings page is open.
     fireEvent.click(await screen.findByRole('button', { name: /返回应用/u }));
-    // The profile field and the sidebar both render the name now that both are mounted,
-    // so this scopes to the sidebar's brand block.
-    const brandName = await screen.findByTestId('brand-mark');
-    expect(brandName.parentElement?.textContent).toContain('Orchester');
+
+    // The name is shown by the bottom bar's popup, so open it.
+    fireEvent.click(screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u }));
+    const region = screen.getByRole('region', { name: '账户与状态' });
+    expect(within(region).getByText('Orchester')).toBeInTheDocument();
 
     // Leave the stored profile clean for the next test in this file.
     localStorage.removeItem('watchdog-profile');
@@ -457,10 +462,14 @@ describe('watchdog dashboard', () => {
     expect(screen.getByRole('button', { name: '紧急停止' })).toBeEnabled();
   });
 
-  it('brands the sidebar with the Selbstlauf icon', async () => {
+  /**
+   * The Selbstlauf mark, now in the bottom bar's popup rather than a sidebar header.
+   * The asset is imported, so Vite rewrites the URL for the Pages sub-path too.
+   */
+  it('shows the Selbstlauf mark in the bottom bar popup', async () => {
     render(<App api={api()} />);
+    fireEvent.click(await screen.findByRole('button', { name: /服务在线|服务未连接|离线预览/u }));
     const mark = await screen.findByTestId('brand-mark');
-    // The asset is imported, so Vite rewrites the URL for the Pages sub-path too.
     expect(mark.querySelector('img')?.getAttribute('src')).toContain('brand');
     expect(mark.querySelector('img')?.getAttribute('alt')).toBe('');
   });
@@ -483,7 +492,6 @@ describe('watchdog dashboard', () => {
   });
   it('renders independent PIDs and goal/non-goal prompts', async () => {
     render(<App api={api()} />);
-    expect(screen.getByText('Selbstlauf')).toBeInTheDocument();
     expect((await screen.findAllByText('PID 10')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('/goal resume').length).toBeGreaterThan(0);
     expect(screen.getAllByText('请继续').length).toBeGreaterThan(0);
@@ -491,6 +499,37 @@ describe('watchdog dashboard', () => {
     expect(screen.getAllByText('未找到同目录 Codex 线程').length).toBeGreaterThan(0);
     expect(screen.getAllByText('等待静默').length).toBeGreaterThan(0);
     expect(screen.getAllByText('输出活跃').length).toBeGreaterThan(0);
+    // The app's own name is no longer shown on the dashboard: the sidebar has no brand
+    // block, and the identity lives in the bottom bar's popup.
+    expect(screen.queryByText('Selbstlauf')).not.toBeInTheDocument();
+  });
+
+  /**
+   * Every sidebar row names its conversation, not only the selected one.
+   *
+   * Which conversation a process is in decides whether continuing it makes sense, so it
+   * belongs on the row rather than one click away. The value comes from the same helper
+   * the process table uses, so the two views cannot describe one session differently.
+   */
+  it('shows a conversation on every sidebar process row', async () => {
+    render(<App api={api()} />);
+    const list = await screen.findByRole('group', { name: '进程列表' });
+    const rows = within(list).getAllByRole('button');
+    expect(rows.length).toBeGreaterThan(1);
+
+    for (const row of rows) {
+      const conversation = row.querySelector('.sidebar-processes__conversation');
+      expect(conversation, `a row has no conversation: ${row.textContent}`).not.toBeNull();
+      // Either a real conversation id or the explicit 未关联, never an empty line.
+      const text = conversation?.textContent ?? '';
+      expect(text.length, 'the conversation line is empty').toBeGreaterThan(0);
+      expect(text).toMatch(/·/u);
+    }
+
+    // The fixtures carry both cases, so both must be visible somewhere in the list.
+    const all = rows.map((row) => row.querySelector('.sidebar-processes__conversation')?.textContent ?? '');
+    expect(all.some((text) => text.includes('未关联'))).toBe(true);
+    expect(all.some((text) => text.includes('Goal') || text.includes('普通对话') || text.includes('等待输入') || text.includes('步骤执行中'))).toBe(true);
   });
 
   it('shows the age of the most recent watchdog poll', async () => {
