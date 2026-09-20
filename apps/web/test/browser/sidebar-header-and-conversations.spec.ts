@@ -60,6 +60,57 @@ test('has no brand header, and every process row names its conversation', async 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
+test('every word a row displays is searchable', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+
+  await page.setViewportSize({ width: 1249, height: 704 });
+  await page.goto('/');
+
+  const rows = page.locator('.sidebar-processes__item');
+  const total = await rows.count();
+  expect(total).toBeGreaterThan(0);
+
+  // Every distinct conversation label on screen, and every conversation id.
+  //
+  // The labels are the point: 普通对话, 未关联 and 等待输入 appear nowhere in a session's own
+  // fields, so a search for them can only match if the *displayed* conversation line is in
+  // the filter's haystack. An earlier version of this test searched the first row's label,
+  // which happened to be "Goal" for a session whose conversationId was `demo-goal` — it
+  // passed with the bug still present, because the id matched incidentally.
+  const labels = await page.locator('.sidebar-processes__conversation').evaluateAll((els) => [
+    ...new Set(els.map((el) => (el.textContent ?? '').split('·')[0]?.trim() ?? '').filter((t) => t.length > 0)),
+  ]);
+  expect(labels.length, 'no conversation labels to search').toBeGreaterThan(0);
+  // At least one label must be one that cannot appear in a session's fields, so the test
+  // cannot pass for the wrong reason.
+  const inlineOnly = labels.filter((label) => !['Goal'].includes(label.split(' ')[0] ?? ''));
+  expect(inlineOnly.length, 'every label could match a session field by accident').toBeGreaterThan(0);
+
+  const search = page.getByRole('searchbox', { name: '搜索进程' });
+  for (const label of inlineOnly) {
+    await search.fill(label);
+    await expect
+      .poll(async () => rows.count(), {
+        message: `searching "${label}" found nothing, but that label is on a row`,
+      })
+      .toBeGreaterThan(0);
+    // What survived must show that label, so the match is not incidental.
+    for (const text of await rows.allTextContents()) {
+      expect(text).toContain(label);
+    }
+  }
+
+  // The filter must also still work on the fields it always matched.
+  await search.fill('Tabby');
+  await expect.poll(async () => rows.count()).toBeGreaterThan(0);
+
+  await search.fill('');
+  await expect(rows).toHaveCount(total);
+
+  expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
 test('the sidebar conversation agrees with the process table for the same session', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));
