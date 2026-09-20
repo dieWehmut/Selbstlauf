@@ -34,7 +34,9 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
   await idle.fill(edited);
   expect(await idle.inputValue()).toBe(edited);
 
-  await sidebar.locator('nav').getByRole('button', { name: '进程' }).click();
+  // 设置 replaces the app sidebar with the settings rail, so 返回应用 is the way back —
+  // the 进程 nav button is not on the page while settings is open.
+  await page.getByRole('button', { name: /返回应用/u }).click();
   await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
   await sidebar.getByRole('button', { name: '设置' }).click();
   await rail.getByRole('tab', { name: '常规' }).click();
@@ -56,9 +58,10 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
   await forward.click();
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
 
-  // Revisit each page several times; the shell must not degrade.
+  // Revisit each page several times; the shell must not degrade. Settings is left with
+  // 返回应用, since the app sidebar is not on that page.
   for (let i = 0; i < 3; i += 1) {
-    await sidebar.locator('nav').getByRole('button', { name: '进程' }).click();
+    await page.getByRole('button', { name: /返回应用/u }).click();
     await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
     await sidebar.getByRole('button', { name: '事件' }).click();
     await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();
@@ -66,10 +69,13 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
     await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
   }
 
-  // Every visit still leaves one shell, one title bar and one rail.
+  // Every visit still leaves one shell, one title bar and one rail. The rail replaces the
+  // sidebar on settings, so exactly one `.sidebar` is present and it is the settings one.
   await expect(page.locator('.app-shell')).toHaveCount(1);
   await expect(page.locator('.titlebar')).toHaveCount(1);
   await expect(page.locator('.settings-rail')).toHaveCount(1);
+  await expect(page.locator('.sidebar')).toHaveCount(1);
+  await expect(page.locator('.sidebar--settings')).toHaveCount(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 
   await page.screenshot({ path: testInfo.outputPath('navigation-round-trip.png'), fullPage: true });

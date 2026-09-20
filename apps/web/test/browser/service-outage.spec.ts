@@ -54,10 +54,11 @@ test('survives the service going away mid-session', async ({ page }, testInfo) =
 
   await page.screenshot({ path: testInfo.outputPath('service-down.png'), fullPage: true });
 
-  // The service comes back; the app must recover without a reload.
+  // The service comes back; the app must recover without a reload. 设置 hides the app
+  // sidebar, so leaving it goes through 返回应用.
   healthy = true;
   await page.waitForTimeout(7000);
-  await page.locator('.sidebar nav').getByRole('button', { name: '进程' }).click();
+  await page.getByRole('button', { name: /返回应用/u }).click();
   await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
   await expect(page.locator('.app-shell')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);

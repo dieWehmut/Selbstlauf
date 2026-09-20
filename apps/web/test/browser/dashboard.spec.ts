@@ -106,7 +106,6 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
     await page.getByRole('button', { name: '设置' }).click();
-
     await page.getByRole('tab', { name: '配置' }).click();
     const hookSection = page.locator('.hook-settings');
     await expect(hookSection.getByRole('heading', { name: 'Claude Stop Hook' })).toBeVisible();
@@ -127,7 +126,6 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
     await page.getByRole('button', { name: '设置' }).click();
-
     await page.getByRole('tab', { name: '配置' }).click();
     const section = page.locator('.codex-endpoints');
     await expect(section.getByRole('heading', { name: '端点配置' })).toBeVisible();
@@ -143,7 +141,6 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/');
     await page.getByRole('button', { name: '设置' }).click();
-
     await page.getByRole('tab', { name: '账户' }).click();
     const panel = page.locator('.environment-panel');
     await expect(panel.getByRole('heading', { name: '本地环境检查' })).toBeVisible();
@@ -208,6 +205,9 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
+    // 设置 replaces the sidebar with the settings rail, which is itself a drawer at this
+    // width, so reopening the drawer is how a section gets picked on a narrow window.
+    await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('tab', { name: '外观' }).click();
 
     const panel = page.locator('.appearance-panel');
@@ -225,7 +225,8 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
-
+    // The settings rail is a drawer here, so reopen it to choose a section.
+    await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('tab', { name: '账户' }).click();
     const panel = page.locator('.environment-panel');
     await expect(panel).toBeVisible();
@@ -243,7 +244,8 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
-
+    // The settings rail is a drawer here, so reopen it to choose a section.
+    await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('tab', { name: '配置' }).click();
     const section = page.locator('.codex-endpoints');
     await expect(section).toBeVisible();
@@ -260,7 +262,8 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.goto('/');
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
-
+    // The settings rail is a drawer here, so reopen it to choose a section.
+    await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('tab', { name: '配置' }).click();
     const hookSection = page.locator('.hook-settings');
     await expect(hookSection).toBeVisible();
@@ -355,10 +358,15 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await page.getByRole('button', { name: '打开菜单' }).click();
     await page.getByRole('button', { name: '设置' }).click();
 
+    // 设置 replaces the app sidebar with the settings rail. At this width that rail is a
+    // drawer, so it opens from the same topbar button and must be reachable there.
+    await page.getByRole('button', { name: '打开菜单' }).click();
     const rail = page.getByRole('tablist', { name: '设置分区' });
     await expect(rail).toBeVisible();
     await rail.getByRole('tab', { name: '账户' }).click();
     await expect(page.getByRole('heading', { name: '关于' })).toBeVisible();
+    // Picking a section closes the drawer so the content is readable.
+    await expect(page.locator('.sidebar--settings')).not.toHaveClass(/is-open/u);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
 
     await page.screenshot({ path: testInfo.outputPath('settings-rail-360x780.png'), fullPage: true });

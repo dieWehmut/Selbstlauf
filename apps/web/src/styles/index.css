@@ -85,7 +85,11 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
-.app-shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); background: var(--bg); }
+/* A viewport-height shell whose middle column scrolls, rather than a document that
+   scrolls. The title bar is row 1 of a shell that never scrolls, so it is at the top of
+   the window by construction instead of scrolling away with a long settings section; the
+   content column is the scroll container, and the topbar sticks inside it. */
+.app-shell { height: 100vh; overflow: hidden; display: grid; grid-template-columns: 236px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); background: var(--bg); }
 /* Collapsing hides the sidebar instead of shrinking it to an icon rail.
    A 76px column of unlabelled icons is neither readable nor a real saving of space,
    and it left a permanent strip down the side of every page. The toggle lives in the
@@ -121,6 +125,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .workspace {
   position: relative;
   min-width: 0;
+  /* The scrolling column of the shell, so the title bar above it never moves. */
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 0 36px 48px;
   isolation: isolate;
   background-image:
@@ -129,7 +136,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   background-repeat: no-repeat;
 }
 .workspace::before { content: ''; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--bg) 74%, transparent); pointer-events: none; }
-.topbar { min-height: 94px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line-soft); }
+/* Sticks to the top of the scrolling content column, so the page title and the service
+   controls stay reachable while a long section scrolls under them. */
+.topbar { position: sticky; top: 0; z-index: 15; min-height: 94px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line-soft); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); }
 
 /* ---------- Row 1: the window's own title bar ---------- */
 /* The OS paints nothing but the window buttons here (titleBarStyle: 'hidden'),
@@ -140,6 +149,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
    lines up with the native buttons instead of sitting a few pixels off them. */
 .titlebar {
   grid-column: 1 / -1;
+  /* Pinned to the top of the window. It is the window's own title bar, so it must not
+     scroll away with the page — it used to sit in normal flow and leave the top of the
+     window empty as soon as a long settings section was scrolled. `z-index` keeps it
+     above the sidebar (20) so the sidebar slides under it rather than over it. */
+  position: sticky;
+  top: 0;
+  z-index: 30;
   height: var(--titlebar-height);
   display: flex;
   align-items: center;
@@ -363,14 +379,16 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 
 @media (max-width: 960px) {
   .workspace { padding-inline: 24px; }
-  /* One column: the sidebar is a drawer here, so the collapsed state must not remove
+  /* One column: the left rail is a drawer here, so the collapsed state must not remove
      it from the layout. The hide rule above is deliberately scoped to min-width 961px
      for exactly this reason. */
-  .app-shell, .app-shell--compact { grid-template-columns: 1fr; }
-  .sidebar { position: fixed; left: 0; width: 236px; transform: translateX(-100%); transition: transform .2s ease; box-shadow: var(--shadow-lift); }
+  .app-shell, .app-shell--compact, .app-shell--settings { grid-template-columns: 1fr; }
+  .sidebar { position: fixed; top: var(--titlebar-height); height: calc(100vh - var(--titlebar-height)); left: 0; width: 236px; transform: translateX(-100%); transition: transform .2s ease; box-shadow: var(--shadow-lift); }
   .sidebar.is-open { transform: translateX(0); }
   .app-shell--compact > .sidebar { display: flex; }
   .sidebar-close, .mobile-menu { display: inline-grid; }
+  /* The settings rail is a drawer at this width too, so its close control comes back. */
+  .sidebar--settings .sidebar-close { display: inline-grid; position: absolute; top: 12px; right: 12px; }
   .mobile-overlay { position: fixed; inset: 0; z-index: 10; border: 0; background: rgba(0, 0, 0, .38); backdrop-filter: blur(2px); }
   .mobile-overlay.is-open { display: block; }
 }
@@ -531,9 +549,19 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 /* The reference console navigates settings from a rail of two labelled
    categories rather than a flat tab strip. The rail is its own scrolling column
    so a long entry list never pushes the section content around. */
-.settings-shell { display: grid; grid-template-columns: minmax(0, 246px) minmax(0, 1fr); gap: 22px; margin-top: 30px; align-items: start; }
+/* On 设置 the rail occupies the app shell's left column instead of the app sidebar, so
+   the settings page has one left rail rather than two. It is a `.sidebar` for the slot
+   and the drawer behaviour, and this modifier takes over its insides. */
+.app-shell--settings { grid-template-columns: minmax(0, 268px) minmax(0, 1fr); }
+.sidebar--settings { overflow: hidden; padding: 0; background: var(--panel-soft); }
+.sidebar--settings .settings-rail { flex: 1 1 auto; min-height: 0; }
+.sidebar--settings .sidebar-close { display: none; }
+
+.settings-shell { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; margin-top: 0; align-items: start; }
 .settings-content { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; min-width: 0; }
-.settings-rail { position: sticky; top: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; max-height: calc(100vh - 60px); padding: 14px 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow-soft); }
+/* In the column the rail is the page's left navigation, so it drops the card chrome it
+   wore when it sat inside the content area. */
+.settings-rail { position: static; display: flex; flex-direction: column; gap: 12px; min-width: 0; width: 100%; height: 100%; min-height: 0; padding: 18px 14px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .settings-rail__back { display: flex; align-items: center; gap: 9px; min-height: 36px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-size: 13px; text-align: left; transition: background .16s ease, border-color .16s ease, color .16s ease; }
 .settings-rail__back:hover { border-color: var(--line-soft); color: var(--text); background: var(--panel-raised); }
 .settings-rail__search { display: flex; align-items: center; gap: 8px; padding: 0 11px; min-height: 36px; border: 1px solid var(--line-whisper); border-radius: var(--radius-pill); background: var(--panel-soft); color: var(--faint); }
@@ -579,17 +607,14 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .settings-rail__item svg { flex: 0 0 auto; }
 .settings-rail__item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-rail__empty { margin: 6px 10px; color: var(--muted); font-size: 12px; }
-/* Below the sidebar breakpoint the rail stacks above the content and scrolls
-   horizontally *inside its own box*, so the settings page keeps its width
-   instead of growing the document's scroll width. */
+/* Below the drawer breakpoint the rail is a drawer, so its list stacks vertically again
+   rather than scrolling horizontally inside the content area. */
 @media (max-width: 960px) {
-  .settings-shell { grid-template-columns: minmax(0, 1fr); }
-  .settings-rail { position: static; max-height: none; }
-  .settings-rail__list { display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; }
-  .settings-rail__group { display: flex; align-items: center; gap: 3px; flex: 0 0 auto; }
-  .settings-rail__group + .settings-rail__group { margin-top: 0; }
-  .settings-rail__category { padding: 0 6px; white-space: nowrap; }
-  .settings-rail__item { width: auto; flex: 0 0 auto; }
+  .settings-rail__list { display: grid; gap: 3px; overflow-x: hidden; overflow-y: auto; }
+  .settings-rail__group { display: grid; align-items: stretch; gap: 3px; flex: none; }
+  .settings-rail__group + .settings-rail__group { margin-top: 10px; }
+  .settings-rail__category { padding: 10px 10px 4px; white-space: normal; }
+  .settings-rail__item { width: 100%; flex: none; }
 }
 @media (max-width: 700px) {
   .settings-content { grid-template-columns: 1fr; gap: 12px; }

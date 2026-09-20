@@ -24,22 +24,29 @@ test('declares the colour scheme so native chrome follows the theme', async ({ p
   expect(dark, 'the dark theme does not declare a colour scheme').toBe('dark');
 
   // And the scroll containers must use a thin, themed scrollbar rather than the default.
-  // The rail only exists once settings is open, so open it before measuring.
+  // The process list belongs to the app sidebar, which 设置 replaces with the settings
+  // rail, so it is measured before entering settings and the rail after.
+  const sidebarScroll = page.locator('.sidebar-processes__scroll');
+  await expect(sidebarScroll, 'the process list is not present').toHaveCount(1);
+  const sidebarStyle = await sidebarScroll.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { scrollbarWidth: cs.scrollbarWidth, scrollbarColor: cs.scrollbarColor };
+  });
+  expect(sidebarStyle.scrollbarWidth, 'the process list does not use a thin scrollbar').toBe('thin');
+  expect(sidebarStyle.scrollbarColor, 'the process list has no themed scrollbar colour').not.toBe('');
+
   await page.getByRole('button', { name: '设置' }).first().click();
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
 
   const rail = page.locator('.settings-rail__list');
-  const sidebar = page.locator('.sidebar-processes__scroll');
-  for (const [name, locator] of [['settings rail', rail], ['process list', sidebar]] as const) {
-    await expect(locator, `${name} is not present`).toHaveCount(1);
-    const style = await locator.evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return { scrollbarWidth: cs.scrollbarWidth, scrollbarColor: cs.scrollbarColor };
-    });
-    expect(style.scrollbarWidth, `${name} does not use a thin scrollbar`).toBe('thin');
-    // A transparent track colour means it sits on the surface instead of banding it.
-    expect(style.scrollbarColor, `${name} has no themed scrollbar colour`).not.toBe('');
-  }
+  await expect(rail, 'the settings rail is not present').toHaveCount(1);
+  const style = await rail.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { scrollbarWidth: cs.scrollbarWidth, scrollbarColor: cs.scrollbarColor };
+  });
+  expect(style.scrollbarWidth, 'the settings rail does not use a thin scrollbar').toBe('thin');
+  // A transparent track colour means it sits on the surface instead of banding it.
+  expect(style.scrollbarColor, 'the settings rail has no themed scrollbar colour').not.toBe('');
 
   // Switching to the light theme must flip it back, or the light theme would inherit the
   // dark chrome.

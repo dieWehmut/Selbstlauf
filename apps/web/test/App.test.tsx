@@ -221,7 +221,9 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.click(await screen.findByRole('tab', { name: '电脑操控' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '允许打开运行位置' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '进程' }));
+    // On 设置 the left rail is the settings rail, so the app's own sidebar — and with it
+    // the 进程 nav button — is not rendered. 返回应用 is the way back.
+    fireEvent.click(await screen.findByRole('button', { name: /返回应用/u }));
     expect(await within(screen.getByRole('table')).findByRole('button', { name: /打开运行位置 PID 10/u })).toBeDisabled();
 
     // The switch persists, so restore it for the tests that follow this one.
@@ -237,7 +239,13 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.click(await screen.findByRole('tab', { name: '个人资料' }));
     fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: 'Orchester' } });
 
-    expect(await screen.findByText('Orchester')).toBeInTheDocument();
+    // The name is shown by the app sidebar, which 设置 replaces with the settings rail,
+    // so it becomes visible on the way back rather than while the settings page is open.
+    fireEvent.click(await screen.findByRole('button', { name: /返回应用/u }));
+    // The profile field and the sidebar both render the name now that both are mounted,
+    // so this scopes to the sidebar's brand block.
+    const brandName = await screen.findByTestId('brand-mark');
+    expect(brandName.parentElement?.textContent).toContain('Orchester');
 
     // Leave the stored profile clean for the next test in this file.
     localStorage.removeItem('watchdog-profile');
@@ -429,7 +437,12 @@ describe('watchdog dashboard', () => {
     await act(async () => pendingEnvironment.resolve(environment));
     expect(await screen.findByRole('heading', { name: '本地环境检查' })).toBeInTheDocument();
     expect(screen.getByText('2.1.274')).toBeInTheDocument();
-    expect(screen.getByText('服务在线')).toBeInTheDocument();
+
+    // The 服务在线 indicator belongs to the app sidebar, which 设置 replaces with the
+    // settings rail, so it is asserted on the way back — the state it reports must not
+    // have been disturbed by the pending environment scan.
+    fireEvent.click(await screen.findByRole('button', { name: /返回应用/u }));
+    expect(await screen.findByText('服务在线')).toBeInTheDocument();
   });
 
   it('keeps monitoring online when the environment scan rejects', async () => {
