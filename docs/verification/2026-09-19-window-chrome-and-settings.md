@@ -977,6 +977,41 @@ regression. Both jobs are green and the release is published. Worth recording be
 temptation is to treat a re-run as proof of nothing: here the local reproduction is what
 made the re-run meaningful.
 
+### A light scrollbar on a dark page, and a rail naming features that do not exist
+
+Both were found by reading a screenshot of the dark theme against the rendered app rather
+than by reading the markup.
+
+**The scrollbar.** No `color-scheme` was declared anywhere, so the browser drew its own
+scrollbars, form controls and focus rings **light** regardless of the app's colours — the
+bright bar down the settings rail and the process list. `:root` now declares
+`color-scheme: dark`, the light theme opts back into `light`, and both scroll regions get a
+thin themed scrollbar, declared with the standard properties *and* the `-webkit-`
+pseudo-elements because Firefox and Electron honour different ones (`d4ffe23`, 0.4.4).
+
+**The rail labels.** Two entries had drifted from the panel each one opens:
+
+- `trusted-contact` read **"Trusted contact"** — the single English label among otherwise
+  Chinese ones, while its own panel is titled **信任联系人**.
+- `usage` read **使用情况和计费**, "usage and billing", while the panel is titled
+  **使用统计** and computes session and event counts. The application has no billing concept
+  anywhere, so the rail advertised a feature that does not exist.
+
+Both now match their panels. The unit test that pins the rail's labels also rejects a
+billing label outright, rather than only comparing strings.
+
+Verified on the **installed** 0.4.4 — which matters here, because headless Chromium uses
+overlay scrollbars and reports a width of 0, so it cannot show the defect at all:
+
+    color-scheme (dark theme): dark
+    rail scrollbar: width=thin  color=color(srgb .22 .27 .30 / .7) transparent
+    webkit scrollbar rules matching the rail: 5   <- what Electron actually paints with
+    labels include 信任联系人: true | 使用统计: true | promises billing: false
+
+Two browser tests assert the declared scheme in both themes, that both scroll regions use a
+thin themed scrollbar, that the rail genuinely overflows at 1249x704 so the scrollbar is
+exercised rather than hypothetically styled, and that neither removed label has crept back.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
