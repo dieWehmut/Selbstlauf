@@ -1,4 +1,5 @@
 import { Pin, PinOff } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 import type { SessionView } from '../api/client';
 import { conversationShortId, formatSilence, groupSessionsByHost, sessionTone, sessionToneLabel, toolLabel } from './session-groups';
@@ -53,6 +54,30 @@ export function SidebarProcessList(props: {
   const groups = groupSessionsByHost(visible, props.pinnedIds);
   const pinned = new Set(props.pinnedIds);
 
+  /**
+   * Restore focus after a pin moves its row.
+   *
+   * Pinning lifts the row into the 置顶 group, so React unmounts the old row and mounts a new one —
+   * which destroys the button that had focus. Measured before this existed: pressing Enter on a pin
+   * dropped focus to `<body>`, and the next Tab restarted at the top of the document. A keyboard user
+   * pinning several rows was sent back to the beginning after each one.
+   *
+   * The row is identified by session id rather than by position, because the whole point is that its
+   * position changed.
+   */
+  const pendingFocus = useRef<string | null>(null);
+
+  useEffect(() => {
+    const id = pendingFocus.current;
+    if (id === null) return;
+    pendingFocus.current = null;
+    // The moved row may be in a different group now, so it is looked up by its own id.
+    const selector = `[data-session-id="${CSS.escape(id)}"] .sidebar-row__pin`;
+    const target = document.querySelector<HTMLElement>(selector);
+    // Focusing the control that was activated keeps :focus-visible matching, so the ring stays put.
+    target?.focus();
+  });
+
   return (
     <div className="sidebar-processes">
       <div className="sidebar-processes__search">
@@ -87,6 +112,7 @@ export function SidebarProcessList(props: {
               return (
                 <div
                   key={session.id}
+                  data-session-id={session.id}
                   className={`sidebar-row ${selected ? 'is-selected' : ''} ${isPinned ? 'is-pinned' : ''}`}
                 >
                   <button
@@ -113,7 +139,12 @@ export function SidebarProcessList(props: {
                     aria-pressed={isPinned}
                     aria-label={`${isPinned ? '取消置顶' : '置顶'} PID ${session.rootPid}`}
                     title={isPinned ? '取消置顶' : '置顶'}
-                    onClick={() => props.onTogglePin(session)}
+                    onClick={() => {
+                      // Remember which row to return focus to: pinning moves it, which unmounts the
+                      // button being pressed.
+                      pendingFocus.current = session.id;
+                      props.onTogglePin(session);
+                    }}
                   >
                     {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
                   </button>
