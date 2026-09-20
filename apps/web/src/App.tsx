@@ -1960,7 +1960,15 @@ export default function App({ api: suppliedApi }: AppProps) {
       if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
       const target = event.target as HTMLElement | null;
       if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
-      const shortcutPages: Record<string, Page> = { '1': 'overview', '2': 'timeline', '3': 'settings' };
+      const shortcutPages: Record<string, Page> = {
+        '1': 'overview',
+        '2': 'timeline',
+        '3': 'settings',
+        // The bottom bar's menu advertises Ctrl+, beside 设置, the conventional binding
+        // for preferences. It was shown without ever being bound, so the hint promised
+        // something the app did not do.
+        ',': 'settings',
+      };
       const next = shortcutPages[event.key];
       if (next === undefined) return;
       event.preventDefault();

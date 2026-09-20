@@ -180,13 +180,18 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.keyDown(window, { key: '1', ctrlKey: true });
     expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
 
+    // Ctrl+, is what the bottom bar's menu advertises beside 设置. It was displayed
+    // without being bound, so pressing it did nothing while the menu claimed otherwise.
+    fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+    expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
+
     // The documented list matches the implemented set, and nothing more.
-    fireEvent.keyDown(window, { key: '3', ctrlKey: true });
     fireEvent.click(await screen.findByRole('tab', { name: '键盘快捷键' }));
     const rows = screen.getAllByRole('row').map((row) => row.textContent ?? '');
     expect(rows.some((row) => row.includes('Ctrl+1'))).toBe(true);
     expect(rows.some((row) => row.includes('Ctrl+2'))).toBe(true);
     expect(rows.some((row) => row.includes('Ctrl+3'))).toBe(true);
+    expect(rows.some((row) => row.includes('Ctrl+,'))).toBe(true);
     expect(rows.some((row) => row.includes('Esc'))).toBe(true);
     // A binding nobody implemented must not be advertised.
     expect(rows.some((row) => /Ctrl\+(4|5|S|P)/u.test(row))).toBe(false);
