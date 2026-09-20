@@ -1589,9 +1589,41 @@ reverting the fix:
 
 Browser suite: 47 -> 49, verified stable over three consecutive runs.
 
+#### The tray at runtime, and a correction to this document
+
+The tray had been listed below as unverified for several rounds on the grounds that clicking its icon
+"by hand" had not been done. That was the wrong framing, and checking it produced no new defect — only a
+correction worth recording.
+
+What was measured in the packaged app this round:
+
+    packaged icon exists: true   nativeImage size 256x256, empty=false
+    16x16: 256/256 opaque pixels, 40 distinct colours, 177 saturated
+    Tray constructed from the packaged icon: yes
+    window hidden -> tray reveal -> visible=true, focused=true
+    window minimized -> tray reveal -> visible=true, minimized=false, focused=true
+    handleWindowClose (closeToTray=true,  tray present): returned=true,  preventDefault=true
+    handleWindowClose (closeToTray=false, tray present): returned=false, preventDefault=false
+    handleWindowClose (closeToTray=true,  NO tray):       returned=false, preventDefault=false
+
+So hide-to-tray works from both hidden and minimised states, and the three close behaviours agree with
+their intent. But **all three of those close cases are already covered by `lifecycle.test.ts`**, and the
+tray menu, its labels, its reveal-then-command behaviour and the checkbox's non-optimistic repaint are
+covered by `tray.test.ts`. The renderer's handling of the tray's `open-settings` command — including the
+account section — is covered in `App.test.tsx`. This round therefore **found no defect and closed no
+real gap**; what it did was confirm the packaged build behaves as the unit tests already asserted.
+
+The honest statement of what remains unverified is narrower than what used to be written here: the
+*appearance* of the tray icon in the notification area, and the native title-bar overlay's hit-testing.
+Neither is reachable by automation without synthesising clicks at coordinates the harness cannot verify.
+The tray icon was extracted and measured (fully opaque, colourful, legible at 32px, washed out at 16px,
+which is the source PNG's own lightness rather than a defect) — but measuring pixels is not the same as
+seeing it sit correctly among other notification icons.
+
 ## Not verified
 
-The native title-bar overlay's hit-testing and clicking the tray icon by hand
-were not exercised; the tray's existence is proved by the app's
-`Electron_NotifyIconHostWindow`, and hide-on-close by a real `WM_CLOSE` against
-the installed window. Everything else above was executed.
+The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
+hit-testing, are the two things automation cannot reach: both need a real click at coordinates the
+harness cannot verify, and pixel measurement is not the same as seeing the icon in place. Everything
+else above was executed. The tray's *behaviour* — menu labels, reveal, checkbox, close-to-tray in all
+three configurations — is covered by unit tests and was additionally confirmed in the packaged app.
