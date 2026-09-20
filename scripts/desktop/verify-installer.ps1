@@ -13,7 +13,12 @@ param(
     # The window lifecycle check needs a real interactive desktop. It is skipped
     # automatically when there is none; pass this to skip it on a machine that has
     # one (for example a headless agent host driving an emulated session).
-    [switch]$SkipWindowLifecycle
+    [switch]$SkipWindowLifecycle,
+    # An older installer to install first, so this installer is exercised as an
+    # in-place upgrade rather than only as a fresh install. That is the path a user
+    # takes when they install a newer version over an existing one, and it is where a
+    # duplicated uninstall entry or a half-replaced payload would appear.
+    [string]$UpgradeFrom
 )
 
 $ErrorActionPreference = 'Stop'
@@ -140,6 +145,38 @@ Remove-InstallRoot
 Remove-Item -LiteralPath $uninstallKey -Recurse -Force -ErrorAction SilentlyContinue
 foreach ($shortcut in $shortcuts) { Remove-Item -LiteralPath $shortcut -Force -ErrorAction SilentlyContinue }
 
+# An in-place upgrade: install the older build first, then the one under test over
+# it, without uninstalling. This is the path a user takes when they install a newer
+# version, and it is where a duplicated uninstall entry, a phantom Apps & features
+# row, or a half-replaced payload would show up. Without -UpgradeFrom only the fresh
+# install is exercised, which is a different code path inside NSIS.
+if ($UpgradeFrom) {
+    $upgradeFromPath = (Resolve-Path -LiteralPath $UpgradeFrom).Path
+    Write-Host "upgrade check: installing $upgradeFromPath first"
+
+    $previous = Start-Process -FilePath $upgradeFromPath -ArgumentList '/S', '/currentuser' -PassThru
+    Assert-Condition ($previous.WaitForExit($InstallTimeoutSeconds * 1000)) 'the previous installer did not finish in time'
+    Assert-Condition ($previous.ExitCode -eq 0) "the previous installer exited with code $($previous.ExitCode)"
+
+    Wait-ForCondition -TimeoutSeconds $StartupTimeoutSeconds -Description 'the previous build to install' -Condition {
+        Test-Path -LiteralPath $appExe
+    }
+    # Read from the installer's own artifact name, which is where the version the
+    # build declares is visible, rather than trusting the file name of the download.
+    $upgradeVersion = [regex]::Match((Split-Path -Leaf $upgradeFromPath), '(\d+\.\d+\.\d+)').Groups[1].Value
+    $expectedVersion = [regex]::Match((Split-Path -Leaf $installerPath), '(\d+\.\d+\.\d+)').Groups[1].Value
+    if (-not $upgradeVersion -or -not $expectedVersion) {
+        throw 'could not read a version from the installer file names; upgrade checks need them'
+    }
+    Write-Host "  previous build installed: version $upgradeVersion (expected $expectedVersion after the upgrade)"
+
+    # A file planted in the app directory: a correct upgrade replaces the directory
+    # rather than merging into it, so this must be gone afterwards. It distinguishes
+    # "the new payload was laid down" from "the old files were left in place".
+    $upgradeProbe = Join-Path $installRoot 'upgrade-probe.txt'
+    Set-Content -LiteralPath $upgradeProbe -Value 'planted before the upgrade' -Encoding utf8
+}
+
 # `/currentuser` is required, not optional: this product is per-user
 # (`perMachine: false`), and an assisted NSIS installer invoked with a bare `/S`
 # defaults to an all-users path, so it asks for elevation. In an interactive
@@ -167,6 +204,22 @@ foreach ($shortcut in $shortcuts) {
     Assert-Condition (Test-Path -LiteralPath $shortcut) "missing shortcut $shortcut"
 }
 Assert-Condition (Test-Path -LiteralPath $uninstallKey) 'missing uninstall registry entry'
+
+if ($UpgradeFrom) {
+    # The findings that only an upgrade can produce.
+    Assert-Condition (-not (Test-Path -LiteralPath $upgradeProbe)) 'the app directory was merged into rather than replaced (the plant file survived)'
+
+    $entries = @(
+        Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like '*Selbstlauf*' }
+    )
+    # A second entry would put a phantom row in Apps & features pointing at nothing.
+    Assert-Condition ($entries.Count -eq 1) "the upgrade left $($entries.Count) uninstall entries instead of one"
+    $installedVersion = (Get-Item -LiteralPath $appExe).VersionInfo.FileVersion
+    Assert-Condition ($entries[0].DisplayVersion -eq $installedVersion) "the uninstall entry says $($entries[0].DisplayVersion) but the app is $installedVersion"
+    Assert-Condition ($installedVersion -eq $expectedVersion) "the upgrade left version $installedVersion instead of $expectedVersion"
+    Write-Host "  upgrade check passed: $upgradeVersion -> $installedVersion, one uninstall entry, payload replaced"
+}
 
 Remove-Item -LiteralPath $watchdogPidFile -Force -ErrorAction SilentlyContinue
 $app = Start-Process -FilePath $appExe -PassThru
