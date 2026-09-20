@@ -100,7 +100,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .app-shell--compact { grid-template-columns: minmax(0, 1fr); }
   .app-shell--compact > .sidebar { display: none; }
 }
-.sidebar { position: sticky; top: var(--titlebar-height); height: calc(100vh - var(--titlebar-height)); display: flex; flex-direction: column; gap: 20px; padding: 16px 16px 18px; border-right: 1px solid var(--line-whisper); background: var(--panel-soft); z-index: 20; transition: background .2s ease, backdrop-filter .2s ease; }
+/* A floor on the nav and the footer, so that in a window too short to hold them the process
+   list keeps a usable height rather than being crushed to nothing. The desktop app enforces
+   minHeight 640, so this is for the browser build and any host without that floor. */
+.sidebar > nav, .sidebar > .sidebar__footer { flex: 0 0 auto; }
+.sidebar { position: sticky; top: var(--titlebar-height); height: calc(100vh - var(--titlebar-height)); display: flex; flex-direction: column; gap: 20px; padding: 16px 16px 18px; overflow-y: auto; border-right: 1px solid var(--line-whisper); background: var(--panel-soft); z-index: 20; transition: background .2s ease, backdrop-filter .2s ease; }
 /* The drawer's close control. Hidden at column widths, where there is no drawer to close
    and the sidebar has no header row of its own. Doubled with `.icon-button` because that
    rule sets `display: inline-grid` and comes later in the file: two single-class selectors
@@ -660,8 +664,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .sidebar-processes__search input::placeholder { color: var(--faint); }
 .sidebar-processes__search input:focus-visible { border-color: color-mix(in srgb, var(--accent) 45%, transparent); outline: none; }
 /* Its own scroll region: a long process list must never push the navigation or the
-   footer out of reach, and must never widen the sidebar. */
-.sidebar-processes__scroll { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
+   footer out of reach, and must never widen the sidebar. `min-height` keeps a usable slice
+   of the list in a window too short to hold the whole sidebar, instead of crushing it to
+   nothing — `0` here would let flex shrink it away entirely. */
+.sidebar-processes__scroll { display: flex; flex-direction: column; gap: 12px; min-height: 72px; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
 .sidebar-processes__group { display: flex; flex-direction: column; gap: 2px; }
 .sidebar-processes__heading {
   padding: 0 10px 4px;
@@ -749,7 +755,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .account-bar__button > div > span { display: block; margin-top: 2px; color: var(--faint); font: 10px var(--mono); }
 .account-bar__button .brand__mark { width: 28px; height: 28px; flex: 0 0 28px; }
 /* Anchored to the bar's bottom edge and positioned upwards, so the popup opens out of
-   the sidebar footer rather than downwards off the bottom of the window. */
+   the sidebar footer rather than downwards off the bottom of the window. `max-height` keeps
+   it inside the window in a short one: without it the popup's top edge landed above the
+   window, so its first row — the identity — could not be read at all. It scrolls rather
+   than clipping. */
 .account-popup {
   position: absolute;
   left: 0;
@@ -758,6 +767,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   z-index: 30;
   display: flex;
   flex-direction: column;
+  max-height: calc(100vh - var(--titlebar-height) - 24px);
+  overflow-y: auto;
   padding: 6px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
@@ -765,9 +776,24 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   box-shadow: var(--shadow-lift);
 }
 .account-menu { display: flex; flex-direction: column; gap: 2px; }
-.account-menu__status { display: flex; align-items: center; gap: 9px; padding: 8px 10px 10px; border-bottom: 1px solid var(--line-whisper); margin-bottom: 4px; }
-.account-menu__status strong { display: block; font-size: 12px; }
-.account-menu__status span { display: block; margin-top: 2px; color: var(--faint); font: 10px var(--mono); }
+/* The popup's grammar, following the reference: one header block with a rule under it, then
+   label/value rows, then icon rows, and a separated final group. */
+.account-popup__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px 10px;
+  border-bottom: 1px solid var(--line-whisper);
+}
+.account-popup__header strong { display: block; font-size: 13px; }
+.account-popup__header > div > span { display: block; margin-top: 1px; color: var(--faint); font: 10px var(--mono); }
+.account-popup__facts { display: flex; flex-direction: column; gap: 1px; padding: 6px 0; border-bottom: 1px solid var(--line-whisper); margin-bottom: 4px; }
+/* A label with its value pushed to the right edge, as the reference does for its figures. */
+.account-popup__fact { display: flex; align-items: center; gap: 9px; min-height: 26px; padding: 0 10px; color: var(--muted); font-size: 12px; }
+.account-popup__fact > span:not(.process-dot) { flex: 1 1 auto; }
+.account-popup__fact strong { flex: 0 0 auto; color: var(--text); font: 12px var(--mono); }
+/* The final group is set apart by a rule rather than by a gap alone. */
+.account-menu--separated { border-top: 1px solid var(--line-whisper); margin-top: 4px; padding-top: 4px; }
 .account-menu__item {
   display: flex;
   align-items: center;

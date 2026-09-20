@@ -19,6 +19,7 @@ import {
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
+  PawPrint,
   Plug,
   Power,
   RefreshCw,
@@ -2557,32 +2558,61 @@ export default function App({ api: suppliedApi }: AppProps) {
               // the whole menu for it. The status is still announced, because it is a
               // region with its own label.
               <div className="account-popup" role="region" aria-label="账户与状态">
-                {/* The identity the top brand block used to show, now that the sidebar has
-                    no header of its own. The display name from 个人资料 is adopted here. */}
-                <div className="account-menu__status">
+                {/* One header block, then rows — the grammar the reference popup uses. Two
+                    stacked header blocks read as two headers; the identity is the header and
+                    the service facts become label/value rows like any other.
+                    Only real values appear here: the app has no billing, invites or account,
+                    so none of those are invented to look like the reference. */}
+                <div className="account-popup__header">
                   <span className="brand__mark" data-testid="brand-mark" aria-hidden="true"><img src={brandIcon} alt="" width={34} height={34} /></span>
                   <div>
                     <strong>{displayName.trim().length > 0 ? displayName : 'Selbstlauf'}</strong>
                     <span>continuation watchdog</span>
                   </div>
                 </div>
-                <div className="account-menu__status">
-                  <span className={`process-dot process-dot--${connected ? 'writable' : 'error'}`} aria-hidden="true" />
-                  <div>
-                    <strong>{connected ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong>
-                    <span>{sessions.length} 个进程 · {ready} 个可写入</span>
+
+                <div className="account-popup__facts">
+                  <div className="account-popup__fact">
+                    <span className={`process-dot process-dot--${connected ? 'writable' : 'error'}`} aria-hidden="true" />
+                    <span>服务状态</span>
+                    <strong className={connected ? 'text-ready' : 'text-warn'}>
+                      {connected ? '在线' : staticDemo ? '离线预览' : '未连接'}
+                    </strong>
+                  </div>
+                  <div className="account-popup__fact">
+                    <span className={`process-dot process-dot--${ready > 0 ? 'writable' : 'monitor'}`} aria-hidden="true" />
+                    <span>发现进程</span>
+                    <strong>{sessions.length}</strong>
+                  </div>
+                  <div className="account-popup__fact">
+                    <span className="process-dot process-dot--writable" aria-hidden="true" />
+                    <span>可写入</span>
+                    <strong>{ready}</strong>
                   </div>
                 </div>
+
                 <div className="account-menu" role="menu" aria-label="账户与状态菜单">
                   <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setThemePreference(theme === 'dark' ? 'light' : 'dark'); setAccountMenuOpen(false); }}>
                     {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
                     <span>切换到{theme === 'dark' ? '亮色' : '暗色'}主题</span>
+                  </button>
+                  {/* The pet has its own settings section, so this is a real destination
+                      rather than a decoration, and it is reachable from here. */}
+                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setSettingsSection('pet'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
+                    <PawPrint size={17} />
+                    <span>显示宠物</span>
+                    <kbd>Ctrl+3</kbd>
                   </button>
                   <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
                     <Settings2 size={17} />
                     <span>设置</span>
                     <kbd>Ctrl+,</kbd>
                   </button>
+                </div>
+
+                {/* The last entry is set apart, as the reference sets its final entry apart:
+                    it changes the window rather than navigating anywhere. */}
+                <div className="account-menu account-menu--separated" role="menu" aria-label="窗口">
                   <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setSidebarCompact(true); setAccountMenuOpen(false); }}>
                     <PanelLeftClose size={17} />
                     <span>收起侧栏</span>

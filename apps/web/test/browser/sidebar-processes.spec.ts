@@ -112,9 +112,11 @@ test('the bottom bar menu opens upwards, not downwards', async ({ page }, testIn
   await page.locator('.workspace').click({ position: { x: 600, y: 500 } });
   await expect(menu).toHaveCount(0);
 
-  // A menu entry must actually do something: collapsing from here hides the sidebar.
+  // A menu entry must actually do something: collapsing from here hides the sidebar. It lives
+  // in the popup's final group, which the popup sets apart because it changes the window
+  // rather than navigating.
   await trigger.click();
-  await menu.getByRole('menuitem', { name: '收起侧栏' }).click();
+  await page.getByRole('menu', { name: '窗口' }).getByRole('menuitem', { name: '收起侧栏' }).click();
   await expect(page.locator('.sidebar')).toBeHidden();
   await expect(page.locator('.titlebar').getByRole('button', { name: '展开侧栏' })).toBeVisible();
 
