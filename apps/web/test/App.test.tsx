@@ -533,6 +533,9 @@ describe('watchdog dashboard', () => {
     const fake = api();
     render(<App api={fake} />);
     fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    // The Claude Stop Hook lives on 配置, beside the endpoint panel; it used to be
+    // mounted on 常规 while the rail's 配置 entry rendered nothing at all.
+    fireEvent.click(await screen.findByRole('tab', { name: '配置' }));
 
     expect(await screen.findByRole('heading', { name: 'Claude Stop Hook' })).toBeInTheDocument();
     expect(screen.getByText(/~\/\.claude\/settings\.json/)).toBeInTheDocument();
@@ -574,6 +577,7 @@ describe('watchdog dashboard', () => {
     }));
     render(<App api={fake} />);
     fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    fireEvent.click(await screen.findByRole('tab', { name: '配置' }));
 
     expect(await screen.findByRole('heading', { name: '端点配置' })).toBeInTheDocument();
     expect(screen.getByDisplayValue('https://first.example/v1')).toBeInTheDocument();
@@ -598,6 +602,7 @@ describe('watchdog dashboard', () => {
     }));
     render(<App api={fake} />);
     fireEvent.click((await screen.findAllByRole('button', { name: '设置' }))[0]);
+    fireEvent.click(await screen.findByRole('tab', { name: '配置' }));
 
     const url = await screen.findByLabelText('接口地址');
     fireEvent.change(url, { target: { value: 'https://third.example/v1' } });
