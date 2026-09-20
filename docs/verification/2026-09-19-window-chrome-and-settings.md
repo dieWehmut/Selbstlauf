@@ -745,6 +745,30 @@ No installer was built, no release appeared, and `releases/tags/v0.2.9` returns 
 The test tag was then deleted. A well-formed tag was left alone: the v0.2.8 run
 remains green.
 
+### Installing over an existing version was never tested
+
+The gate installed a build, exercised it, and uninstalled it. It never installed one
+version over another — the path a user actually takes when they install a newer
+version, and a different code path inside NSIS, because an upgrade must replace the
+existing app directory rather than merge into it and must not add a second uninstall
+entry.
+
+`verify-installer.ps1` now takes an optional `-UpgradeFrom <installer>`: it installs
+that build first, plants a file in the app directory, then installs the build under
+test over it without uninstalling. It asserts the app reports the new version, exactly
+one uninstall entry remains and shows that version, the full payload is present, and
+the planted file is gone — which separates "the new payload was laid down" from "the
+old files were left where they were".
+
+Run against the two published assets, 0.2.7 to 0.2.8:
+
+    previous build installed: version 0.2.7 (expected 0.2.8 after the upgrade)
+    upgrade check passed: 0.2.7 -> 0.2.8, one uninstall entry, payload replaced
+
+The release workflow runs the same check, upgrading from the most recently published
+release, and skips with an explicit warning when none exists so that a check which did
+not run is never reported as a pass.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
