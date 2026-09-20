@@ -131,7 +131,41 @@ export function SettingsRail(props: SettingsRailProps) {
         />
       </div>
 
-      <div className="settings-rail__list" role="tablist" aria-label="设置分区">
+      <div
+        className="settings-rail__list"
+        role="tablist"
+        aria-label="设置分区"
+        aria-orientation="vertical"
+        /*
+          The rail declares itself a tablist, so it owes the WAI-ARIA tabs pattern:
+          arrow keys move between tabs and Home/End jump to the ends. Without this,
+          every one of the 18 tabs sat in the page tab order, so a keyboard user
+          needed 18 Tab presses to reach the last section, and the arrow keys did
+          nothing on a control that announces itself as a tab list.
+        */
+        onKeyDown={(event) => {
+          const step = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1
+            : event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1
+              : 0;
+          const flat = categories.flatMap((category) => category.entries);
+          const current = flat.findIndex((entry) => entry.id === props.active);
+          let next = -1;
+          if (step !== 0) next = current + step;
+          else if (event.key === 'Home') next = 0;
+          else if (event.key === 'End') next = flat.length - 1;
+          else return;
+          if (next < 0 || next >= flat.length) return;
+          event.preventDefault();
+          props.onSelect(flat[next].id);
+          // Move focus with the selection, since the newly selected tab is the only
+          // one in the tab order once the roving tabindex is in place.
+          const list = event.currentTarget;
+          requestAnimationFrame(() => {
+            const buttons = list.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+            buttons[next]?.focus();
+          });
+        }}
+      >
         {categories.map((category) => (
           <div className="settings-rail__group" key={category.label}>
             <span className="settings-rail__category">{category.label}</span>
@@ -145,6 +179,9 @@ export function SettingsRail(props: SettingsRailProps) {
                   type="button"
                   role="tab"
                   aria-selected={selected}
+                  /* Roving tabindex: only the selected tab is reachable by Tab, and
+                     the arrow keys move within the list. */
+                  tabIndex={selected ? 0 : -1}
                   onClick={() => props.onSelect(entry.id)}
                 >
                   <Icon size={16} />
