@@ -1620,6 +1620,37 @@ The tray icon was extracted and measured (fully opaque, colourful, legible at 32
 which is the source PNG's own lightness rather than a defect) — but measuring pixels is not the same as
 seeing it sit correctly among other notification icons.
 
+#### The native-button gutter, and a first test that could not fail
+
+The renderer reserves 148px on the right of the title bar so the OS-drawn minimise/maximise/close
+buttons sit on the same surface. Two things were checked.
+
+**The desktop override at `@media (max-width: 700px)` is unreachable.** `DEFAULT_WINDOW_POLICY` sets
+`minWidth: 960`, so a real desktop window never reaches 700px. Forcing `data-shell="desktop"` at 690px
+does apply the rule (`padding-right: 4px`), which confirms it is live CSS rather than a typo — it simply
+cannot be reached. Dead CSS is not a defect, but the styling it implies is untested, and that is worth
+knowing if the minimum is ever lowered.
+
+**The gutter is never occupied.** Measured at every width a window can take (960, 1024, 1100, 1249,
+1440, 1920), sampling the gutter rectangle with `elementFromPoint` and scrolling the longest page hard:
+
+    960px:  reserve=148px, gutter at x=822..950   -> title bar
+    1249px: reserve=148px, gutter at x=1111..1239 -> title bar
+    1920px: reserve=148px, gutter at x=1782..1910 -> title bar
+    after scrolling to 99999 -> still the title bar
+
+The **first version of this test could not fail**, and finding that out is the useful part. It asserted
+that no control *inside* `.titlebar` reached the gutter — but the gutter is `padding-right` on that very
+element, so its content box shrinks and nothing inside can get there by construction. Setting the reserve
+to 0 left the test green. It was rewritten to sample `elementFromPoint`, which is the question that
+matters: what is actually painted where the OS buttons will be. Proved by setting the reserve to 0 again
+— the gutter then reports `none` at every width, and the test fails naming the pixels:
+
+    960px: x=970 in the gutter is occupied by none, not the title bar
+    1249px: x=1259 in the gutter is occupied by none, not the title bar
+
+Restored afterwards; browser suite 49 -> 51.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
