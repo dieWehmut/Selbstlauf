@@ -1419,6 +1419,29 @@ fixed was the **wording**, so the message no longer claims to know which case ap
 Two tests were added: one that a stale handle never falls back to another window, and one that the
 message does not promise restoration will help. Desktop suite 109 -> 111.
 
+#### The same over-claiming, one state over
+
+Fixing the minimized wording left the same mistake in the neighbouring state. The panel said a session
+with no window was necessarily DeepSeek Harness:
+
+    该进程没有自己的窗口（DeepSeek Harness 是网页界面），因此没有可预览的画面。
+
+A null window handle has several causes, so the live service was queried to see which apply:
+
+    sessions with no window: 1
+      dsh | category=browser | label="DeepSeek Harness 网页界面"
+
+The claim is therefore **right for every session on this machine and wrong as a general statement**: a
+Codex session in a bare console, a shell, or a host whose window lookup failed also has no window, and
+being told it was DeepSeek Harness is a message about the wrong tool. It is the same defect as the
+minimized wording — asserting one cause for a state that has more than one — found by looking for the
+pattern rather than by waiting for a report.
+
+The reason is now derived from the session rather than hardcoded: a harness session explains that its
+interface is a browser page, an identified host is named (运行位置：控制台), and an unknown one says the
+window could not be identified. Two tests pin it, and **both fail when the hardcoded message is put
+back** — verified by reverting the fix, watching them fail, and restoring it. Web suite 111 -> 113.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand

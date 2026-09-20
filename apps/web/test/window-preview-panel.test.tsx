@@ -76,7 +76,7 @@ describe('SessionWindowPreview', () => {
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
-  it('explains that a session with no window has nothing to show', async () => {
+  it('explains a harness session has no window of its own', async () => {
     const dsh = session({
       id: 'dsh:1',
       tool: 'dsh',
@@ -90,7 +90,42 @@ describe('SessionWindowPreview', () => {
       },
     });
     render(<SessionWindowPreview session={dsh} requestPreview={async () => ({ state: 'no-window' })} />);
-    expect(await screen.findByText(/它没有自己的窗口|没有自己的窗口/u)).toBeInTheDocument();
+    const note = await screen.findByText(/没有自己的窗口/u);
+    expect(note.textContent).toContain('DeepSeek Harness');
+  });
+
+  /**
+   * A null handle has more than one cause, so the message must not assert a single one.
+   *
+   * The wording used to claim *every* session without a window was DeepSeek Harness. That is true
+   * for every session on this machine and wrong in general — a Codex session in a bare console has
+   * no window either, and being told it was DeepSeek Harness is a message about the wrong tool.
+   */
+  it('does not claim a non-harness session is DeepSeek Harness', async () => {
+    const consoleSession = session({
+      id: 'codex:9',
+      tool: 'codex',
+      host: {
+        label: '控制台',
+        category: 'console',
+        windowTitle: null,
+        windowHandle: null,
+        processId: 9001,
+        executableName: 'cmd.exe',
+      },
+    });
+    render(<SessionWindowPreview session={consoleSession} requestPreview={async () => ({ state: 'no-window' })} />);
+    const note = await screen.findByText(/没有可预览的窗口/u);
+    expect(note.textContent).not.toContain('DeepSeek Harness');
+    // It names the host the service actually identified rather than guessing the kind.
+    expect(note.textContent).toContain('控制台');
+  });
+
+  it('says a window could not be identified when the host is unknown', async () => {
+    const unknown = session({ id: 'codex:8', tool: 'codex', host: null });
+    render(<SessionWindowPreview session={unknown} requestPreview={async () => ({ state: 'no-window' })} />);
+    const note = await screen.findByText(/未识别出该进程所在的窗口/u);
+    expect(note.textContent).not.toContain('DeepSeek Harness');
   });
 
   it('disables the switch-to-window button when there is no window to switch to', async () => {
