@@ -647,6 +647,35 @@ surface once more against the packaged bundle.
 
 Browser suite: 18 to 19 passing.
 
+### The shipped desktop layout was never rendered by a test
+
+No committed browser test installed the desktop bridge, so `data-shell='desktop'` —
+the mode the installed app actually runs in — was never rendered anywhere in the
+suite. Every browser test exercised the plain web build. The reserve that keeps the
+page's own controls from sitting under the OS window buttons therefore had no
+coverage, and a mistake in it would be invisible in every other test and obvious to
+a user.
+
+`desktop-shell.spec.ts` (`dcf3299`) installs the bridge and asserts:
+
+- the shell switches itself into `data-shell="desktop"`;
+- the computed right padding is exactly 148px and every title-bar control's right
+  edge falls before the gutter begins, so nothing intrudes into the native buttons;
+- the colour the renderer reports through `setTitleBarOverlay` is exactly the colour
+  the page painted — the mechanism that lets the native strip follow a custom palette
+  or the light theme, now checked against the live computed style rather than
+  asserted by construction;
+- the three named commands the menu bar and tray send (`open-settings`,
+  `open-settings` with `section: 'account'`, `back-to-app`) drive the UI;
+- the reserve drops to 4px below the 700px breakpoint and stays 148px at 900px.
+
+No defect found. Two notes worth keeping: the `onCommand` payload is
+`{ command, section }` rather than a bare string, and the first version of this test
+asserted the release at 900px when the breakpoint is 700px — the test was wrong
+rather than the CSS, which is why the breakpoint is now pinned from both sides.
+
+Browser suite: 19 to 20 passing.
+
 ## Not verified
 
 The native title-bar overlay's hit-testing and clicking the tray icon by hand
