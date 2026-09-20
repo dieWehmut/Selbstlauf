@@ -78,7 +78,16 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); background: var(--bg); }
-.app-shell--compact { grid-template-columns: 76px minmax(0, 1fr); }
+/* Collapsing hides the sidebar instead of shrinking it to an icon rail.
+   A 76px column of unlabelled icons is neither readable nor a real saving of space,
+   and it left a permanent strip down the side of every page. The toggle lives in the
+   title bar and stays put, so the sidebar can always be brought back.
+   Scoped to wide layouts on purpose: below 961px the sidebar is a drawer driven by the
+   topbar button, and hiding it there would make it unreachable. */
+@media (min-width: 961px) {
+  .app-shell--compact { grid-template-columns: minmax(0, 1fr); }
+  .app-shell--compact > .sidebar { display: none; }
+}
 .sidebar { position: sticky; top: var(--titlebar-height); height: calc(100vh - var(--titlebar-height)); display: flex; flex-direction: column; gap: 34px; padding: 24px 16px 18px; border-right: 1px solid var(--line-whisper); background: var(--panel-soft); z-index: 20; transition: background .2s ease, backdrop-filter .2s ease; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px; min-width: 0; }
 .brand__mark { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 34px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
@@ -91,10 +100,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .nav-button { display: flex; align-items: center; gap: 12px; min-height: 42px; width: 100%; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--muted); background: transparent; text-align: left; transition: background .16s ease, border-color .16s ease, color .16s ease; }
 .nav-button:hover, .nav-button.is-active { border-color: var(--line-soft); color: var(--text); background: var(--panel-raised); }
 .nav-button.is-active { box-shadow: inset 3px 0 var(--accent); color: var(--accent-strong); }
-.app-shell--compact .brand { justify-content: center; padding: 0; }
-.app-shell--compact .brand > div, .app-shell--compact .nav-button span, .app-shell--compact .service-mini > div { display: none; }
-.app-shell--compact .nav-button { justify-content: center; padding: 0; }
-.app-shell--compact .sidebar { padding-inline: 12px; }
 .sidebar__footer { display: grid; gap: 10px; margin-top: auto; }
 .service-mini { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow-soft); }
 .service-mini strong { font-size: 12px; }
@@ -350,12 +355,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 
 @media (max-width: 960px) {
   .workspace { padding-inline: 24px; }
+  /* One column: the sidebar is a drawer here, so the collapsed state must not remove
+     it from the layout. The hide rule above is deliberately scoped to min-width 961px
+     for exactly this reason. */
   .app-shell, .app-shell--compact { grid-template-columns: 1fr; }
   .sidebar { position: fixed; left: 0; width: 236px; transform: translateX(-100%); transition: transform .2s ease; box-shadow: var(--shadow-lift); }
   .sidebar.is-open { transform: translateX(0); }
-  .app-shell--compact .sidebar { width: 236px; padding-inline: 16px; }
-  .app-shell--compact .sidebar .brand > div, .app-shell--compact .sidebar .nav-button span, .app-shell--compact .sidebar .service-mini > div { display: block; }
-  .app-shell--compact .sidebar .nav-button { justify-content: flex-start; padding: 0 12px; }
+  .app-shell--compact > .sidebar { display: flex; }
   .sidebar-close, .mobile-menu { display: inline-grid; }
   .mobile-overlay { position: fixed; inset: 0; z-index: 10; border: 0; background: rgba(0, 0, 0, .38); backdrop-filter: blur(2px); }
   .mobile-overlay.is-open { display: block; }
