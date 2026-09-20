@@ -21,8 +21,13 @@
   --line-soft: color-mix(in srgb, var(--line) 52%, transparent);
   --line-whisper: color-mix(in srgb, var(--line) 26%, transparent);
   --text: #e9eef0;
-  --muted: #93a1a8;
-  --faint: #637078;
+  /* --muted and --faint carry real text: row labels, timestamps, conversation lines, group
+     headings and captions. Both are solved against the *lightest* surface they can sit on, which is
+     a selected row (#1e2326) rather than the sidebar itself (#1a1e22) — solving for the wrong
+     surface left the selected row's timestamp at 4.36:1. --faint stays dimmer than --muted so the
+     hierarchy survives. Measured: 3.29:1 before, 4.86:1 on the sidebar and 4.60:1 on a selected row. */
+  --muted: #9ea2a5;
+  --faint: #868b8d;
   --accent: #e6b65b;
   --accent-strong: #f4ca75;
   --green: #74c69d;
@@ -60,8 +65,13 @@
   --line-soft: color-mix(in srgb, var(--line) 62%, transparent);
   --line-whisper: color-mix(in srgb, var(--line) 36%, transparent);
   --text: #1c262b;
-  --muted: #5c6b70;
-  --faint: #829095;
+  /* Same reasoning as the dark theme, solved against the *darkest* surface these sit on — a
+     selected row (#e2e8e6) rather than the panel (#eff3f2). The light theme had less headroom:
+     --muted was only 4.95:1, so pushing --faint to AA with the original --muted would have made
+     --faint *darker* than --muted and inverted the hierarchy. Both were solved together.
+     Measured: --faint 2.95:1 before, 5.11:1 on the panel and 4.60:1 on a selected row. */
+  --muted: #4f575b;
+  --faint: #5f686a;
   --accent: #a56a08;
   --accent-strong: #7a4d00;
   --green: #247c59;

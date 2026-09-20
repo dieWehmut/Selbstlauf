@@ -1,7 +1,7 @@
 {
   "name": "@ai-cli-bypass/web",
   "private": true,
-  "version": "0.8.2",
+  "version": "0.8.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -23,6 +23,7 @@
     "@testing-library/user-event": "^14.5.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "axe-core": "^4.13.0",
     "jsdom": "^25.0.1",
     "typescript": "^5.9.2",
     "vite": "^6.0.5",
