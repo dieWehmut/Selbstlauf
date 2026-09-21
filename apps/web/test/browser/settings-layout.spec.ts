@@ -68,8 +68,18 @@ test('replaces the app sidebar with the settings rail, and keeps the title bar a
   await page.waitForTimeout(300);
   const after = Math.round((await page.locator('.titlebar').boundingBox())!.y);
   expect(after, 'the title bar scrolled away with the content').toBe(0);
-  // The page title row sticks under it rather than scrolling off too.
-  expect(Math.round((await page.locator('.topbar').boundingBox())!.y)).toBeGreaterThanOrEqual(0);
+  /**
+   * The page title row scrolls off, deliberately.
+   *
+   * It used to stick under the title bar, which kept an empty heading strip across the top of every
+   * scrolled page. The window's own title bar is the row that must stay reachable; a page heading belongs
+   * with its page. This asserts the opposite of what it used to, so the change is pinned rather than
+   * merely made.
+   */
+  expect(
+    Math.round((await page.locator('.topbar').boundingBox())!.y),
+    'the page heading row is still pinned instead of scrolling with its page',
+  ).toBeLessThan(0);
 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
