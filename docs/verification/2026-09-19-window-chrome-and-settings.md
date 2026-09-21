@@ -2090,11 +2090,34 @@ Not yet done, and worth stating why it is not a discovery tweak. Measured inside
 The process list is cheap to read — `wsl.exe -d Ubuntu-22.04 -- ps` returned 58 lines in 72ms — so *seeing*
 these sessions is a small change. What is missing is everything the rest of the app is built on: a Linux pid
 is not a Windows pid, so there is no `host.windowHandle`, no window to preview or reveal, and neither the
-existing ConsoleBridge nor the PTY transport can attach to a `/dev/pts` inside the distribution. Continuing a
-WSL session therefore means a new transport that writes into a Linux tty, not a discovery change, and it is
-its own piece of work rather than something to bolt onto this one.
+existing ConsoleBridge nor the PTY transport can attach to a `/dev/pts` inside the distribution.
+
+**Measured, on a pty this test owned rather than on the user's live session:**
+
+    every /dev/pts/N      owner=han  mode=crw--w----  WRITABLE
+    write to the slave    -> succeeded, and did NOT arrive (the process received nothing)
+    write to the master   -> succeeded, and did NOT arrive either
+
+The first result is the misleading one: writing to a pty *slave* succeeds and feeds the terminal's **output**
+stream, not the process's input; only the **master** carries input, and writing through
+`/proc/<holder>/fd/<master>` was refused delivery as well. So there is no route from outside the distribution
+into a session's terminal, and continuing a WSL session means a mechanism *inside* it — a helper running in the
+distribution, or the CLI's own protocol — not a pty write and not a discovery change.
+
+That makes WSL its own piece of work rather than something to bolt onto this one, which is why it is the one
+item left open.
 
 Suites: CLI 258 -> 262, desktop 111 -> 129, web 135 -> 137, browser 57.
+
+### The fixes are committed but NOT installed
+
+Worth stating plainly, because the installed app and the verified build now differ:
+
+    installed 0.9.5        two Tabby rows (30780 and 17448, the same conversation) | fix ABSENT
+    local packaged build   one Tabby row                                         | fix present
+
+Installing requires a release, and no release was made. So the four fixes exist in the repository, are verified
+against a real packaged build, and are **not** in the app on this machine.
 
 ## Not verified
 
