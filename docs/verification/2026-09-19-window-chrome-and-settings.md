@@ -2080,34 +2080,44 @@ script, which is the form that works.
     windows all back in their original minimized state: true
     focus unchanged by previewing: true
 
-**5. WSL processes are still not monitored — and this is a different kind of problem.**
+**5. WSL — the transport conclusion was wrong, and the right answer is much simpler.**
 
-Not yet done, and worth stating why it is not a discovery tweak. Measured inside Ubuntu-22.04:
+My first conclusion was that WSL continuation needs a helper running inside the distribution. That was based on
+the pty measurements below, which are real, but it generalised from them to the wrong answer. Codex exposes its
+own **JSON-RPC transport**, exactly the one the watchdog already speaks to continue Windows Codex sessions, and
+`wsl.exe` pipes stdio across the boundary perfectly well:
 
-    98051  tty=pts/8  cwd=/home/han/project/copilot-segmentation  node .../bin/codex
-    98058  tty=pts/8  ppid=98051  codex .../codex-linux-x64/vendor/.../bin/codex
+    codex app-server inside WSL, driven through wsl.exe stdio:
+      ok=true
+      id 1 (initialize)  -> keys: userAgent, codexHome, platformFamily, platformOs
+      id 2 (thread/list) -> 3 thread(s)
+        thread 01a0be49-... cwd=/home/han/project/copilot-segmentation status={"type":"notLoaded"}
+        thread 01a0bdc6-... cwd=/home/han/project/copilot-segmentation
+        thread 01a0bdc4-... cwd=/home/han/project
 
-The process list is cheap to read — `wsl.exe -d Ubuntu-22.04 -- ps` returned 58 lines in 72ms — so *seeing*
-these sessions is a small change. What is missing is everything the rest of the app is built on: a Linux pid
-is not a Windows pid, so there is no `host.windowHandle`, no window to preview or reveal, and neither the
-existing ConsoleBridge nor the PTY transport can attach to a `/dev/pts` inside the distribution.
+So **WSL continuation reuses the existing transport**; no helper inside the distribution is needed. The one
+obstacle was mundane: `codex` is a script whose shebang needs `node`, and `wsl.exe -e` supplies no PATH —
+resolved by invoking an explicit node binary, which is also how the native session on this machine runs.
 
-**Measured, on a pty this test owned rather than on the user's live session:**
+**Why the pty route was a dead end (measured on a pty this test owned, never the user's live session):**
 
     every /dev/pts/N      owner=han  mode=crw--w----  WRITABLE
     write to the slave    -> succeeded, and did NOT arrive (the process received nothing)
     write to the master   -> succeeded, and did NOT arrive either
 
-The first result is the misleading one: writing to a pty *slave* succeeds and feeds the terminal's **output**
-stream, not the process's input; only the **master** carries input, and writing through
-`/proc/<holder>/fd/<master>` was refused delivery as well. So there is no route from outside the distribution
-into a session's terminal, and continuing a WSL session means a mechanism *inside* it — a helper running in the
-distribution, or the CLI's own protocol — not a pty write and not a discovery change.
+Writing to a pty *slave* succeeds and feeds the terminal's **output** stream, not the process's input; only the
+**master** carries input, and the `/proc/<holder>/fd/<master>` route was refused delivery too. That is a true
+statement about terminals — and it was the wrong place to look, because the CLI already has a transport that
+does not involve a terminal at all. The lesson is the same one this session has produced repeatedly: a
+measurement can be correct and still mislead, if it answers a question that did not need answering that way.
 
-That makes WSL its own piece of work rather than something to bolt onto this one, which is why it is the one
-item left open.
+What remains genuinely absent for a WSL session, measured: a Linux pid is not a Windows pid, so there is **no
+`host.windowHandle`** — no window to preview, and nothing to reveal. Those sessions will be listed without a
+window, and the UI already words that state honestly.
 
 Suites: CLI 258 -> 262, desktop 111 -> 129, web 135 -> 137, browser 57.
+
+## Not verified
 
 ### The fixes are committed but NOT installed
 
@@ -2118,6 +2128,7 @@ Worth stating plainly, because the installed app and the verified build now diff
 
 Installing requires a release, and no release was made. So the four fixes exist in the repository, are verified
 against a real packaged build, and are **not** in the app on this machine.
+
 
 ## Not verified
 
