@@ -541,6 +541,34 @@ describe('watchdog dashboard', () => {
     expect(all.some((text) => text.includes('普通对话'))).toBe(true);
   });
 
+  it('lists only the sessions that are still running', async () => {
+    /**
+     * The service keeps a session after its process exits (`alive: false`) because its audit trail refers to
+     * it. Those are history, not things to act on: including them filled the sidebar with rows for processes
+     * that had been gone for hours — measured on a real machine, 25 rows for 5 live processes — and every
+     * action on one could only fail. This pins the filter, which the all-alive fixtures above cannot.
+     */
+    const fake = api();
+    const live = await fake.sessions();
+    fake.sessions = vi.fn(async () => [
+      ...live,
+      { ...live[0]!, id: 'exited-1', rootPid: 900, alive: false },
+      { ...live[0]!, id: 'exited-2', rootPid: 901, alive: false },
+    ]);
+
+    render(<App api={fake} />);
+    const list = await screen.findByRole('group', { name: '进程列表' });
+    const rows = list.querySelectorAll('.sidebar-row');
+    expect(rows).toHaveLength(live.length);
+    // The metric counts what is listed, so the two cannot disagree.
+    expect(within(screen.getByRole('region', { name: '运行概览' })).getByText('发现进程')).toBeInTheDocument();
+    expect(screen.getAllByText(String(live.length)).length).toBeGreaterThan(0);
+
+    // And the dead ones are absent from the table as well.
+    expect(screen.queryByText('PID 900')).not.toBeInTheDocument();
+    expect(screen.queryByText('PID 901')).not.toBeInTheDocument();
+  });
+
   it('shows the age of the most recent watchdog poll', async () => {
     render(<App api={api()} />);
     expect(await screen.findByLabelText('Last watchdog poll')).toHaveTextContent('2s');

@@ -10,7 +10,7 @@ import {
 } from '../src/process/host-apps.js';
 import { focusWindow, openLocalUrl } from '../src/process/window-focus.js';
 
-const DSH_HINT = { titleMarker: 'DSH', label: 'DeepSeek Harness ÁΩëÈ°µÁïåÈù¢' } as const;
+const DSH_HINT = { titleMarkers: ['DeepSeek Harness', 'DSH'], label: 'DeepSeek Harness ÁΩëÈ°µÁïåÈù¢' } as const;
 
 function window(overrides: Partial<HostWindowRef> & Pick<HostWindowRef, 'pid' | 'title'>): HostWindowRef {
   return {
@@ -154,6 +154,43 @@ test('a window that only mentions the marker is weaker than a browser tab', () =
   assert.equal(findHarnessWindow([windows[0] as HostWindowRef], DSH_HINT)?.pid, 900);
 });
 
+/**
+ * The harness window's title in practice does not contain the abbreviation.
+ *
+ * Measured on this machine: the window showing the harness WebUI is titled
+ * `Reference attachments for goal objective ‚Äî DeepSeek Harness`. With only `DSH` configured the match failed,
+ * so the harness session was reported as having no window at all while its window was visibly open ‚Äî and with
+ * it, the window preview and ÂàáÊç¢Âà∞ËØ•Á™óÂè£ were both lost. The full product name is what actually appears, so
+ * both are listed.
+ */
+test('finds the harness window by its full name, not only the abbreviation', () => {
+  const windows: HostWindowRef[] = [
+    window({ pid: 44964, processName: 'cmd.exe', title: 'cmd.exe', className: 'ConsoleWindowClass' }),
+    window({ pid: 5000, processName: 'msedge.exe', title: 'Reference attachments for goal objective ‚Äî DeepSeek Harness' }),
+  ];
+
+  const found = findHarnessWindow(windows, DSH_HINT);
+  assert.equal(found?.pid, 5000, 'the harness window was not found by its real title');
+
+  const host = classifySessionHost({
+    rootPid: 7984,
+    rootName: 'node.exe',
+    ancestors: [{ pid: 44964, name: 'cmd.exe' }],
+    windows,
+    harness: DSH_HINT,
+  });
+  assert.equal(host?.category, 'browser');
+  assert.equal(host?.processId, 5000);
+  assert.ok(host?.windowHandle !== null, 'the harness session must keep a window handle to preview and reveal');
+  assert.equal(host?.windowTitle, 'Reference attachments for goal objective ‚Äî DeepSeek Harness');
+});
+
+test('the abbreviation alone still matches, so neither marker is required', () => {
+  // A title that uses the short name must keep working.
+  const windows = [window({ pid: 77, processName: 'chrome.exe', title: 'DSH session' })];
+  assert.equal(findHarnessWindow(windows, DSH_HINT)?.pid, 77);
+});
+
 test('input-method and shell plumbing windows are never chosen', () => {
   const windows: HostWindowRef[] = [
     window({ pid: 25664, title: 'MSCTFIME UI', className: 'MSCTFIME UI' }),
@@ -239,4 +276,32 @@ test('openLocalUrl refuses anything that is not a loopback interface', async () 
   assert.deepEqual(await openLocalUrl('https://example.com', options), { ok: false, reason: 'non-loopback-url' });
   assert.deepEqual(await openLocalUrl('http://192.168.1.10:8080', options), { ok: false, reason: 'non-loopback-url' });
   assert.equal(calls.length, 1);
+});
+/**
+ * This application is never where a session runs.
+ *
+ * Its window is an ancestor of every CLI the watchdog continues °™ the service and the sessions it spawns
+ * live inside it °™ so it was picked as the host and the process list filled with rows labelled
+ * ‘À––Œª÷√: Selbstlauf. Measured on this machine: 19 of 25 rows, none of them a place a person works, and
+ * all of them long-dead processes that only appeared at all because of it. "Inside Selbstlauf" is never the
+ * useful answer, so that executable is excluded from host resolution entirely rather than merely ranked low.
+ */
+test('never reports this application as the host of a session', () => {
+  assert.equal(hostAppFor('Selbstlauf.exe'), null);
+  assert.equal(hostAppFor('SELBSTLAUF.EXE'), null);
+
+  // Even directly in the ancestor chain, with a window of its own, it is not chosen.
+  const host = classifySessionHost({
+    rootPid: 16240,
+    rootName: 'node.exe',
+    ancestors: [
+      { pid: 9900, name: 'Selbstlauf.exe' },
+      { pid: 5292, name: 'explorer.exe' },
+    ],
+    windows: [
+      window({ pid: 9900, processName: 'Selbstlauf.exe', title: 'Continuation Watchdog' }),
+    ],
+  });
+  assert.notEqual(host?.label, 'Selbstlauf');
+  assert.notEqual(host?.executableName, 'Selbstlauf.exe');
 });

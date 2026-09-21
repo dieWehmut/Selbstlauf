@@ -91,7 +91,7 @@ import {
 } from './settings/desktop-prefs';
 
 /** Shown by the account section and the sidebar; tracks the package version. */
-const APP_VERSION = '0.9.1';
+const APP_VERSION = '0.9.2';
 
 /** 电脑操控's single switch. */
 function isRevealPref(value: unknown): value is { allowReveal: boolean } {
@@ -2517,8 +2517,19 @@ export default function App({ api: suppliedApi }: AppProps) {
 
   const toggleWatchdog = () => health.running ? stopWatchdog() : startWatchdog();
 
-  const ready = sessions.filter(canInject).length;
-  const goalCount = sessions.filter((session) => session.tool === 'codex' && session.goal && ['active', 'paused'].includes(session.goal.status)).length;
+  /**
+   * The sessions that are actually running.
+   *
+   * The service keeps a session after its process exits, with `alive: false`, because the audit trail
+   * refers to it. Those are history, not things to act on: listing them filled the sidebar with rows for
+   * processes that had been gone for hours — measured, 25 rows for 5 live processes, 20 of them dead — and
+   * every action on one could only fail. The events page is where the audit history belongs, so the
+   * process views read this list instead.
+   */
+  const liveSessions = useMemo(() => sessions.filter((session) => session.alive), [sessions]);
+
+  const ready = liveSessions.filter(canInject).length;
+  const goalCount = liveSessions.filter((session) => session.tool === 'codex' && session.goal && ['active', 'paused'].includes(session.goal.status)).length;
 
   /**
    * The top navigation.
@@ -2593,7 +2604,7 @@ export default function App({ api: suppliedApi }: AppProps) {
             group and a full-width highlight on the selected row. It scrolls on its own
             so a long list never pushes the navigation or the footer out of reach. */}
         <SidebarProcessList
-          sessions={sessions}
+          sessions={liveSessions}
           selectedId={selectedSessionId}
           onSelect={(session) => {
             setSelectedSessionId(session.id);
@@ -2706,8 +2717,8 @@ export default function App({ api: suppliedApi }: AppProps) {
         {notice && <div className="notice" role="status"><span>{notice}</span><button className="icon-button" type="button" aria-label="关闭通知" onClick={() => setNotice(null)}><X size={15} /></button></div>}
 
         {page === 'overview' && <div className="page-content">
-          <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{sessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>服务状态</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : connected ? '已停止' : '离线'}</strong></div></section>
-          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : staticDemo ? '样例数据' : '等待连接'}</span></div><ProcessTable sessions={sessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
+          <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{liveSessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>服务状态</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : connected ? '已停止' : '离线'}</strong></div></section>
+          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : staticDemo ? '样例数据' : '等待连接'}</span></div><ProcessTable sessions={liveSessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
           <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => navigate('timeline')}>查看全部</button></div><Timeline events={visibleEvents.slice(0, 5)} /></section>
         </div>}
 
@@ -2716,8 +2727,8 @@ export default function App({ api: suppliedApi }: AppProps) {
             open falls back to the empty state rather than showing stale data. */}
         {page === 'process' && <div className="page-content">
           <ProcessDetail
-            session={sessions.find((session) => session.id === selectedSessionId) ?? null}
-            sessions={sessions}
+            session={liveSessions.find((session) => session.id === selectedSessionId) ?? null}
+            sessions={liveSessions}
             config={config}
             busy={busy}
             allowReveal={allowReveal}
@@ -2732,7 +2743,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={sessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
       </main>
     </div>
   );
