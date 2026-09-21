@@ -2195,6 +2195,71 @@ the installed app and the published release now differ while sharing a version n
 That is a deliberate trade the user chose, and the cost is worth naming: the version number no longer identifies
 which build is installed.
 
+#### Grouping by application, the scrollbar, and what input simulation actually costs
+
+Three requests, two of them settled and one deliberately not built.
+
+**1. Scrollbars.** Measured on the installed app: of four scrolling containers, **only one** was themed, and
+`.workspace` — the main column, which is scrolled constantly — rendered a **15px browser-default bar** with
+`scrollbar-color: auto`. A default bar beside a themed one reads as a rendering fault. All five regions now
+share one definition (10px layout, ~4px thumb, themed track and hover).
+
+**A regression the fix introduced, caught by the layout suite.** The first version added
+`scrollbar-gutter: stable`, which reserves the scrollbar's width permanently — **11px in Chromium** — and that
+pushed the sidebar's flush footer off its right edge. The pinned check failed with
+`the bar is inset from the right edge` (11 where at most 1 was allowed). The gutter is removed and the reason
+recorded in the stylesheet. Worth keeping as an example of one pinned rule catching a change made for a
+different reason.
+
+**2. Grouping follows the application, not the operating system.** A Codex session in WSL now sits under Tabby.
+That needed a measurable link between a Linux process and a Windows terminal, because the distribution side
+offers none: its ancestry dead-ends at `Relay → SessionLeader → systemd`, and no environment variable names a
+terminal. The link is the **interop socket** WSL sets in everything an invocation launches — one per `wsl.exe`,
+created when it starts:
+
+    socket 66223_interop created  2026-09-20 15:44:09   (the codex session, on pts/8)
+    wsl.exe 30044 started         2026-09-20 15:44:08   (wsl.exe < cmd.exe < Tabby.exe)
+
+One second apart, under Tabby. The session now reports `host=Tabby` with **no window handle** — the window
+belongs to the terminal, and pointing a preview at it would show the wrong thing under this row's name — so
+the sidebar groups it with Tabby while the detail page still says truthfully that it has no window of its own.
+The distribution is kept only as a fallback for a session whose launcher cannot be established:
+
+    sidebar groups: ["Tabby","Codex 应用","Microsoft Edge"]   (no WSL group)
+    WSL row host  : Tabby | WSL · Ubuntu-22.04
+
+**Two defects found while building this**, both in my own code and both caught by measurement rather than by
+tests:
+
+- `Get-Date -UFormat %s` returns **local time treated as UTC**. Every launcher start time was 8 hours out, so
+  nothing paired at all. Replaced with `[DateTimeOffset]::new(...).ToUnixTimeSeconds()`.
+- The pairing treated **any equal delta as ambiguous**. Launching WSL from Tabby starts `30044` and its child
+  `12620` in the same second, so both matched the socket identically and the guard rejected a pairing that was
+  in fact unambiguous. The decision is now made on the *terminal*, not the process: several `wsl.exe` in one
+  chain share an answer, and only a genuine disagreement between terminals is unresolved.
+
+**3. Input simulation was NOT built, and the measurements are why.**
+
+The request was 实现操控窗口内页面 完全地模拟. Four routes were measured, all against windows **this session
+created**, never the user's applications:
+
+| Route | Result |
+| --- | --- |
+| `PostMessage(WM_CHAR)` into a background window | **delivers nothing** (10 characters posted, empty control) |
+| `PrintWindow` | unrelated to input; unclear |
+| `SendInput` | **delivers**, but only to the **foreground** window |
+| `SetForegroundWindow` from a background process | returns **False** under Windows' foreground lock |
+| `AttachThreadInput` + `SetFocus` | **works, and visibly steals focus** — measured, the foreground window changed |
+| UI Automation `ValuePattern`/`InvokePattern` | the window is reachable, but its **child controls are absent from the automation tree while it is minimized** |
+
+So the only route that actually delivers input has to take the foreground first, and the one route that needs no
+focus stops working in exactly the state this feature exists for — a session the user is not looking at. Since
+this app's whole purpose is to continue background sessions, a feature that yanks focus away would cost more
+than it gives. **Nothing was built.** That is a judgement worth the user's decision rather than mine, so it is
+reported rather than implemented.
+
+Suites: CLI 280 -> 291, browser 57 -> 59.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

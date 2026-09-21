@@ -47,6 +47,12 @@ const FIELD_SEPARATOR = '\t';
  * working directory, which is how the app matches a session to a conversation. `/proc/<pid>/cwd` needs no
  * privilege for the same user, and a process that has exited between the two calls yields an empty string
  * rather than an error.
+ *
+ * The last two fields are the link back to the Windows terminal that launched the session. WSL sets
+ * `WSL_INTEROP=/run/WSL/<relaypid>_interop` in everything an invocation launches, and that socket is created
+ * when the invocation starts — so its timestamp identifies which `wsl.exe` this session belongs to. Measured on
+ * this machine: the codex session's socket was created at 15:44:09 and `wsl.exe` 30044 (under `Tabby.exe`)
+ * started at 15:44:08, which is what makes grouping by application possible instead of by operating system.
  */
 const PROBE_SCRIPT = [
   'set -u',
@@ -58,7 +64,9 @@ const PROBE_SCRIPT = [
   '  comm=$(printf %s "$line" | awk \'{print $3}\')',
   '  args=$(printf %s "$line" | sed \'s/^[[:space:]]*[^[:space:]]*[[:space:]]*[^[:space:]]*[[:space:]]*[^[:space:]]*[[:space:]]*//\')',
   '  cwd=$(readlink /proc/"$pid"/cwd 2>/dev/null || true)',
-  '  printf \'%s\\t%s\\t%s\\t%s\\t%s\\n\' "$pid" "$ppid" "$comm" "$args" "$cwd"',
+  '  interop=$(tr \'\\0\' \'\\n\' < /proc/"$pid"/environ 2>/dev/null | grep \'^WSL_INTEROP=\' | cut -d= -f2 || true)',
+  '  created=$(stat -c %Y "$interop" 2>/dev/null || echo 0)',
+  '  printf \'%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n\' "$pid" "$ppid" "$comm" "$args" "$cwd" "$interop" "$created"',
   'done',
 ].join('\n');
 
@@ -112,6 +120,10 @@ export function parseWslProcessLine(line: string): RawProcessRecord | null {
 
   const commandLine = (parts[3] ?? '').trim();
   const workingDirectory = (parts[4] ?? '').trim();
+  // The interop socket names the `wsl.exe` invocation this process belongs to, and its creation time is when
+  // that invocation started. Both are carried so the caller can pair the session with a Windows terminal.
+  const interopSocket = (parts[5] ?? '').trim();
+  const interopCreatedSec = Number.parseInt((parts[6] ?? '').trim(), 10);
 
   return {
     pid,
@@ -126,6 +138,14 @@ export function parseWslProcessLine(line: string): RawProcessRecord | null {
     ...(workingDirectory.length > 0 ? { workingDirectory } : {}),
     ancestors: [],
     windows: [],
+    ...(interopSocket.length > 0
+      ? {
+        interopSocket,
+        ...(Number.isSafeInteger(interopCreatedSec) && interopCreatedSec > 0
+          ? { interopCreatedSec }
+          : {}),
+      }
+      : {}),
   };
 }
 

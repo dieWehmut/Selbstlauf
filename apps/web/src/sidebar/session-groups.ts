@@ -80,18 +80,23 @@ export function groupSessionsByHost(
   for (const session of rest) {
     const host = session.host ?? null;
     /**
-     * A WSL session is grouped under its distribution, not as an unidentified host.
+     * Groups follow the **application**, not the operating system.
      *
-     * It has no host by design — a Linux pid has no Win32 window — so the generic label would read as a
-     * failure to identify it. The distribution is what actually says where the session runs, and grouping by
-     * it keeps several sessions in one distribution together.
+     * A session running inside WSL is grouped with the terminal that launched it — measured, a Codex session in
+     * Ubuntu started from Tabby carries a Tabby host, because the interop socket pairs it with the `wsl.exe`
+     * under that terminal. So a WSL session and a native one in the same terminal sit together, which is how a
+     * person thinks about them.
+     *
+     * The distribution is only a fallback, for a WSL session whose launching terminal could not be established.
+     * It is still better than the generic "host unrecognised", because the distribution is a true statement about
+     * where the session runs — just a less useful grouping.
      */
-    const label = session.distribution !== undefined && session.distribution.length > 0
-      ? `WSL: ${session.distribution}`
-      : host === null || host.label.trim().length === 0 ? UNKNOWN_HOST_LABEL : host.label;
-    const category = session.distribution !== undefined && session.distribution.length > 0
-      ? 'terminal'
-      : host?.category ?? 'unknown';
+    const hasHost = host !== null && host.label.trim().length > 0;
+    const hasDistribution = session.distribution !== undefined && session.distribution.length > 0;
+    const label = hasHost
+      ? host.label
+      : hasDistribution ? `WSL: ${session.distribution}` : UNKNOWN_HOST_LABEL;
+    const category = hasHost ? host.category : hasDistribution ? 'terminal' : 'unknown';
     const existing = groups.get(label);
     if (existing === undefined) {
       groups.set(label, { label, category, sessions: [session] });

@@ -61,26 +61,49 @@ describe('sidebar session grouping', () => {
     expect(groups[0].sessions.map((entry) => entry.id).sort()).toEqual(['a', 'b', 'c']);
   });
 
-  it('groups WSL sessions under their distribution, not as an unidentified host', () => {
-    /**
-     * A WSL session has no host by design — a Linux pid has no Win32 window — so the generic label would read
-     * as a failure to identify it. The distribution says where it actually runs, and grouping by it keeps
-     * several sessions in one distribution together.
-     */
+  /**
+   * Grouping follows the application, not the operating system.
+   *
+   * The user asked for a Codex session running inside WSL, started from Tabby, to sit with Tabby rather than in
+   * a group of its own — "应该以应用分类而不是以系统分类". Measured, that is possible: the session's interop socket
+   * pairs it with the `wsl.exe` under Tabby, so it carries a Tabby host like any native session.
+   */
+  it('groups a WSL session with the terminal that launched it, not by its distribution', () => {
+    const host = (label: string) => ({
+      processId: 1,
+      executableName: `${label}.exe`,
+      label,
+      category: 'terminal' as const,
+      windowHandle: null,
+      windowTitle: null,
+    });
+
+    const groups = groupSessionsByHost([
+      session({ id: 'native', host: host('Tabby') }),
+      // The same terminal, but the session runs inside a distribution.
+      session({ id: 'wsl', host: host('Tabby'), distribution: 'Ubuntu-22.04' }),
+      // A distribution whose launching terminal could not be established still groups by the distribution.
+      session({ id: 'orphan', host: null, distribution: 'Debian' }),
+    ]);
+
+    const tabby = groups.find((group) => group.label === 'Tabby');
+    expect(tabby?.sessions.map((entry) => entry.id).sort()).toEqual(['native', 'wsl']);
+    // No separate WSL group exists for the attributed session, which is the point of the request.
+    expect(groups.map((group) => group.label)).not.toContain('WSL: Ubuntu-22.04');
+    // The unattributed one still names its distribution rather than being called unrecognised.
+    expect(groups.map((group) => group.label)).toContain('WSL: Debian');
+  });
+
+  it('falls back to the distribution when a WSL session has no attributed terminal', () => {
     const groups = groupSessionsByHost([
       session({ id: 'w1', host: null, distribution: 'Ubuntu-22.04' }),
       session({ id: 'w2', host: null, distribution: 'Ubuntu-22.04' }),
-      session({ id: 'w3', host: null, distribution: 'Debian' }),
-      session({ id: 'plain', host: null }),
     ]);
 
-    const labels = groups.map((group) => group.label).sort();
-    expect(labels).toContain('WSL: Ubuntu-22.04');
-    expect(labels).toContain('WSL: Debian');
-    expect(labels).toContain(UNKNOWN_HOST_LABEL);
-    // The two sessions in one distribution share a group, and it is not the unknown-host group.
-    const ubuntu = groups.find((group) => group.label === 'WSL: Ubuntu-22.04');
-    expect(ubuntu?.sessions.map((entry) => entry.id).sort()).toEqual(['w1', 'w2']);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe('WSL: Ubuntu-22.04');
+    expect(groups[0].sessions.map((entry) => entry.id).sort()).toEqual(['w1', 'w2']);
+    expect(UNKNOWN_HOST_LABEL).not.toBe(groups[0].label);
   });
 
   it('orders groups by category so the list does not reshuffle between polls', () => {

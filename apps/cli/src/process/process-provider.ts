@@ -19,6 +19,24 @@ export interface RawProcessRecord {
   readonly ancestors?: readonly RawAncestorRecord[];
   /** Visible windows owned by an ancestor, plus caller-marked title matches. */
   readonly windows?: readonly RawWindowRecord[];
+  /**
+   * The WSL interop socket this process belongs to, as `WSL_INTEROP` reports it.
+   *
+   * WSL sets one socket per `wsl.exe` invocation, so this names the Windows process that entered the
+   * distribution — which is what lets a session inside WSL be attributed to the terminal it was launched from
+   * rather than being filed under its own operating system.
+   */
+  readonly interopSocket?: string;
+  /** Creation time of that socket, in epoch seconds: when the `wsl.exe` invocation started. */
+  readonly interopCreatedSec?: number;
+  /**
+   * The Windows terminal that launched this WSL session, when it could be established.
+   *
+   * Set by the caller after pairing the interop socket's time with a `wsl.exe` start time. It is what lets a
+   * session inside a distribution be grouped under the application a person works in rather than under its own
+   * operating system.
+   */
+  readonly wslTerminal?: string;
 }
 
 export interface RawAncestorRecord {

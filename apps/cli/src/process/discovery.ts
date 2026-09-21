@@ -1,6 +1,7 @@
 import type { RawProcessRecord } from './process-provider.js';
 import {
   classifySessionHost,
+  hostAppFor,
   type HarnessHostHint,
   type SessionHost,
 } from './host-apps.js';
@@ -345,19 +346,52 @@ export function groupProcesses(
         userSid: root.userSid,
         ...(workingDirectory === null ? {} : { workingDirectory }),
         /**
-         * A session inside a distribution gets no host.
+         * A session inside a distribution gets a host only when its launching terminal was established.
          *
-         * `classifySessionHost` answers "which application is this running inside", from the ancestor chain
-         * and the visible windows on the desktop. Neither exists for a Linux process: measured, a WSL pid has
-         * no Win32 window at all, so any answer it produced would be a guess about Windows processes numbered
-         * the same. Leaving it absent is what makes the UI say the session has no window, which is true.
+         * `classifySessionHost` answers "which application is this running inside" from the ancestor chain and
+         * the desktop's window list, and a Linux process has neither — measured, a WSL pid has no Win32 window
+         * at all — so it is not asked for one here.
+         *
+         * The user's request is that a Codex session inside WSL, started from Tabby, be grouped **with Tabby**:
+         * the grouping should follow the application a person works in rather than the operating system. That
+         * attribution comes from the interop socket (see `wsl-launcher.ts`) and is carried on the record as
+         * `wslTerminal`. When it is present the session is given a host naming that terminal, with no window
+         * handle — the window belongs to the terminal, not to the distribution — so the UI still says truthfully
+         * that this session has no window of its own to preview.
          */
-        ...(isWsl || host === null ? {} : { host }),
+        ...(isWsl
+          ? hostFromWslTerminal(root.wslTerminal, root.pid)
+          : host === null ? {} : { host }),
         ...(isWsl ? { distribution } : {}),
         transportHint: 'unknown' as const,
       };
     })
     .sort(compareSessions);
+}
+
+/**
+ * Build a host for a WSL session from the terminal that launched it.
+ *
+ * The window handle is deliberately null: the terminal's window shows this session's output, but the session is
+ * not the terminal's process, and pointing the preview at the terminal's window would show the wrong thing under
+ * this row's name. What the host is used for here is grouping.
+ */
+function hostFromWslTerminal(
+  terminal: string | undefined,
+  rootPid: number,
+): { readonly host?: SessionHost } {
+  if (terminal === undefined || terminal.trim().length === 0) return {};
+  const known = hostAppFor(terminal);
+  return {
+    host: {
+      processId: rootPid,
+      executableName: terminal,
+      label: known?.label ?? terminal,
+      category: known?.category ?? 'terminal',
+      windowHandle: null,
+      windowTitle: null,
+    },
+  };
 }
 
 function extractWorkingDirectory(commandLine: string | null): string | null {

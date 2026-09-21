@@ -39,6 +39,7 @@ import {
 } from '../process/discovery.js';
 import type { SessionHost } from '../process/host-apps.js';
 import { focusWindow, openLocalUrl, type WindowFocusResult } from '../process/window-focus.js';
+import { listWslLaunchers, terminalForInterop } from '../process/wsl-launcher.js';
 import { listWslProcesses } from '../process/wsl-processes.js';
 import {
   WindowsProcessProvider,
@@ -553,8 +554,23 @@ export class WatchdogController {
     }
     this.lastWslError = null;
 
+    /**
+     * Attribute each session to the Windows terminal that launched it, so it groups with that application
+     * rather than under its own operating system.
+     *
+     * The pairing needs the `wsl.exe` list from the Windows side, which is fetched once per poll alongside the
+     * distribution probe. A session whose terminal cannot be established keeps no attribution and is grouped
+     * under its distribution, which is honest rather than a guess.
+     */
+    // The launcher list comes from the Windows side through PowerShell, so `wslPath` does not apply here.
+    const launchers = await listWslLaunchers();
+    const attributed = result.records.map((record) => {
+      const terminal = terminalForInterop(record.interopCreatedSec, launchers);
+      return terminal === null ? record : { ...record, wslTerminal: terminal.terminal ?? undefined };
+    });
+
     try {
-      const groups = groupProcesses(result.records, {
+      const groups = groupProcesses(attributed, {
         distribution,
         currentProcessId: this.currentProcessId,
         sameUserOnly: this.currentConfig.processFilters.sameUserOnly,
