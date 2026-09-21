@@ -270,6 +270,62 @@ test('WindowsProcessProvider forwards the watchdog PID so its owner SID is alway
   assert.deepEqual(receivedArgs.slice(-2), ['-IncludeProcessId', '4242']);
 });
 
+/**
+ * Window-title markers must be sent as ONE comma-separated argument.
+ *
+ * This seam broke twice, in opposite directions, and neither failure was catchable from the pure
+ * classification tests because they never exercise how Node marshals arguments into PowerShell:
+ *
+ *   1. `-WindowTitleMarker a -WindowTitleMarker b` -> PowerShell raises "parameter is specified more than
+ *      once", the provider call throws, and the app discovers NOTHING at all. It shipped in 0.9.2 and the
+ *      installer check caught it with "the installed app never discovered probe PID ... it listed 0
+ *      session(s)".
+ *   2. `-WindowTitleMarker "a,b"` against a `[string[]]` parameter -> binds the whole thing as the single
+ *      string "a,b", which matches no window, so the harness session reported no window and lost its
+ *      preview and 切换到该窗口.
+ *
+ * The script now takes a single string and splits it, so this pins the form the caller must use.
+ */
+test('WindowsProcessProvider sends title markers as one comma-separated argument', async () => {
+  let receivedArgs: readonly string[] = [];
+  const provider = new WindowsProcessProvider({
+    scriptPath: 'C:\\watchdog\\windows-processes.ps1',
+    windowTitleMarkers: ['DeepSeek Harness', 'DSH'],
+    runCommand: async (_executable, args) => {
+      receivedArgs = [...args];
+      return '[]';
+    },
+  });
+
+  await provider.listProcesses();
+
+  const occurrences = receivedArgs.filter((arg) => arg === '-WindowTitleMarker');
+  assert.equal(occurrences.length, 1, 'the parameter must appear exactly once, or PowerShell rejects it');
+  assert.equal(
+    receivedArgs[receivedArgs.indexOf('-WindowTitleMarker') + 1],
+    'DeepSeek Harness,DSH',
+    'the markers must be one comma-separated value for the script to split',
+  );
+});
+
+test('WindowsProcessProvider omits the marker argument entirely when none are configured', async () => {
+  // An empty argument would be split into zero markers, but sending `-WindowTitleMarker ""` relies on
+  // PowerShell binding an empty string, which is needless when there is nothing to say.
+  let receivedArgs: readonly string[] = [];
+  const provider = new WindowsProcessProvider({
+    scriptPath: 'C:\\watchdog\\windows-processes.ps1',
+    windowTitleMarkers: ['  ', ''],
+    runCommand: async (_executable, args) => {
+      receivedArgs = [...args];
+      return '[]';
+    },
+  });
+
+  await provider.listProcesses();
+
+  assert.equal(receivedArgs.filter((arg) => arg === '-WindowTitleMarker').length, 0);
+});
+
 test('WindowsProcessProvider cancels an in-flight PowerShell discovery', async () => {
   let started!: () => void;
   const commandStarted = new Promise<void>((resolveStarted) => { started = resolveStarted; });
