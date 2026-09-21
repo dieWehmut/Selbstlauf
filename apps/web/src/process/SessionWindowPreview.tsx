@@ -114,6 +114,9 @@ export function SessionWindowPreview(props: {
                 ? `此窗口内有 ${captured.sharedBy} 个受监控进程，画面为整个窗口`
                 : `PID ${props.session.rootPid} 所在窗口`}
               {props.session.host?.windowTitle ? ` · ${props.session.host.windowTitle}` : ''}
+              {/* The window was minimized, so it was shown for a moment to capture it and put straight
+                  back. Saying so explains why it may have blinked, and reassures that its state was kept. */}
+              {captured.restoredFromMinimized === true ? '（该窗口原本最小化，已临时显示后还原）' : ''}
             </p>
           </>
         )}
@@ -121,11 +124,12 @@ export function SessionWindowPreview(props: {
         {state === 'minimized' && (
           <p className="window-preview__note">
             <Minimize2 size={15} aria-hidden="true" />
-            {/* Worded as "not capturable" rather than "minimized": a minimized window and one that
-                has just closed are indistinguishable to the capture layer — both are simply absent
-                from the window list, with no separate signal — so naming only the minimized case
-                would give advice that cannot be followed once the window is gone. */}
-            无法抓取该窗口的画面。通常是最小化了，还原它后点“刷新”即可查看。
+            {/* A minimized window is shown briefly to capture it, so reaching this state means the window
+                could not be shown at all — it has usually just closed, and a closed window and one that
+                refuses to appear are indistinguishable here. The wording therefore says what is known
+                rather than asserting the minimized case, which would give advice that cannot be followed
+                once the window is gone. It also names the retry, which is what actually helps. */}
+            这一会儿抓不到该窗口的画面：它可能刚刚关闭，或无法被唤到画面上。点“刷新”再试一次。
           </p>
         )}
 

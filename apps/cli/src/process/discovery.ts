@@ -165,10 +165,44 @@ export function groupProcesses(
     throw new Error('currentUserSid is required when sameUserOnly is enabled');
   }
 
+  /**
+   * The watchdog itself and everything it spawned.
+   *
+   * The watchdog runs a `codex app-server` child to continue Codex sessions, and that child carries a
+   * codex signature on its command line, so discovery found it and listed the watchdog's own transport as
+   * a session — labelled 命令提示符 after the `cmd.exe` that wraps it. Measured on a real machine: that row
+   * appeared while the actual Codex conversations were also listed, and nothing can usefully be written
+   * into the watchdog's own transport. Descendants are excluded, not just the process itself, because the
+   * signature lives on the child rather than on the app.
+   *
+   * The ancestor chain comes from the provider, which resolves it for the intermediates that are not
+   * themselves candidates — `cmd.exe` here — so one pass is normally enough. The loop runs to a fixed
+   * point anyway: the chain is not guaranteed to be reported for every intermediate.
+   */
+  const excludedPids = new Set<number>([currentProcessId]);
+  for (let pass = 0; pass < records.length; pass += 1) {
+    let changed = false;
+    for (const record of records) {
+      if (excludedPids.has(record.pid)) continue;
+      const chain = [
+        ...(record.ancestors ?? []).map((ancestor) => ancestor.pid),
+        record.parentPid,
+      ];
+      if (chain.some((pid) => excludedPids.has(pid))) {
+        excludedPids.add(record.pid);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
   const byPid = new Map<number, RawProcessRecord>();
   for (const record of records) {
     if (byPid.has(record.pid)) {
       throw new Error(`Duplicate process PID ${record.pid}`);
+    }
+    if (excludedPids.has(record.pid)) {
+      continue;
     }
     if (!sameUserOnly || sidEquals(record.userSid, currentUserSid as string)) {
       byPid.set(record.pid, record);
@@ -205,15 +239,43 @@ export function groupProcesses(
     rootByPid.set(record.pid, root);
   }
 
+  /**
+   * Fold a session root into an ancestor that is already a session of the same tool.
+   *
+   * The walk above climbs only through *consecutive* same-tool ancestors, so a codex process started
+   * underneath a codex session but separated by a process that carries no signature becomes its own root
+   * and therefore its own row. Measured on a real machine: a Tabby Codex conversation was listed twice —
+   * once for the CLI (`node.exe … codex.js`) and once for the `codex.exe app-server` it spawned, reached
+   * through `node_repl.exe` and a `cua-repl` node. Both rows resolved to the **same conversation id**, so
+   * one conversation appeared as two processes.
+   *
+   * Folding is limited to a strict ancestor relationship with the same tool, so two genuinely independent
+   * sessions of the same tool are never merged, however similar they look.
+   */
+  const foldedRootPid = new Map<number, number>();
+  for (const [pid, root] of rootByPid) {
+    const tool = toolByPid.get(pid);
+    let outermost = root.pid;
+    // The chain is ordered nearest first, so the last match is the outermost ancestor.
+    for (const ancestor of root.ancestors ?? []) {
+      if (toolByPid.get(ancestor.pid) !== tool) continue;
+      const ancestorRoot = rootByPid.get(ancestor.pid);
+      if (ancestorRoot !== undefined) outermost = ancestorRoot.pid;
+    }
+    foldedRootPid.set(pid, outermost);
+  }
+
   const groups = new Map<string, { tool: DiscoveredTool; root: RawProcessRecord; childPids: number[] }>();
   for (const [pid, root] of rootByPid) {
     const tool = toolByPid.get(pid);
     if (!tool) {
       continue;
     }
-    const key = `${tool}:${root.pid}`;
-    const group = groups.get(key) ?? { tool, root, childPids: [] };
-    if (pid !== root.pid) {
+    const finalRootPid = foldedRootPid.get(pid) ?? root.pid;
+    const finalRoot = rootByPid.get(finalRootPid) ?? root;
+    const key = `${tool}:${finalRootPid}`;
+    const group = groups.get(key) ?? { tool, root: finalRoot, childPids: [] };
+    if (pid !== finalRootPid) {
       group.childPids.push(pid);
     }
     groups.set(key, group);

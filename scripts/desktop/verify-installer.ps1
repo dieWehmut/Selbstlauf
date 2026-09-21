@@ -57,6 +57,11 @@ $requiredFiles = @(
     # The reveal action resolves its own PowerShell asset the same way, so the
     # installed app needs it to be able to show a session's window.
     'resources\service-dist\src\process\window-focus.ps1',
+    # Previewing a minimized window shows it briefly with this helper, because a
+    # minimized window is absent from the capture layer entirely. Without the file
+    # that preview silently degrades to "cannot capture", which is exactly the
+    # state this asset exists to remove.
+    'resources\service-dist\src\process\window-restore.ps1',
     # The packaged app must ship the logon-task script tree; start-watchdog.ps1
     # resolves service-dist and web-dist beside it at runtime.
     'resources\scripts\continuation\start-watchdog.ps1',

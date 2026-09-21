@@ -584,7 +584,7 @@ test('exposes Codex endpoint profiles and applies a switch through the API', asy
  * This capability is what a UI needs in order to let someone type into a session, and the rules around it
  * were entirely untested: the endpoint accepts an arbitrary single line, falls back to the configured
  * prompt when none is given, and refuses anything the transport could not carry. An empty prompt would
- * inject nothing, and a newline would submit the first line and leave the rest behind ¡ª both of which look
+ * inject nothing, and a newline would submit the first line and leave the rest behind - both of which look
  * like the app "not working" rather than like a rejected request, so they are refused loudly.
  */
 test('injects a caller-supplied prompt and enforces the prompt rules', async (t) => {
@@ -601,10 +601,10 @@ test('injects a caller-supplied prompt and enforces the prompt rules', async (t)
   const route = `/api/sessions/${encodeURIComponent(session.id)}/inject`;
 
   // A caller-supplied line reaches the controller unchanged, which is the whole point of the endpoint.
-  const custom = await request(base, route, { method: 'POST', origin: base, body: { prompt: '¼ÌÐø-now' } });
+  const custom = await request(base, route, { method: 'POST', origin: base, body: { prompt: 'ç»§ç»­-now' } });
   assert.equal(custom.response.status, 200);
-  assert.equal(custom.json.prompt, '¼ÌÐø-now');
-  assert.deepEqual(seen, ['¼ÌÐø-now']);
+  assert.equal(custom.json.prompt, 'ç»§ç»­-now');
+  assert.deepEqual(seen, ['ç»§ç»­-now']);
 
   // No prompt at all falls back to the configured one, which is what the UI does today.
   const fallback = await request(base, route, { method: 'POST', origin: base, body: {} });
@@ -632,5 +632,6 @@ test('injects a caller-supplied prompt and enforces the prompt rules', async (t)
   assert.equal(atLimit.json.prompt.length, 4096);
 
   // And nothing was injected for any of the refusals.
-  assert.deepEqual(seen, ['¼ÌÐø-now', fallback.json.prompt, 'x'.repeat(4096)]);
+  assert.deepEqual(seen, ['ç»§ç»­-now', fallback.json.prompt, 'x'.repeat(4096)]);
 });
+

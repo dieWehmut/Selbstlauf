@@ -68,12 +68,31 @@ describe('SessionWindowPreview', () => {
 
   it('names an uncapturable window without claiming to know why', async () => {
     render(<SessionWindowPreview session={session()} requestPreview={async () => ({ state: 'minimized' })} />);
-    // A minimized window and one that has just closed are indistinguishable to the capture layer,
-    // so the message must not promise that restoring it will help — that advice cannot be followed
-    // once the window is gone.
-    const note = await screen.findByText(/无法抓取该窗口的画面/u);
-    expect(note.textContent).toContain('通常是最小化了');
+    // A minimized window is now shown briefly to capture it, so reaching this state means the window could
+    // not be shown at all — usually it has just closed. A closed window and one that refuses to appear are
+    // indistinguishable here, so the message must not assert the minimized case: that advice cannot be
+    // followed once the window is gone. It offers the retry instead, which is what actually helps.
+    const note = await screen.findByText(/抓不到该窗口的画面/u);
+    expect(note.textContent).toContain('刷新');
+    expect(note.textContent).not.toContain('还原它');
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it('says when the picture came from a window that was shown briefly', async () => {
+    // The window may have blinked, so the caption explains why and says its state was put back.
+    render(
+      <SessionWindowPreview
+        session={session()}
+        requestPreview={async () => ({ ...captured, sharedBy: 1, restoredFromMinimized: true })}
+      />,
+    );
+    expect(await screen.findByText(/原本最小化，已临时显示后还原/u)).toBeInTheDocument();
+  });
+
+  it('says nothing about restoring when the window was already showing', async () => {
+    render(<SessionWindowPreview session={session()} requestPreview={async () => ({ ...captured, sharedBy: 1 })} />);
+    await screen.findByRole('img');
+    expect(screen.queryByText(/临时显示后还原/u)).not.toBeInTheDocument();
   });
 
   it('explains a harness session has no window of its own', async () => {

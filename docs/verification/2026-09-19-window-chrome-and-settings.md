@@ -2015,6 +2015,87 @@ the boundary itself, which is what was missing.
 The bottom bar measures 0/1/0px gaps with height 42px, the popup meets it at 0px, and the page heading scrolls
 from 36 to −264 while the window title bar stays at 0.
 
+#### Four of the five reported problems, fixed and verified
+
+Reported directly, in one message: the Codex app's interface could not be seen; 命令提示符 was monitoring
+itself; Tabby was monitored twice; a minimized window could not be previewed; and WSL processes were not
+monitored at all. Four are fixed.
+
+**1. The watchdog was listing its own transport as a session.**
+
+It runs a `codex app-server` child to continue Codex sessions. That child carries a codex signature on its
+command line, so discovery found it and listed the watchdog's own transport — labelled 命令提示符 after the
+`cmd.exe` wrapping it. Measured ancestry:
+
+    Selbstlauf.exe -> cmd.exe (call "codex" "app-server" --listen stdio://) -> node.exe codex.js app-server
+
+The watchdog and everything descending from it are now excluded from discovery. Descendants, not just the
+process, because the signature is on the child while the app itself has none.
+
+**2. One Tabby conversation was listed as two processes.**
+
+A codex process started underneath a codex session but separated by a process carrying no signature became its
+own root, and therefore its own row. Measured: the CLI `node.exe … codex.js` (30780) and the
+`codex.exe app-server` it spawned (17448), reached through `node_repl.exe` and a `cua-repl` node, **both
+resolved to the same conversation id `01a0bd1e…`**. Session roots are now folded into a same-tool strict
+ancestor, so one conversation is one row; two genuinely independent sessions still stay apart, which a test
+pins.
+
+Verified on the live machine: `groups: 4`, watchdog transport absent, `codex pid=30780 children=[17448,21856,26480]`.
+
+**3. The Codex app's window could not be seen, and a minimized window could not be previewed.**
+
+One cause behind both: **a minimized window is not enumerated by `desktopCapturer` at all**, and the ChatGPT
+window (handle 3932904) was minimized. Measured both ways:
+
+    desktopCapturer while minimized: the window is absent from getSources entirely
+    PrintWindow at its restore rect: flat image (2 distinct colours) — a minimized window has no surface
+    restore briefly, then capture:    51% non-dominant pixels, 1547 colours, 75KB PNG
+
+So a minimized window is now shown for a moment, captured, and minimized again. Both directions use the
+**non-activating** variants (`SW_SHOWNOACTIVATE` / `SW_SHOWMINNOACTIVE`), so a preview never takes focus:
+measured, the foreground window is identical before and after. The caption says the window was shown briefly
+so a blink is explained rather than mysterious.
+
+**A defect this uncovered, in the first version of the fix.** The undo inferred its action from the window and
+had it exactly backwards — it minimized any window that was *not* minimized. In the preview flow that means a
+window the user has open, whose first capture fails and so triggers the restore path, would be **minimized on
+them**. The caller's own record is now the only thing consulted; with `false` nothing runs at all. Verified on
+a real window:
+
+    visible + WasMinimized=false -> changed:false, still visible (untouched)
+    visible + WasMinimized=true  -> changed:true,  now minimized (the undo)
+
+Passing that flag hit the **same PowerShell `-File` binding rule as the window-title markers**: a `[bool]`
+parameter cannot be bound from a command line at all — `-Flag $true`, `-Flag 1` and `-Flag true` are each
+rejected with "Boolean parameters accept only Boolean values and numbers". It is a `[string]` compared in the
+script, which is the form that works.
+
+**Verified on a real packaged build** (two windows minimized, one visible):
+
+    rows: 4 | groups: ["Tabby","Codex 应用","Microsoft Edge"]
+    no Selbstlauf host: true | no 命令提示符 host: true
+    conversations listed more than once: none
+    every preview produced an image (100KB–199KB)
+    windows all back in their original minimized state: true
+    focus unchanged by previewing: true
+
+**5. WSL processes are still not monitored — and this is a different kind of problem.**
+
+Not yet done, and worth stating why it is not a discovery tweak. Measured inside Ubuntu-22.04:
+
+    98051  tty=pts/8  cwd=/home/han/project/copilot-segmentation  node .../bin/codex
+    98058  tty=pts/8  ppid=98051  codex .../codex-linux-x64/vendor/.../bin/codex
+
+The process list is cheap to read — `wsl.exe -d Ubuntu-22.04 -- ps` returned 58 lines in 72ms — so *seeing*
+these sessions is a small change. What is missing is everything the rest of the app is built on: a Linux pid
+is not a Windows pid, so there is no `host.windowHandle`, no window to preview or reveal, and neither the
+existing ConsoleBridge nor the PTY transport can attach to a `/dev/pts` inside the distribution. Continuing a
+WSL session therefore means a new transport that writes into a Linux tty, not a discovery change, and it is
+its own piece of work rather than something to bolt onto this one.
+
+Suites: CLI 258 -> 262, desktop 111 -> 129, web 135 -> 137, browser 57.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

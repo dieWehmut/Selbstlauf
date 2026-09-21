@@ -280,9 +280,9 @@ test('openLocalUrl refuses anything that is not a loopback interface', async () 
 /**
  * This application is never where a session runs.
  *
- * Its window is an ancestor of every CLI the watchdog continues ¡ª the service and the sessions it spawns
- * live inside it ¡ª so it was picked as the host and the process list filled with rows labelled
- * ÔËÐÐÎ»ÖÃ: Selbstlauf. Measured on this machine: 19 of 25 rows, none of them a place a person works, and
+ * Its window is an ancestor of every CLI the watchdog continues - the service and the sessions it spawns
+ * live inside it - so it was picked as the host and the process list filled with rows labelled
+ * è¿è¡Œä½ç½®: Selbstlauf. Measured on this machine: 19 of 25 rows, none of them a place a person works, and
  * all of them long-dead processes that only appeared at all because of it. "Inside Selbstlauf" is never the
  * useful answer, so that executable is excluded from host resolution entirely rather than merely ranked low.
  */
@@ -305,3 +305,5 @@ test('never reports this application as the host of a session', () => {
   assert.notEqual(host?.label, 'Selbstlauf');
   assert.notEqual(host?.executableName, 'Selbstlauf.exe');
 });
+
+

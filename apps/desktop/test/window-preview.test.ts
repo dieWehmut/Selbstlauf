@@ -158,7 +158,7 @@ test('asks for a thumbnail size large enough to read a terminal', async () => {
   assert.ok(PREVIEW_THUMBNAIL_SIZE.width >= 960, 'the preview would be too small to read');
 });
 test('a window that has closed is reported the same way as a minimized one, not as a wrong window', async () => {
-  // Measured: a destroyed window and a minimized one are indistinguishable to the capture layer ¡ª
+  // Measured: a destroyed window and a minimized one are indistinguishable to the capture layer -
   // both are simply absent from the source list. The important property is that a stale handle
   // never resolves to some *other* window, which would show the wrong content under this process's
   // name. Here another window is present and must not be matched.
@@ -175,3 +175,95 @@ test('never captures a window belonging to a different handle', async () => {
   if (result.state !== 'captured') return;
   assert.match(result.dataUrl, /handle-67008/u);
 });
+
+/**
+ * A minimized window is shown briefly, captured, and minimized again.
+ *
+ * Measured: a minimized window is absent from `desktopCapturer.getSources` entirely, and rendering one with
+ * `PrintWindow` at its restore size comes back flat because it has no rendered surface. So letting it render
+ * once is the only way to show what is inside it. These tests pin the two properties that make that
+ * acceptable: the window is put back, and a window that was already rendering is never touched.
+ */
+test('shows a minimized window to capture it, and minimizes it again afterwards', async () => {
+  let shown = 0;
+  let minimized = 0;
+  let enumerated = 0;
+  const deps: CaptureDependencies = {
+    sessions: async () => [session('a', 11)],
+    // Absent while minimized, present once shown â€” which is the measured behaviour.
+    getSources: async () => {
+      enumerated += 1;
+      return enumerated === 1 ? [] : [source(11)];
+    },
+    showWithoutActivating: async () => { shown += 1; return true; },
+    minimizeAgain: async () => { minimized += 1; return true; },
+  };
+
+  const result = await captureSessionWindow(deps, 'a');
+
+  assert.equal(result.state, 'captured');
+  if (result.state !== 'captured') return;
+  assert.match(result.dataUrl, /handle-11/u);
+  assert.equal(shown, 1, 'the window was never shown, so a minimized one can never be previewed');
+  assert.equal(minimized, 1, 'the window was left restored, which changes what the user sees');
+  assert.equal(result.restoredFromMinimized, true, 'the capture should say it came from a restore');
+});
+
+test('does not touch a window that is already capturable', async () => {
+  // The common case, and the one that must stay cheap: no restore, no extra enumeration.
+  let shown = 0;
+  const deps: CaptureDependencies = {
+    sessions: async () => [session('a', 11)],
+    getSources: async () => [source(11)],
+    showWithoutActivating: async () => { shown += 1; return true; },
+    minimizeAgain: async () => true,
+  };
+
+  const result = await captureSessionWindow(deps, 'a');
+
+  assert.equal(result.state, 'captured');
+  if (result.state !== 'captured') return;
+  assert.equal(shown, 0, 'a visible window must not be shown again');
+  assert.equal(result.restoredFromMinimized, false);
+});
+
+test('puts the window back even when the capture after showing fails', async () => {
+  // Otherwise a failing capture would leave a minimized window restored on the user's screen.
+  let minimized = 0;
+  let enumerated = 0;
+  const deps: CaptureDependencies = {
+    sessions: async () => [session('a', 11)],
+    getSources: async () => {
+      enumerated += 1;
+      if (enumerated === 1) return [];
+      throw new Error('capture is unavailable');
+    },
+    showWithoutActivating: async () => true,
+    minimizeAgain: async () => { minimized += 1; return true; },
+  };
+
+  const result = await captureSessionWindow(deps, 'a');
+
+  assert.equal(result.state, 'unsupported');
+  assert.equal(minimized, 1, 'the window was left restored after a failed capture');
+});
+
+test('reports a minimized window as minimized when nothing can show it', async () => {
+  // A shell that cannot restore windows keeps the previous behaviour rather than claiming a capture.
+  const { dependencies: deps } = dependencies([session('a', 11)], []);
+  const result = await captureSessionWindow(deps, 'a');
+  assert.equal(result.state, 'minimized');
+});
+
+test('a window that refuses to appear is still reported as minimized, not as captured', async () => {
+  // A closed window is indistinguishable from one that will not show, so the outcome says only what is known.
+  const deps: CaptureDependencies = {
+    sessions: async () => [session('a', 11)],
+    getSources: async () => [],
+    showWithoutActivating: async () => false,
+    minimizeAgain: async () => true,
+  };
+  const result = await captureSessionWindow(deps, 'a');
+  assert.equal(result.state, 'minimized');
+});
+
