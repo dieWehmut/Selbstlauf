@@ -1954,6 +1954,67 @@ Browser suite 54 -> 57.
 found because the file could not be read, located by validating the bytes, and repaired by rewriting the one
 affected comment. Nothing else in the file was touched.
 
+#### The harness window took three attempts, and only the third was right
+
+The same seam — how Node marshals arguments into PowerShell — produced two opposite failures, and the second
+one **passed CI while still being wrong**. Worth recording in full.
+
+`apps/cli/src/process/windows-processes.ps1` declares its window-title markers, and the provider passes them.
+Under PowerShell's `-File` mode, arguments arrive as **literal strings**, not PowerShell expressions, so an
+array parameter cannot be bound from a command line at all. All three forms were measured:
+
+| Form | Result |
+| --- | --- |
+| `-WindowTitleMarker a -WindowTitleMarker b` | `parameter is specified more than once` → the call throws |
+| `-WindowTitleMarker "a,b"` into `[string[]]` | binds the **single string** `a,b` → matches nothing |
+| `-WindowTitleMarker "a,b"` into `[string]`, split in the script | two markers ✅ |
+
+1. **0.9.2 shipped the first form.** The provider call threw, so the app **discovered nothing at all** — and
+   the installer check caught it: `the installed app never discovered probe PID 8472; it listed 0 session(s)`.
+   That check is the only reason this did not ship silently.
+2. **0.9.4 shipped the second form.** Discovery worked again, so **CI passed** — but the marker matched no
+   window, and the harness session still reported no window. The installer check could not catch this, because
+   it only asserts that a process is *discovered*.
+3. **0.9.5 takes a single `[string]` and splits it in the script**, which is the only form that works.
+
+The evidence for the third, against the real window: the harness session's record previously had **zero**
+windows attached, and now carries
+
+    windowHandle: 66830
+    windowTitle:  Reference attachments for goal objective — DeepSeek Harness
+
+and the session is hosted by **Microsoft Edge**, the browser actually showing it, rather than the bare fallback
+label. The window panel now shows both **刷新** and **切换到该窗口**; it reports 无法抓取该窗口的画面 because the
+window genuinely *is* minimised (measured `Iconic = True`), which is the accurate answer.
+
+A regression test now covers this seam in `discovery.test.ts` — it asserts the parameter appears **exactly
+once** and carries `DeepSeek Harness,DSH` comma-joined. Proved by restoring the repeated-parameter form: the
+suite fails with `the parameter must appear exactly once, or PowerShell rejects it`. CLI suite 256 -> 258.
+
+The general lesson: three failures in this area all lived in the **marshalling between Node and PowerShell**,
+and none was reachable from the pure classification tests, which call the classifier directly and never spawn
+the script. The integration check covered one direction of the mistake; the other direction needed a test at
+the boundary itself, which is what was missing.
+
+#### All four reported problems, verified on the installed 0.9.5
+
+    === the harness session ===
+      host:         Microsoft Edge (browser)
+      windowHandle: 66830
+      windowTitle:  Reference attachments for goal objective — DeepSeek Harness
+
+    === the process list as rendered ===
+      rows: 5 | groups: ["置顶","Tabby","Codex 应用","Microsoft Edge"]
+      no Selbstlauf group: true
+
+    === the reported problems ===
+      1. Selbstlauf as a session host:  gone
+      2. live-only listing:             5 alive, 0 dead kept for audit
+      3. harness window found:          true
+
+The bottom bar measures 0/1/0px gaps with height 42px, the popup meets it at 0px, and the page heading scrolls
+from 36 to −264 while the window title bar stays at 0.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
