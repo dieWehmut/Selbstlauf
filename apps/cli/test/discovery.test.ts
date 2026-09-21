@@ -111,6 +111,205 @@ test('groupProcesses derives the current SID from the watchdog process record', 
   assert.ok(sessions.every((session) => session.userSid === currentUserSid));
 });
 
+/**
+ * The watchdog must not monitor its own transport.
+ *
+ * It runs a `codex app-server` child to continue Codex sessions. That child carries a codex signature on its
+ * command line, so discovery found it and listed the watchdog's own transport as a session — labelled
+ * 命令提示符 after the `cmd.exe` that wraps it, and reported by the user as "命令提示符监控了自身". Measured
+ * on a real machine, the tree was:
+ *
+ *   Selbstlauf.exe -> cmd.exe (call "codex" "app-server" --listen stdio://) -> node.exe codex.js app-server
+ *
+ * Descendants are excluded, not just the process itself, because the signature is on the child rather than
+ * on the app, and the `cmd.exe` in between carries no signature of its own.
+ */
+test('groupProcesses never lists the watchdog itself or anything it spawned', () => {
+  const watchdogPid = 31_932;
+  const records: RawProcessRecord[] = [
+    {
+      pid: watchdogPid,
+      parentPid: 28_548,
+      name: 'Selbstlauf.exe',
+      commandLine: '"C:\\Programs\\Selbstlauf.exe"',
+      executablePath: 'C:\\Programs\\Selbstlauf.exe',
+      creationTimeMs: 1,
+      userSid: currentUserSid,
+      ancestors: [{ pid: 28_548, name: 'explorer.exe' }],
+      windows: [],
+    },
+    {
+      pid: 36_608,
+      parentPid: watchdogPid,
+      name: 'cmd.exe',
+      commandLine: 'C:\\WINDOWS\\system32\\cmd.exe /d /s /c call "codex" "app-server" "--listen" "stdio://"',
+      executablePath: 'C:\\WINDOWS\\system32\\cmd.exe',
+      creationTimeMs: 2,
+      userSid: currentUserSid,
+      ancestors: [{ pid: watchdogPid, name: 'Selbstlauf.exe' }],
+      windows: [],
+    },
+    {
+      pid: 19_436,
+      parentPid: 36_608,
+      name: 'node.exe',
+      commandLine: '"node" "...\\@openai\\codex\\bin\\codex.js" "app-server" "--listen" "stdio://"',
+      executablePath: 'C:\\node.exe',
+      creationTimeMs: 3,
+      userSid: currentUserSid,
+      ancestors: [
+        { pid: 36_608, name: 'cmd.exe' },
+        { pid: watchdogPid, name: 'Selbstlauf.exe' },
+      ],
+      windows: [],
+    },
+  ];
+
+  const sessions = groupProcesses(records, { currentProcessId: watchdogPid, currentUserSid });
+
+  assert.deepEqual(sessions, [], 'the watchdog transport was listed as a session');
+});
+
+test('groupProcesses still finds a real Codex session that is not a descendant', () => {
+  // The exclusion must not swallow ordinary sessions: this one's chain ends at a terminal.
+  const records: RawProcessRecord[] = [
+    {
+      pid: 30_780,
+      parentPid: 18_632,
+      name: 'node.exe',
+      commandLine: '"node" "...\\@openai\\codex\\bin\\codex.js" ',
+      executablePath: 'C:\\node.exe',
+      creationTimeMs: 1,
+      userSid: currentUserSid,
+      ancestors: [
+        { pid: 18_632, name: 'cmd.exe' },
+        { pid: 19_272, name: 'Tabby.exe' },
+      ],
+      windows: [],
+    },
+  ];
+
+  const sessions = groupProcesses(records, { currentProcessId: 31_932, currentUserSid });
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0]?.rootPid, 30_780);
+});
+
+/**
+ * One conversation must not appear as two processes.
+ *
+ * A codex process started underneath a codex session but separated by a process carrying no signature
+ * became its own root, and therefore its own row. Measured on a real machine: a Tabby Codex conversation was
+ * listed twice — once for the CLI `node.exe … codex.js`, and once for the `codex.exe app-server` it spawned,
+ * reached through `node_repl.exe` and a `cua-repl` node — and **both rows resolved to the same conversation
+ * id**. The user reported it as "tabby重复监控了".
+ */
+test('groupProcesses folds a signatureless-broken descendant into its session', () => {
+  const records: RawProcessRecord[] = [
+    {
+      pid: 30_780,
+      parentPid: 18_632,
+      name: 'node.exe',
+      commandLine: '"node" "...\\@openai\\codex\\bin\\codex.js" ',
+      executablePath: 'C:\\node.exe',
+      creationTimeMs: 1,
+      userSid: currentUserSid,
+      ancestors: [
+        { pid: 18_632, name: 'cmd.exe' },
+        { pid: 19_272, name: 'Tabby.exe' },
+      ],
+      windows: [],
+    },
+    // The real codex binary, a child of the CLI.
+    {
+      pid: 21_856,
+      parentPid: 30_780,
+      name: 'codex.exe',
+      commandLine: 'C:\\...\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe',
+      executablePath: 'C:\\...\\codex.exe',
+      creationTimeMs: 2,
+      userSid: currentUserSid,
+      ancestors: [
+        { pid: 30_780, name: 'node.exe' },
+        { pid: 18_632, name: 'cmd.exe' },
+        { pid: 19_272, name: 'Tabby.exe' },
+      ],
+      windows: [],
+    },
+    // A process with no signature, between the session and the app-server below it.
+    {
+      pid: 19_284,
+      parentPid: 30_876,
+      name: 'node_repl.exe',
+      commandLine: 'C:\\...\\cua_node\\node_repl.exe',
+      executablePath: 'C:\\...\\node_repl.exe',
+      creationTimeMs: 3,
+      userSid: currentUserSid,
+      ancestors: [
+        { pid: 30_876, name: 'node.exe' },
+        { pid: 21_856, name: 'codex.exe' },
+        { pid: 30_780, name: 'node.exe' },
+      ],
+      windows: [],
+    },
+    // The app-server, which carries a codex signature and was listed as its own session.
+    {
+      pid: 17_448,
+      parentPid: 19_284,
+      name: 'codex.exe',
+      commandLine: '"C:\\...\\OpenAI\\Codex\\bin\\codex.exe" app-server --listen stdio://',
+      executablePath: 'C:\\...\\codex.exe',
+      creationTimeMs: 4,
+      userSid: currentUserSid,
+      ancestors: [
+        { pid: 19_284, name: 'node_repl.exe' },
+        { pid: 30_876, name: 'node.exe' },
+        { pid: 21_856, name: 'codex.exe' },
+        { pid: 30_780, name: 'node.exe' },
+      ],
+      windows: [],
+    },
+  ];
+
+  const sessions = groupProcesses(records, { currentUserSid });
+
+  assert.equal(sessions.length, 1, 'the same conversation was listed as more than one session');
+  assert.equal(sessions[0]?.rootPid, 30_780);
+  /**
+   * The descendants carrying a signature are recorded as children of that one session.
+   *
+   * `node_repl.exe` is deliberately absent: it carries no tool signature, so it is never a session
+   * candidate. It only matters because it sits between the session and the app-server below it, which is
+   * what made the app-server look like its own root.
+   */
+  assert.deepEqual(sessions[0]?.childPids, [17_448, 21_856]);
+});
+
+test('groupProcesses keeps two independent sessions of the same tool apart', () => {
+  // Two Codex conversations in two different terminals share no ancestor, so they stay two rows.
+  const mk = (pid: number, cmdPid: number, tabPid: number): RawProcessRecord => ({
+    pid,
+    parentPid: cmdPid,
+    name: 'node.exe',
+    commandLine: '"node" "...\\@openai\\codex\\bin\\codex.js" ',
+    executablePath: 'C:\\node.exe',
+    creationTimeMs: pid,
+    userSid: currentUserSid,
+    ancestors: [
+      { pid: cmdPid, name: 'cmd.exe' },
+      { pid: tabPid, name: 'Tabby.exe' },
+    ],
+    windows: [],
+  });
+
+  const sessions = groupProcesses(
+    [mk(30_780, 18_632, 19_272), mk(14_976, 24_036, 19_272)],
+    { currentUserSid },
+  );
+
+  assert.deepEqual(sessions.map((session) => session.rootPid), [14_976, 30_780]);
+});
+
 test('groupProcesses keeps an orphan native process as a separate unknown session', () => {
   const records = parseWindowsProcessJson(JSON.stringify(windowsProcessFixture));
   const native = records.find((record) => record.pid === 211);

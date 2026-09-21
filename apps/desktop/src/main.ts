@@ -33,6 +33,11 @@ import {
   type PreviewSource,
 } from './window-preview.js';
 import {
+  minimizeWindowAgain,
+  resolveRestoreScriptPath,
+  showWindowWithoutActivating,
+} from './window-restore.js';
+import {
   readWatchdogRecord,
   resolveStateDirectory,
   waitForHealth,
@@ -514,6 +519,11 @@ export async function main(): Promise<void> {
     appRoot,
     ...(app.isPackaged === true && typeof resourcesPath === 'string' ? { resourcesPath } : {}),
   });
+  // The window-restore helper ships in the service's own resource tree, so there is one asset layout
+  // rather than two. Absent in a checkout, where the source path is used instead.
+  const restoreScriptPath = resolveRestoreScriptPath(
+    app.isPackaged === true && typeof resourcesPath === 'string' ? resourcesPath : undefined,
+  );
 
   const stateDirectory = resolveStateDirectory();
   // Tracked in a mutable box so the close handler always reads the current value.
@@ -591,9 +601,14 @@ export async function main(): Promise<void> {
       if (capturer === undefined) {
         return { state: 'unsupported', reason: 'this build cannot capture windows' } as const;
       }
+      const restoreOptions = restoreScriptPath === undefined ? {} : { scriptPath: restoreScriptPath };
       return captureSessionWindow(
         {
           getSources: (options) => capturer.getSources(options),
+          // A minimized window is not enumerated at all, so it is shown briefly to let it render, then
+          // minimized again. Both calls use the non-activating variants, so a preview never takes focus.
+          showWithoutActivating: (handle) => showWindowWithoutActivating(handle, restoreOptions),
+          minimizeAgain: (handle, wasMinimized) => minimizeWindowAgain(handle, wasMinimized, restoreOptions),
           sessions: async () => {
             const record = await readWatchdogRecord(stateDirectory);
             if (record === null) return [];

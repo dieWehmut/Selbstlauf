@@ -154,6 +154,13 @@ export type WindowPreviewResult =
     readonly height: number;
     /** How many watched sessions share this window. Two Codex sessions can share one Tabby. */
     readonly sharedBy: number;
+    /**
+     * True when the window had to be shown briefly because it was minimized.
+     *
+     * Optional because a shell that cannot restore windows never sets it; absent and false mean the same
+     * thing to the UI.
+     */
+    readonly restoredFromMinimized?: boolean;
   }
   | { readonly state: 'no-window' }
   | { readonly state: 'minimized' }
