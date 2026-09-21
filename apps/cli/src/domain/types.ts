@@ -86,6 +86,14 @@ export interface WatchdogConfig {
   readonly defaultIdleTimeoutMs: number;
   readonly defaultCooldownMs: number;
   readonly maxAttemptsPerQuietPeriod: number;
+  /**
+   * The WSL distribution to look inside, or an empty string for "do not".
+   *
+   * WSL sessions live in a Linux pid namespace and are invisible to the Windows process table, so they can
+   * only be found by running a probe inside the distribution. That makes this opt-in rather than automatic:
+   * it costs a subprocess per poll, and only helps someone who runs a CLI there.
+   */
+  readonly wslDistribution: string;
   readonly tools: {
     readonly claude: ClaudeToolConfig;
     readonly codex: CodexToolConfig;

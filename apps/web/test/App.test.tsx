@@ -634,6 +634,27 @@ describe('watchdog dashboard', () => {
     })));
   });
 
+  it('persists the WSL distribution, and defaults it to off', async () => {
+    /**
+     * WSL sessions live in a Linux pid namespace and are invisible to the Windows process table, so the
+     * distribution has to be named explicitly. It is empty by default because looking inside one costs a
+     * subprocess per poll, which nobody should pay for without choosing to.
+     */
+    const fake = api();
+    render(<App api={fake} />);
+    openSettings();
+
+    const field = screen.getByLabelText('WSL 发行版名称');
+    expect(field).toHaveValue('');
+
+    fireEvent.change(field, { target: { value: 'Ubuntu-22.04' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ wslDistribution: 'Ubuntu-22.04' }),
+    ));
+  });
+
   it('renders and manages the explicit Claude Stop Hook settings', async () => {
     const fake = api();
     render(<App api={fake} />);

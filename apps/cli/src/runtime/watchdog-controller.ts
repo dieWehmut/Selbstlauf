@@ -1,9 +1,12 @@
+import { spawn as nodeSpawn } from 'node:child_process';
 import { access, readdir } from 'node:fs/promises';
+import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import { CodexAdapter, type CodexContinuationContext } from '../codex/codex-adapter.js';
 import { AppServerClient } from '../codex/app-server.js';
+import { snapshotWslCodexState } from '../codex/wsl-state.js';
 import { ClaudeLeaseStore } from '../claude/lease-store.js';
 import {
   associateClaudeSession,
@@ -36,6 +39,7 @@ import {
 } from '../process/discovery.js';
 import type { SessionHost } from '../process/host-apps.js';
 import { focusWindow, openLocalUrl, type WindowFocusResult } from '../process/window-focus.js';
+import { listWslProcesses } from '../process/wsl-processes.js';
 import {
   WindowsProcessProvider,
   type ProcessProvider,
@@ -65,6 +69,8 @@ export interface WatchdogControllerOptions {
   readonly now?: () => number;
   readonly currentProcessId?: number;
   readonly platform?: NodeJS.Platform;
+  /** The `wsl.exe` to use, overridden in tests. Defaults to the one on PATH. */
+  readonly wslPath?: string;
   readonly claudeProjectsDirectory?: string;
   readonly dshHomeDirectory?: string;
   readonly codexStatePath?: string;
@@ -164,6 +170,23 @@ export class WatchdogController {
   private readonly now: () => number;
   private readonly currentProcessId: number;
   private readonly platform: NodeJS.Platform;
+  private readonly wslPath?: string;
+  /** The last WSL discovery failure, so a persistent one is not written to the audit log every poll. */
+  private lastWslError: string | null = null;
+  /** Cached per distribution, because the home directory and state paths do not move while it runs. */
+  private wslCodexPaths: CodexPaths | null = null;
+  private wslHomeDirectory?: string;
+  /** Where the distribution's Codex state was copied, removed when the controller stops. */
+  private wslStateDirectory: string | null = null;
+  private wslStateError: string | null = null;
+  /**
+   * How to launch the Codex CLI inside a distribution, resolved once.
+   *
+   * Measured: `codex` there is a script whose shebang needs `node`, and `wsl.exe -e` supplies no PATH, so an
+   * absolute node and entry point are needed. Both are discovered from the distribution rather than assumed,
+   * because a distribution can install node anywhere.
+   */
+  private wslCodexLaunch: { readonly node: string; readonly entry: string } | null = null;
   private readonly claudeProjectsDirectory: string;
   private readonly dshHomeDirectory: string;
   private readonly codexStatePath?: string;
@@ -200,6 +223,7 @@ export class WatchdogController {
     this.publish = options.publish;
     this.now = options.now ?? Date.now;
     this.platform = options.platform ?? process.platform;
+    this.wslPath = options.wslPath;
     this.claudeProjectsDirectory = options.claudeProjectsDirectory ?? DEFAULT_CLAUDE_PROJECTS;
     this.dshHomeDirectory = options.dshHomeDirectory ?? defaultDshHome();
     this.codexStatePath = options.codexStatePath;
@@ -231,6 +255,16 @@ export class WatchdogController {
     await this.claudeLeaseStore?.clearAll();
     for (const session of this.sessions.values()) session.codexAdapter?.close();
     this.sessions.clear();
+    // The WSL state copies are a temporary working set, so they are removed on the way out rather than left
+    // in the temp directory for every run of the service.
+    if (this.wslStateDirectory !== null) {
+      try {
+        rmSync(this.wslStateDirectory, { recursive: true, force: true });
+      } catch {
+        // A copy that cannot be removed is not worth failing a shutdown over; the OS clears temp eventually.
+      }
+      this.wslStateDirectory = null;
+    }
   }
 
   /** Stops new work and clears pending Claude actions without waiting for a slow read-only discovery poll. */
@@ -478,9 +512,49 @@ export class WatchdogController {
           ? { titleMarkers: DSH_WINDOW_TITLE_MARKERS, label: DSH_WEB_LABEL }
           : null,
       });
-      return groups.filter((group) => this.matchesProcessFilters(group));
+      const windows = groups.filter((group) => this.matchesProcessFilters(group));
+      return [...windows, ...await this.discoverWsl()];
     } catch (error) {
       await this.auditGlobal('skip', { reason: `process-grouping: ${errorMessage(error)}` });
+      return [];
+    }
+  }
+
+  /**
+   * Discover the sessions running inside a WSL distribution.
+   *
+   * WSL is optional and must never interfere with the Windows sessions, so every failure here is reported as a
+   * stated reason and yields no sessions rather than propagating: a stopped distribution, a missing one, or a
+   * slow one would otherwise take the whole poll down with it.
+   */
+  private async discoverWsl(): Promise<readonly DiscoveredProcessSession[]> {
+    const distribution = this.currentConfig.wslDistribution?.trim() ?? '';
+    if (this.platform !== 'win32' || distribution.length === 0) return [];
+
+    const result = await listWslProcesses({
+      distribution,
+      ...(this.wslPath === undefined ? {} : { wslPath: this.wslPath }),
+    });
+    if (result.error !== undefined) {
+      // Reported once per poll at most, and only when the state changes, so a stopped distribution does not
+      // fill the audit log.
+      if (this.lastWslError !== result.error) {
+        this.lastWslError = result.error;
+        await this.auditGlobal('transport-error', { reason: `wsl-discovery: ${result.error}` });
+      }
+      return [];
+    }
+    this.lastWslError = null;
+
+    try {
+      const groups = groupProcesses(result.records, {
+        distribution,
+        currentProcessId: this.currentProcessId,
+        sameUserOnly: this.currentConfig.processFilters.sameUserOnly,
+      });
+      return groups.filter((group) => this.matchesProcessFilters(group));
+    } catch (error) {
+      await this.auditGlobal('skip', { reason: `wsl-grouping: ${errorMessage(error)}` });
       return [];
     }
   }
@@ -755,7 +829,93 @@ export class WatchdogController {
     if (session.userPaused) session.engine.pause(session.id);
   }
 
+  /**
+   * The Codex state paths inside a WSL distribution.
+   *
+   * Measured: SQLite cannot open a database on `\\wsl.localhost` at all — a copy placed back inside the
+   * distribution fails with `database is locked` exactly as the live one does, while the same bytes on local
+   * NTFS open and expose all three threads. Windows reads that filesystem over 9P, which does not provide the
+   * locking SQLite needs, so the state is **copied to local disk** and read from there. The account's home is
+   * resolved from the distribution rather than assumed, because it need not match the Windows user's.
+   */
+  private async findWslCodexPaths(distribution: string): Promise<CodexPaths | null> {
+    if (this.wslCodexPaths !== null) return this.wslCodexPaths;
+    const home = this.wslHomeDirectory ?? await this.resolveWslHome(distribution);
+    if (home === null) return null;
+    this.wslHomeDirectory = home;
+    // `/home/han` -> `\\wsl.localhost\Ubuntu-22.04\home\han\.codex`
+    const uncCodexHome = `\\\\wsl.localhost\\${distribution}${join(home, '.codex').replaceAll('/', '\\')}`;
+    try {
+      const snapshot = snapshotWslCodexState({ uncCodexHome });
+      if (snapshot === null) return null;
+      this.wslStateDirectory = snapshot.directory;
+      const paths: CodexPaths = { statePath: snapshot.statePath, goalPath: snapshot.goalPath };
+      this.wslCodexPaths = paths;
+      return paths;
+    } catch (error) {
+      this.wslStateError = `could not read the Codex state inside ${distribution}: ${errorMessage(error)}`;
+      return null;
+    }
+  }
+
+  /** The distribution account's home directory, as the distribution itself reports it. */
+  private async resolveWslHome(distribution: string): Promise<string | null> {
+    try {
+      const stdout = await new Promise<string>((resolve, reject) => {
+        const child = nodeSpawn(this.wslPath ?? 'wsl.exe', ['-d', distribution, '--', 'sh', '-c', 'printf %s "$HOME"'], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
+        let out = '';
+        child.stdout.on('data', (chunk) => { out += String(chunk); });
+        child.on('error', reject);
+        child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`wsl exited with code ${code}`))));
+      });
+      const home = stdout.trim();
+      return home.startsWith('/') ? home : null;
+    } catch {
+      // A stopped distribution is an ordinary state; the caller reports it as a missing transport.
+      return null;
+    }
+  }
+
   private async prepareCodex(session: RuntimeSession, config: WatchdogConfig): Promise<void> {
+    // A session inside a WSL distribution uses the state and the transport *inside that distribution*.
+    // Measured: the JSON-RPC transport answers through `wsl.exe` exactly as it does on Windows, so this
+    // reuses the same client and simply launches it in the distro instead of locally.
+    const distribution = session.group.distribution;
+    if (distribution !== undefined && distribution.length > 0) {
+      const paths = await this.findWslCodexPaths(distribution);
+      if (paths === null) {
+        session.transportError = `Codex state was not found inside ${distribution}`;
+        session.transportKind = 'monitor-only';
+        return;
+      }
+      const launch = await this.resolveWslCodexLaunch(distribution);
+      if (launch === null) {
+        // The state is readable but nothing can be written: report it as monitor-only rather than pretending
+        // the session can be continued.
+        session.transportError = `the Codex CLI inside ${distribution} could not be located`;
+        session.transportKind = 'monitor-only';
+        return;
+      }
+      try {
+        const appServer = this.wslCodexAppServerFactory(distribution);
+        session.codexAdapter = new CodexAdapter({
+          statePath: paths.statePath,
+          goalPath: paths.goalPath,
+          normalPrompt: config.tools.codex.normalPrompt,
+          goalPrompt: config.tools.codex.goalPrompt,
+          goalStatuses: config.tools.codex.goalStatuses,
+          appServer,
+        });
+        session.transportKind = 'monitor-only';
+      } catch (error) {
+        session.transportError = `Codex state unavailable in ${distribution}: ${errorMessage(error)}`;
+      }
+      return;
+    }
+
     const paths = await this.findCodexPaths();
     if (paths === null) {
       session.transportError = 'Codex state database was not found';
@@ -774,6 +934,74 @@ export class WatchdogController {
       session.transportKind = 'monitor-only';
     } catch (error) {
       session.transportError = `Codex state unavailable: ${errorMessage(error)}`;
+    }
+  }
+
+  /**
+   * An app-server client that runs the Codex CLI inside a WSL distribution.
+   *
+   * Measured: driving `codex app-server` through `wsl.exe` stdio handshakes and answers `thread/list`
+   * identically to the Windows one, so the same client speaks to both and only the launch differs. Two
+   * details were needed and both were measured: the launcher is a script whose shebang needs `node`, and
+   * `wsl.exe -e` supplies no PATH — so an explicit node is resolved inside the distribution and passed.
+   */
+  private wslCodexAppServerFactory(distribution: string): AppServerClient {
+    const wslPath = this.wslPath ?? 'wsl.exe';
+    const launch = this.wslCodexLaunch ?? { node: 'node', entry: 'codex' };
+    return new AppServerClient({
+      command: wslPath,
+      args: [
+        '-d', distribution,
+        '-e', launch.node,
+        launch.entry,
+        'app-server',
+        '--listen', 'stdio://',
+      ],
+    });
+  }
+
+  /**
+   * Resolve how to launch the Codex CLI inside a distribution.
+   *
+   * Measured: `codex` there is a script whose shebang needs `node`, and `wsl.exe -e` supplies no PATH, so a
+   * bare `codex` fails with `/usr/bin/env: 'node': No such file or directory`. The launcher's real path and a
+   * node beside it are read from the distribution in one probe, so nothing is assumed about where node is
+   * installed.
+   */
+  private async resolveWslCodexLaunch(distribution: string): Promise<{ readonly node: string; readonly entry: string } | null> {
+    if (this.wslCodexLaunch !== null) return this.wslCodexLaunch;
+    // The distribution reports its own launcher and the node that runs it; `command -v` is not used because
+    // PATH inside a login shell resolves `codex` to the Windows install through interop.
+    const script = [
+      'entry=$(ls -1 "$HOME"/.nvm/versions/node/*/bin/codex 2>/dev/null | tail -1)',
+      'if [ -z "$entry" ]; then entry=$(command -v codex 2>/dev/null); fi',
+      // The launcher's shebang needs node on PATH; find a node next to it, then any node the distro has.
+      'if [ -n "$entry" ]; then',
+      '  node=$(ls -1 "$(dirname "$entry")"/node 2>/dev/null | head -1)',
+      'fi',
+      'if [ -z "$node" ]; then node=$(command -v node 2>/dev/null); fi',
+      'if [ -z "$node" ]; then node=$(ls -1 "$HOME"/.nvm/versions/node/*/bin/node 2>/dev/null | tail -1); fi',
+      'printf "%s\\t%s" "$node" "$entry"',
+    ].join('\n');
+    try {
+      const stdout = await new Promise<string>((resolve, reject) => {
+        const child = nodeSpawn(this.wslPath ?? 'wsl.exe', ['-d', distribution, '--', 'sh', '-s'], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
+        let out = '';
+        child.stdout.on('data', (chunk) => { out += String(chunk); });
+        child.on('error', reject);
+        child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`wsl exited with code ${code}`))));
+        child.stdin.end(script);
+      });
+      const [node, entry] = stdout.trim().split('\t');
+      if (node === undefined || entry === undefined || node.length === 0 || entry.length === 0) return null;
+      const launch = { node, entry };
+      this.wslCodexLaunch = launch;
+      return launch;
+    } catch {
+      return null;
     }
   }
 
@@ -1200,9 +1428,20 @@ function engineKey(config: WatchdogConfig): string {
   return [config.defaultIdleTimeoutMs, config.defaultCooldownMs, config.maxAttemptsPerQuietPeriod].join(':');
 }
 
-/** A hosted session keeps its harness identity; a process keeps its root PID. */
+/**
+ * A hosted session keeps its harness identity; a process keeps its root PID.
+ *
+ * A session inside a WSL distribution carries the distribution as well, because a Linux pid lives in its own
+ * namespace: WSL pid 98051 and Windows pid 98051 are unrelated processes, and without the prefix a WSL
+ * session could collide with a Windows one — the same key for two different things, which would make the
+ * watchdog act on the wrong process.
+ */
 function sessionIdFor(group: DiscoveredProcessSession): string {
-  return group.logicalId ?? `${group.tool}:${group.rootPid}`;
+  if (group.logicalId !== undefined) return group.logicalId;
+  if (group.distribution !== undefined && group.distribution.length > 0) {
+    return `wsl:${group.distribution}:${group.tool}:${group.rootPid}`;
+  }
+  return `${group.tool}:${group.rootPid}`;
 }
 
 /**
@@ -1259,28 +1498,36 @@ function normalizeFilter(value: string): string | null {
   return normalized.length === 0 ? null : normalized;
 }
 
-async function discoverCodexPaths(): Promise<CodexPaths | null> {
+/**
+ * Find the Codex state files under a given Codex home, which may be a UNC path into a distribution.
+ *
+ * Extracted from the Windows case so both share the same selection rules: newest `state_*.sqlite`, newest
+ * `goals_*.sqlite` when present.
+ */
+async function discoverCodexPathsUnder(home: string): Promise<CodexPaths | null> {
   let entries: string[];
   try {
-    entries = await readdir(DEFAULT_CODEX_HOME);
+    entries = await readdir(home);
   } catch {
     return null;
   }
-  const state = await newestExisting(entries.filter((entry) => /^state(?:_\d+)?\.sqlite$/iu.test(entry)));
+  const pick = async (pattern: RegExp): Promise<string | null> => {
+    for (const name of entries.filter((entry) => pattern.test(entry)).sort().reverse()) {
+      try {
+        await access(join(home, name));
+        return name;
+      } catch {
+        // Continue to the next candidate.
+      }
+    }
+    return null;
+  };
+  const state = await pick(/^state(?:_\d+)?\.sqlite$/iu);
   if (state === null) return null;
-  const goal = await newestExisting(entries.filter((entry) => /^goals?(?:_\d+)?\.sqlite$/iu.test(entry)));
-  return { statePath: join(DEFAULT_CODEX_HOME, state), goalPath: join(DEFAULT_CODEX_HOME, goal ?? state) };
+  const goal = await pick(/^goals?(?:_\d+)?\.sqlite$/iu);
+  return { statePath: join(home, state), goalPath: join(home, goal ?? state) };
 }
 
-async function newestExisting(names: readonly string[]): Promise<string | null> {
-  for (const name of [...names].sort().reverse()) {
-    const path = join(DEFAULT_CODEX_HOME, name);
-    try {
-      await access(path);
-      return name;
-    } catch {
-      // Continue to the next candidate.
-    }
-  }
-  return null;
+async function discoverCodexPaths(): Promise<CodexPaths | null> {
+  return discoverCodexPathsUnder(DEFAULT_CODEX_HOME);
 }

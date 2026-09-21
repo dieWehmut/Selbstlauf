@@ -2117,18 +2117,83 @@ window, and the UI already words that state honestly.
 
 Suites: CLI 258 -> 262, desktop 111 -> 129, web 135 -> 137, browser 57.
 
-## Not verified
+#### WSL support, and the wrong turn that delayed it
 
-### The fixes are committed but NOT installed
+The fifth reported problem — "wsl里面的没监控到" — is now implemented. Getting there required correcting a
+conclusion I had already committed.
 
-Worth stating plainly, because the installed app and the verified build now differ:
+**First conclusion, and why it was wrong.** I measured that a WSL session's terminal cannot be written into from
+outside, and concluded that continuing one needs a helper inside the distribution. The measurement was correct;
+the inference was not. Codex exposes its own JSON-RPC transport — the same one the watchdog already speaks — and
+`wsl.exe` pipes stdio across the boundary:
 
-    installed 0.9.5        two Tabby rows (30780 and 17448, the same conversation) | fix ABSENT
-    local packaged build   one Tabby row                                         | fix present
+    codex app-server inside WSL, driven through wsl.exe stdio:
+      ok=true
+      id 1 (initialize)  -> keys: userAgent, codexHome, platformFamily, platformOs
+      id 2 (thread/list) -> 3 thread(s)
 
-Installing requires a release, and no release was made. So the four fixes exist in the repository, are verified
-against a real packaged build, and are **not** in the app on this machine.
+The only obstacle was mundane: `codex` is a script whose shebang needs `node`, and `wsl.exe -e` supplies no
+PATH — resolved by passing an explicit node, which is how the native session runs anyway.
 
+**What was built.** A distribution needs three things the Windows path does not provide, and each was measured
+before it was written:
+
+1. **Discovery.** WSL processes live in a Linux pid namespace and are absent from the Windows process table
+   entirely. A probe piped over **stdin** (`sh -s`) reads them — measured 57 records in 216ms. The probe is piped
+   rather than passed as an argument because that is where every exploratory probe broke: quotes have to survive
+   PowerShell, then `cmd`, then the Linux shell.
+2. **Identity.** A Linux pid is unrelated to a Windows pid of the same number, so session ids carry the
+   distribution: `wsl:Ubuntu-22.04:codex:98051`. Without it two different processes could share a key.
+3. **State.** This is the piece that took the longest, and the answer was not what I expected.
+
+**SQLite cannot read a WSL database where it lives.** Measured three ways:
+
+    same bytes on local NTFS             -> opens, 3 threads
+    live database over \\wsl.localhost   -> database is locked
+    a copy placed back INSIDE the distro -> database is locked (identical)
+
+The distribution's root is ext4, but Windows reaches it over **9P**, which does not provide the file locking
+SQLite requires. It is a filesystem limit, not a URI problem — `pathToFileURL` also produces an authority SQLite
+rejects, which I fixed first and which turned out not to be the cause. So the state is **copied to local disk**
+before reading, including the `-wal` and `-shm` sidecars, because a database in WAL mode is not consistent
+without them.
+
+**Verified on the installed build**, with WSL enabled:
+
+    sessions: 5 alive
+      id=wsl:Ubuntu-22.04:codex:98051
+          tool=codex host= conv=01a0be49-a23f-7ed2-8762-5697f90ebeb2 transport=codex-app-server
+
+The conversation resolved, the transport is the app-server, and the host is empty — correct, because a Linux
+process has no Win32 window to preview or reveal.
+
+WSL is **opt-in**: `wslDistribution` is empty by default, because looking inside a distribution costs a
+subprocess per poll and only helps someone who runs a CLI there. It is settable in 常规, and a stopped or
+missing distribution is a stated reason rather than an error, because WSL must never stop the Windows sessions
+from being watched.
+
+**Two test defects found while doing this**, both worth recording because both would have misled the next person:
+
+- The first WSL host test **passed with the rule removed**, because its fixture had no ancestor that could
+  classify as a host — so `classifySessionHost` returned null either way and the rule was never exercised. It now
+  carries a Tabby ancestor and a Tabby window on purpose, and fails with
+  `a WSL session must not borrow a Windows window as its host` when the rule is removed.
+- `Test-WindowsScripts.ps1` was **flaky, about one run in six**: its temp-directory cleanup raced a transient
+  Windows handle and failed with `Cannot remove item ... because it is being used by another process`, which was
+  then reported as whichever test happened to be running. The cleanup now retries. Six consecutive runs pass.
+
+Suites: CLI 262 -> 280, web 137 -> 138.
+
+### The four earlier fixes were installed without a release
+
+Installing requires a build. Rather than cut a version, a local package was built and installed over 0.9.5, so
+the installed app and the published release now differ while sharing a version number:
+
+    installed 0.9.5 (local build)   one Tabby row, no 命令提示符, minimized previews | fix present
+    published 0.9.5                 two Tabby rows for one conversation              | fix absent
+
+That is a deliberate trade the user chose, and the cost is worth naming: the version number no longer identifies
+which build is installed.
 
 ## Not verified
 

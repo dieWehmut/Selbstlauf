@@ -29,6 +29,14 @@ const defaults: WatchdogConfig = {
   defaultIdleTimeoutMs: 120_000,
   defaultCooldownMs: 300_000,
   maxAttemptsPerQuietPeriod: 1,
+  /**
+   * Empty by default, so WSL is opt-in.
+   *
+   * WSL sessions are invisible to the Windows process table and are found by running a probe inside the
+   * distribution, which is a cost — measured about 200ms per poll — and only useful to someone who actually
+   * runs a CLI there. Defaulting to off means nobody pays for it without choosing to.
+   */
+  wslDistribution: '',
   tools: {
     claude: {
       enabled: true,
@@ -102,6 +110,25 @@ function requireStringArray(value: unknown, path: string): string[] {
     throw new TypeError(`${path} must be an array of strings`);
   }
   return [...value];
+}
+
+/**
+ * A WSL distribution name, or an empty string for "off".
+ *
+ * A name is passed to `wsl.exe -d`, so it must be a single token: a value with whitespace or a shell
+ * metacharacter would either fail confusingly or change what is executed. Only the characters WSL itself
+ * allows in a distribution name are accepted.
+ */
+function requireOptionalDistribution(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new TypeError('wslDistribution must be a string');
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return '';
+  if (!/^[A-Za-z0-9._-]+$/u.test(trimmed)) {
+    throw new TypeError(`wslDistribution must be a single distribution name: ${value}`);
+  }
+  return trimmed;
 }
 
 function parseCodexConfig(value: unknown): CodexToolConfig {
@@ -181,6 +208,15 @@ export function parseConfig(value: unknown): WatchdogConfig {
       config.maxAttemptsPerQuietPeriod,
       'maxAttemptsPerQuietPeriod',
     ),
+    /**
+     * Optional so a config written by an earlier release keeps loading.
+     *
+     * An install that predates WSL support has no such key, and refusing to load would strand it. An absent
+     * key means "off", which is the same as the default.
+     */
+    wslDistribution: config.wslDistribution === undefined
+      ? defaultConfig.wslDistribution
+      : requireOptionalDistribution(config.wslDistribution),
     tools: {
       claude: {
         enabled: requireBoolean(claude.enabled, 'tools.claude.enabled'),

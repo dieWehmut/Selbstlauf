@@ -210,7 +210,26 @@ function loadSqliteRuntime(): SqliteRuntimeModule {
   }
 }
 
+/**
+ * A read-only SQLite URI for a path, including a UNC path.
+ *
+ * `pathToFileURL` is right for an ordinary path, but it produces `file://wsl.localhost/...` for the
+ * `\\wsl.localhost\<distro>\...` form and SQLite rejects that with `invalid uri authority: wsl.localhost`.
+ *
+ * **A URI fix is not enough for those paths anyway.** Measured: SQLite cannot open *any* database on
+ * `\\wsl.localhost` — a copy placed back inside the distribution fails with `database is locked` exactly as
+ * the live one does, while the same bytes on local NTFS open fine. The distribution's root is ext4 but Windows
+ * reaches it over 9P, which does not provide the locking SQLite needs. So a WSL database has to be copied to
+ * local disk before it can be read, which is what `wsl-state.ts` does.
+ *
+ * A UNC path is still handled here so the error a caller sees is a real SQLite failure rather than a malformed
+ * URI, and so a future filesystem that does support locking would simply work.
+ */
 function toReadOnlySqliteUri(path: string): string {
+  if (path.startsWith('\\\\')) {
+    // SQLite wants an empty authority and the backslashes left in place. The leading `\\` is kept.
+    return `file:${path}${path.includes('?') ? '&' : '?'}mode=ro`;
+  }
   const uri = pathToFileURL(path).href;
   return `${uri}${uri.includes('?') ? '&' : '?'}mode=ro`;
 }

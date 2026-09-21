@@ -248,7 +248,22 @@ function Remove-TestContext {
     }
 
     if (Test-Path -LiteralPath $Context.Root) {
-        Remove-Item -LiteralPath $Context.Root -Recurse -Force
+        # Retried, because Windows keeps a directory handle open for a moment after a child process that used
+        # it has exited — a filesystem filter driver or the antivirus scan on a freshly written file is enough.
+        # Measured: this cleanup failed about one run in six with "Cannot remove item ... because it is being
+        # used by another process", which reported the test that happened to run then as a failure rather than
+        # the cleanup. A retry separates the two, and the last attempt still throws if the path is genuinely
+        # stuck.
+        $removed = $false
+        for ($attempt = 1; $attempt -le 5 -and -not $removed; $attempt++) {
+            try {
+                Remove-Item -LiteralPath $Context.Root -Recurse -Force -ErrorAction Stop
+                $removed = $true
+            } catch {
+                if ($attempt -eq 5) { throw }
+                Start-Sleep -Milliseconds (150 * $attempt)
+            }
+        }
     }
 }
 

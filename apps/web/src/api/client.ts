@@ -55,6 +55,12 @@ export interface WatchdogConfig {
   defaultIdleTimeoutMs: number;
   defaultCooldownMs: number;
   maxAttemptsPerQuietPeriod: number;
+  /**
+   * The WSL distribution to look inside, or an empty string for "do not".
+   *
+   * Optional so a client built before WSL support still type-checks against an older service response.
+   */
+  wslDistribution?: string;
   tools: {
     claude: {
       enabled: boolean;

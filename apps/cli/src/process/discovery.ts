@@ -21,6 +21,15 @@ export interface GroupProcessesOptions extends ProcessNameOptions {
   readonly sameUserOnly?: boolean;
   /** Marks the harness WebUI window so a hosted session can name its browser. */
   readonly harnessHost?: HarnessHostHint | null;
+  /**
+   * The WSL distribution these records came from, when they did.
+   *
+   * Three things follow from it, and each matters: the records are not subject to the Windows same-user
+   * check (a Linux process has no Windows SID to compare), the watchdog's own PID means nothing in a Linux
+   * pid namespace so no process is excluded on that basis, and every session is stamped with the
+   * distribution so its identity cannot collide with a Windows pid.
+   */
+  readonly distribution?: string;
 }
 
 export interface DiscoveredProcessSession {
@@ -39,6 +48,17 @@ export interface DiscoveredProcessSession {
    * instead of the root PID so each hosted session stays a distinct row.
    */
   readonly logicalId?: string;
+  /**
+   * The WSL distribution a session runs in, or absent for a Windows process.
+   *
+   * This is not decoration: a Linux pid lives in its own namespace, so a WSL process numbered 98051 says
+   * nothing about Windows process 98051, and the two can collide. Session identity therefore has to carry the
+   * distribution, or a WSL session could be confused with an unrelated Windows one.
+   *
+   * It is also what tells the rest of the app that this session has no window: there is no Win32 handle for a
+   * process inside a distribution, so nothing can be previewed or revealed for it.
+   */
+  readonly distribution?: string;
   /** The application the session is running inside, when it can be resolved. */
   readonly host?: SessionHost | null;
   readonly transportHint: 'unknown';
@@ -110,17 +130,25 @@ export function detectProcessTool(
   const isClaude =
     configuredNameMatches(record, claudeNames) ||
     containsPathToken(commandLine, 'claude-code') ||
-    containsPathToken(commandLine, 'claude.ps1');
+    containsPathToken(commandLine, 'claude.ps1') ||
+    // The Linux launcher has no extension: measured inside Ubuntu, `claude` is a script at
+    // `<prefix>/bin/claude`, where the Windows install is `claude.ps1`.
+    containsPathToken(commandLine, 'bin/claude');
   const isCodex =
     configuredNameMatches(record, codexNames) ||
     containsPathToken(commandLine, '@openai/codex') ||
     containsPathToken(commandLine, 'codex.js') ||
+    // Measured inside Ubuntu: the session's root is `node <prefix>/bin/codex`, an extension-less launcher,
+    // while the child it spawns is `.../@openai/codex-linux-x64/vendor/.../bin/codex` and matched already.
+    // Without this the root was missed and the session was reported as a bare child process.
+    containsPathToken(commandLine, 'bin/codex') ||
     processName === 'codex.exe' ||
     executableName === 'codex.exe';
   const isDsh =
     configuredNameMatches(record, dshNames) ||
     containsPathToken(commandLine, 'dsh.cmd') ||
     containsPathToken(commandLine, 'dsh.ps1') ||
+    containsPathToken(commandLine, 'bin/dsh') ||
     DSH_ENTRY_TOKENS.some((token) => containsPathToken(commandLine, token)) ||
     (processName === 'dsh.exe' && executableName === 'dsh.exe');
 
@@ -158,10 +186,14 @@ export function groupProcesses(
   options: GroupProcessesOptions = {},
 ): DiscoveredProcessSession[] {
   const sameUserOnly = options.sameUserOnly ?? true;
+  // WSL records come from a Linux pid namespace: they have no Windows SID to compare, and the watchdog's own
+  // Windows PID is meaningless among them, so neither check can be applied to them.
+  const distribution = options.distribution?.trim();
+  const isWsl = distribution !== undefined && distribution.length > 0;
   const currentProcessId = options.currentProcessId ?? process.pid;
   const currentUserSid = options.currentUserSid?.trim() ??
     records.find((record) => record.pid === currentProcessId)?.userSid?.trim();
-  if (sameUserOnly && !currentUserSid) {
+  if (sameUserOnly && !isWsl && !currentUserSid) {
     throw new Error('currentUserSid is required when sameUserOnly is enabled');
   }
 
@@ -179,7 +211,8 @@ export function groupProcesses(
    * themselves candidates — `cmd.exe` here — so one pass is normally enough. The loop runs to a fixed
    * point anyway: the chain is not guaranteed to be reported for every intermediate.
    */
-  const excludedPids = new Set<number>([currentProcessId]);
+  // In a Linux pid namespace the watchdog's Windows PID means nothing, so nothing is excluded there.
+  const excludedPids = new Set<number>(isWsl ? [] : [currentProcessId]);
   for (let pass = 0; pass < records.length; pass += 1) {
     let changed = false;
     for (const record of records) {
@@ -204,7 +237,9 @@ export function groupProcesses(
     if (excludedPids.has(record.pid)) {
       continue;
     }
-    if (!sameUserOnly || sidEquals(record.userSid, currentUserSid as string)) {
+    // A WSL record carries no Windows SID, so the same-user rule cannot apply to it: the distribution is
+    // already the user's own, and the provider only ever lists their processes.
+    if (isWsl || !sameUserOnly || sidEquals(record.userSid, currentUserSid as string)) {
       byPid.set(record.pid, record);
     }
   }
@@ -309,7 +344,16 @@ export function groupProcesses(
         creationTimeMs: root.creationTimeMs,
         userSid: root.userSid,
         ...(workingDirectory === null ? {} : { workingDirectory }),
-        ...(host === null ? {} : { host }),
+        /**
+         * A session inside a distribution gets no host.
+         *
+         * `classifySessionHost` answers "which application is this running inside", from the ancestor chain
+         * and the visible windows on the desktop. Neither exists for a Linux process: measured, a WSL pid has
+         * no Win32 window at all, so any answer it produced would be a guess about Windows processes numbered
+         * the same. Leaving it absent is what makes the UI say the session has no window, which is true.
+         */
+        ...(isWsl || host === null ? {} : { host }),
+        ...(isWsl ? { distribution } : {}),
         transportHint: 'unknown' as const,
       };
     })

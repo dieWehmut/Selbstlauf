@@ -340,6 +340,7 @@ const fallbackConfig: WatchdogConfig = {
   defaultIdleTimeoutMs: 120_000,
   defaultCooldownMs: 300_000,
   maxAttemptsPerQuietPeriod: 1,
+  wslDistribution: '',
   tools: {
     claude: {
       enabled: true,
@@ -1491,6 +1492,18 @@ function SettingsPanel(props: {
           <label><span>排除匹配</span><input aria-label="排除匹配" placeholder="例如 node_modules" value={excludeFilters} onChange={(event) => setExcludeFilters(event.target.value)} /></label>
         </div>
         <div className="switch-row"><div><strong>仅监控当前用户进程</strong><span>关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入</span></div><label className="switch"><input aria-label="仅监控当前用户进程" type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
+      </section>
+      {/*
+        WSL is opt-in and left empty by default, because looking inside a distribution costs a subprocess per
+        poll while only helping someone who runs a CLI there. The field names the distribution exactly as
+        `wsl -l -q` reports it: a session inside one has no window, so the distribution is what identifies it.
+      */}
+      <section className="settings-section">
+        <div className="section-title"><div><span className="eyebrow">WSL</span><h2>WSL 发行版</h2></div><Terminal size={20} /></div>
+        <p className="section-hint">留空即不监控。填入发行版名称（如 Ubuntu-22.04）后，会一并监控该发行版里的 codex / claude 会话。</p>
+        <div className="field-stack">
+          <label><span>发行版名称</span><input aria-label="WSL 发行版名称" placeholder="留空即关闭" value={draft.wslDistribution ?? ''} onChange={(event) => setDraft({ ...draft, wslDistribution: event.target.value })} /></label>
+        </div>
       </section>
       {saveBar}
         </>
