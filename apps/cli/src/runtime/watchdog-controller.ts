@@ -139,11 +139,17 @@ const DSH_DRY_RUN_REASON = 'dry run keeps DeepSeek Harness input disabled';
 const DSH_API_UNAVAILABLE_REASON = 'the local DeepSeek Harness session API is unavailable';
 const DSH_HOST_RETRY_MS = 60_000;
 /**
- * Window titles containing this marker are showing the harness WebUI. The
- * harness serves its browser UI over loopback, so the browser is never part of
- * the session's process tree and only its title connects the two.
+ * Window titles containing one of these markers are showing the harness WebUI. The harness serves its
+ * browser UI over loopback, so the browser is never part of the session's process tree and only its title
+ * connects the two.
+ *
+ * Both the short name and the full product name are listed, because the title is whatever the browser is
+ * showing and only the full name appears in practice: measured on this machine, the harness window's title
+ * is `Reference attachments for goal objective — DeepSeek Harness`, which does **not** contain `DSH`. With
+ * only the abbreviation the match failed, and the harness session was reported as having no window at all
+ * while its window was open — which also cost it the 切换到该窗口 action.
  */
-const DSH_WINDOW_TITLE_MARKER = 'DSH';
+const DSH_WINDOW_TITLE_MARKERS: readonly string[] = ['DeepSeek Harness', 'DSH'];
 const DSH_WEB_LABEL = 'DeepSeek Harness 网页界面';
 
 /**
@@ -189,7 +195,7 @@ export class WatchdogController {
     this.provider = options.provider ??
       new WindowsProcessProvider({
         includeProcessIds: [this.currentProcessId],
-        windowTitleMarkers: [DSH_WINDOW_TITLE_MARKER],
+        windowTitleMarkers: DSH_WINDOW_TITLE_MARKERS,
       });
     this.publish = options.publish;
     this.now = options.now ?? Date.now;
@@ -469,7 +475,7 @@ export class WatchdogController {
         currentProcessId: this.currentProcessId,
         sameUserOnly: this.currentConfig.processFilters.sameUserOnly,
         harnessHost: this.currentConfig.tools.dsh.enabled
-          ? { titleMarker: DSH_WINDOW_TITLE_MARKER, label: DSH_WEB_LABEL }
+          ? { titleMarkers: DSH_WINDOW_TITLE_MARKERS, label: DSH_WEB_LABEL }
           : null,
       });
       return groups.filter((group) => this.matchesProcessFilters(group));

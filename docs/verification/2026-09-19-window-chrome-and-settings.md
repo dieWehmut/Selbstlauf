@@ -1868,6 +1868,51 @@ not rely on a best-effort restore inside the same script that might die — it h
 which is what caught it here. The measurement was strong (the full round trip, field to service to audit), but
 it briefly left the user's own tool disabled, and that is not an acceptable cost for a test.
 
+#### Two defects the user found by looking at the app
+
+Both were reported directly, and both were real. Neither was visible from the tests, because the tests use
+fixtures that happen to avoid the conditions.
+
+**The process list was full of rows labelled 运行位置: Selbstlauf.** Measured against the live service: the
+sidebar rendered **25 rows for 5 live processes**, of which **19 were grouped under "Selbstlauf"** — this
+application's own window, used as the host of sessions it had spawned. Two causes compounded:
+
+1. `selbstlauf.exe` was in the recognised-host table. The app's window is an ancestor of every CLI the
+   watchdog continues, so it was picked as the host — and "inside Selbstlauf" is never where a session
+   actually runs.
+2. Those 19 rows were **already dead**. The service keeps a session with `alive: false` after its process
+   exits, because its audit trail refers to it; the UI listed them anyway, so the sidebar filled with
+   processes that had been gone for hours and every action on one could only fail.
+
+Fixed by excluding this application from host resolution entirely (an exclusion set rather than a low rank,
+because any rank can still win) and by deriving a `liveSessions` list that the process views, the metric and
+the detail lookup all read. The events page remains where audit history belongs.
+
+Verified against the live service: **5 alive, 20 dead**, and the dead ones' pids no longer exist.
+
+**The DeepSeek Harness session had no window although its window was open.** The harness window is found by
+title, and the configured marker was `DSH`. The real window is titled
+
+    Reference attachments for goal objective — DeepSeek Harness
+
+which contains **no `DSH`**. Measured both ways: the new marker matches that window (`handle 66830`), the old
+one matched **nothing**. So the session was reported as having no window at all — which also cost it the
+window preview and 切换到该窗口, both of which had been built and verified against a *different* title.
+
+Fixed by listing both the full product name and the abbreviation. The hint now carries `titleMarkers` rather
+than a single `titleMarker`, and all are matched.
+
+#### A test that passed for the wrong reason
+
+The first version of the Selbstlauf exclusion test passed even after the exclusion was neutralised — because
+the table entry had also been removed, so nothing could produce the label by either path. A test that passes
+for a reason other than the one it names is not a test of that reason. Restoring the table entry and
+neutralising *only* the exclusion made it fail (`Expected values to be strictly equal`), which is when it
+became worth keeping.
+
+Both fixes are pinned: CLI 255 -> 256, web 134 -> 135. Each was proved by reverting it — the exclusion test
+fails with the label reappearing, and the live filter fails with `expected 6 rows to have a length of 4`.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

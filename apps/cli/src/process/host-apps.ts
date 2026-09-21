@@ -46,8 +46,8 @@ export interface SessionHost {
 }
 
 export interface HarnessHostHint {
-  /** Window titles containing this marker belong to the harness WebUI. */
-  readonly titleMarker: string;
+  /** Window titles containing any of these markers belong to the harness WebUI. */
+  readonly titleMarkers: readonly string[];
   /** Label used when the harness UI is served but no matching window is open. */
   readonly label: string;
 }
@@ -81,7 +81,6 @@ const HOST_APPS: ReadonlyMap<string, HostApp> = new Map<string, HostApp>([
   ['windsurf.exe', { label: 'Windsurf', category: 'editor', rank: 5 }],
   // Desktop applications that host an agent runtime.
   ['chatgpt.exe', { label: 'Codex 应用', category: 'desktop-app', rank: 5 }],
-  ['selbstlauf.exe', { label: 'Selbstlauf', category: 'desktop-app', rank: 4 }],
   // Browsers, used mostly by the harness WebUI hint below.
   ['msedge.exe', { label: 'Microsoft Edge', category: 'browser', rank: 4 }],
   ['chrome.exe', { label: 'Google Chrome', category: 'browser', rank: 4 }],
@@ -122,8 +121,23 @@ const NOISE_WINDOW_CLASSES: ReadonlySet<string> = new Set([
   'windows.ui.composition.desktopwindowcontentbridge',
 ]);
 
+/**
+ * Executables that must never be reported as where a session runs.
+ *
+ * This application's own process is the honest example. Its window is an ancestor of every CLI the
+ * watchdog is asked to continue — the watchdog's own service and the sessions it spawns sit inside it —
+ * so without this the process list filled with rows labelled 运行位置: Selbstlauf, at one point 20 of 25,
+ * none of which is a place a person works. A session that descends from this app is running somewhere
+ * else, or its host could not be identified; "inside Selbstlauf" is never the useful answer.
+ */
+const EXCLUDED_HOST_EXECUTABLES: ReadonlySet<string> = new Set([
+  'selbstlauf.exe',
+]);
+
 export function hostAppFor(executableName: string): HostApp | null {
-  return HOST_APPS.get(executableName.trim().toLocaleLowerCase()) ?? null;
+  const key = executableName.trim().toLocaleLowerCase();
+  if (EXCLUDED_HOST_EXECUTABLES.has(key)) return null;
+  return HOST_APPS.get(key) ?? null;
 }
 
 /** Whether a window is a plausible application window rather than OS plumbing. */
@@ -153,9 +167,13 @@ export function findHarnessWindow(
   windows: readonly HostWindowRef[],
   hint: HarnessHostHint,
 ): HostWindowRef | null {
-  const marker = hint.titleMarker.toLocaleLowerCase();
+  const markers = hint.titleMarkers
+    .map((marker) => marker.trim().toLocaleLowerCase())
+    .filter((marker) => marker.length > 0);
+  if (markers.length === 0) return null;
   const matches = windows.filter((window) =>
-    isRealWindow(window) && window.title.toLocaleLowerCase().includes(marker));
+    isRealWindow(window)
+    && markers.some((marker) => window.title.toLocaleLowerCase().includes(marker)));
   if (matches.length === 0) return null;
   // A browser tab is what actually shows the harness; any other window that
   // merely mentions the marker is a weaker signal.
