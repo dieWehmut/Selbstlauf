@@ -1045,3 +1045,23 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .prompt-composer__spinner { display: inline-grid; place-items: center; animation: prompt-composer-spin .8s linear infinite; }
 @keyframes prompt-composer-spin { to { transform: rotate(360deg); } }
 
+
+/* ---------- Typing a line into a window ---------- */
+/* This panel states its cost before acting, because the cost is real: Windows refuses synthesized keyboard input
+   to a background process, so the target window is brought forward for a moment. Saying that up front is the
+   difference between a capability and a surprise. */
+.window-type { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); }
+.window-type__head { display: flex; align-items: center; gap: 10px; }
+.window-type__title { margin: 0; font-size: 14px; }
+.window-type__cost { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--amber, #e6b65b); font-size: 12px; }
+.window-type__cost > svg { flex: 0 0 auto; margin-top: 2px; }
+.window-type__form { display: flex; align-items: center; gap: 10px; }
+.window-type__field { flex: 1 1 auto; min-width: 0; display: block; }
+.window-type__field input { width: 100%; min-height: 36px; padding: 0 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius-xs); color: var(--text); background: var(--bg); font-size: 13px; }
+.window-type__field input::placeholder { color: var(--faint); }
+.window-type__field input:disabled { color: var(--faint); cursor: not-allowed; }
+.window-type__field input[aria-invalid='true'] { border-color: color-mix(in srgb, var(--red) 55%, transparent); }
+.window-type__hint { margin: 0; color: var(--muted); font-size: 12px; }
+.window-type__hint strong { color: var(--text); font: 12px var(--mono); }
+.window-type__problem { margin: 0; color: var(--red, #e5735f); font-size: 12px; }
+.window-type__done { margin: 0; color: var(--green); font-size: 12px; }

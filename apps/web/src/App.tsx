@@ -56,6 +56,7 @@ import {
 } from './api/client';
 import { SettingsRail, SETTINGS_SECTION_IDS } from './settings/SettingsRail';
 import { SessionWindowPreview } from './process/SessionWindowPreview';
+import { WindowTypePanel } from './process/WindowTypePanel';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
@@ -137,7 +138,23 @@ interface DesktopShellBridge {
    * arbitrary window on the machine.
    */
   windowPreview?(sessionId: string): Promise<WindowPreviewResult>;
+  /**
+   * Type a line into the window a watched session runs in.
+   *
+   * Takes a session id for the same reason the preview does. The desktop shell refuses a session with no window,
+   * and a window shared by several sessions — measured on this machine, two Tabby Codex sessions share one window,
+   * and text typed into it would reach whichever pane holds the focus inside it rather than the one chosen here.
+   *
+   * This takes the foreground briefly, because there is no route that both delivers synthesized input and leaves
+   * focus alone. The user chose that trade knowingly.
+   */
+  windowType?(sessionId: string, text: string, submit: boolean): Promise<WindowTypeResult>;
 }
+
+/** The outcome of typing into a session's window. */
+export type WindowTypeResult =
+  | { readonly ok: true; readonly title?: string; readonly typed?: number; readonly submitted?: boolean; readonly focusRestored?: boolean }
+  | { readonly ok: false; readonly reason: string };
 
 /**
  * The outcome of a preview request.
@@ -727,6 +744,10 @@ function ProcessDetail(props: {
   readonly requestPreview?: (sessionId: string) => Promise<WindowPreviewResult>;
   /** Write a typed line into the session, reporting whether it was really written. */
   readonly onSendPrompt?: (session: SessionView, prompt: string) => Promise<{ readonly dryRun: boolean }> | { readonly dryRun: boolean };
+  /** Type a line into the session's window. Absent outside the desktop shell. */
+  readonly onTypeIntoWindow?: (sessionId: string, text: string, submit: boolean) => Promise<WindowTypeResult>;
+  /** How many watched sessions share this session's window; more than one refuses typing. */
+  readonly windowSharedBy?: number;
 }) {
   const session = props.session;
   if (session === null) {
@@ -791,6 +812,16 @@ function ProcessDetail(props: {
         busy={props.busy === session.id}
         {...(props.onSendPrompt === undefined ? {} : { onSend: props.onSendPrompt })}
       />
+
+      {/* Driving the window itself, which is a different capability from the one above: that one writes through
+          the session's own transport, this one types into the window and so needs the foreground for a moment. */}
+      {props.onTypeIntoWindow === undefined ? null : (
+        <WindowTypePanel
+          session={session}
+          onType={props.onTypeIntoWindow}
+          sharedBy={props.windowSharedBy}
+        />
+      )}
 
       <footer className="process-detail__actions">
         <SessionActions
@@ -1925,6 +1956,19 @@ export default function App({ api: suppliedApi }: AppProps) {
       ? (sessionId: string) => request.call(bridge!.shell, sessionId)
       : null;
   }, [bridge]);
+
+  /**
+   * Typing into a window, bound the same way and for the same reason.
+   *
+   * Derived once so the panel's callback identity is stable across renders; a new function each render would
+   * invalidate the panel's own memoised state on every poll, which polls every two seconds.
+   */
+  const typeIntoWindow = useMemo(() => {
+    const request = bridge?.shell?.windowType;
+    return typeof request === 'function'
+      ? (sessionId: string, text: string, submit: boolean) => request.call(bridge!.shell, sessionId, text, submit)
+      : null;
+  }, [bridge]);
   const [health, setHealth] = useState<HealthView>({ ok: false, running: false, dryRun: true, lastPollAtMs: null });
   const [startupInstalled, setStartupInstalled] = useState(false);
   const [hookStatus, setHookStatus] = useState<ClaudeHookStatusView>(fallbackHookStatus);
@@ -2775,6 +2819,15 @@ export default function App({ api: suppliedApi }: AppProps) {
             onFocus={(session) => void focusSession(session)}
             onSendPrompt={(session, prompt) => mutateSession(session, 'inject', prompt)}
             {...(previewWindow === null ? {} : { requestPreview: previewWindow })}
+            {...(typeIntoWindow === null ? {} : { onTypeIntoWindow: typeIntoWindow })}
+            windowSharedBy={
+              // How many watched sessions share the selected session's window. More than one refuses typing,
+              // because the text would reach whichever pane holds the focus inside that window.
+              selectedSessionId === null ? undefined : liveSessions.filter(
+                (entry) => entry.host?.windowHandle !== null
+                  && entry.host?.windowHandle === liveSessions.find((s) => s.id === selectedSessionId)?.host?.windowHandle,
+              ).length
+            }
           />
         </div>}
 

@@ -29,6 +29,8 @@ export const SHELL_ACTIONS = Object.freeze([
   'openExternal',
   'setTitleBarOverlay',
   'windowPreview',
+  /** Type a line into a session window. Takes the foreground briefly; the user chose that trade. */
+  'windowType',
 ] as const);
 
 export type ShellAction = (typeof SHELL_ACTIONS)[number];
@@ -101,6 +103,33 @@ export interface ShellActionContext {
    * performs the lookup, so the renderer never names a window at all.
    */
   previewWindow?(sessionId: string): Promise<WindowPreview> | WindowPreview;
+  /**
+   * Type a line into the window a watched session runs in.
+   *
+   * Keyed by session id for the same reason the preview is: the renderer never names a window, so this cannot be
+   * pointed at an arbitrary one. The main process resolves the id against the service's session list, refuses
+   * when the window hosts more than one session (the text would go to whichever pane holds the focus inside it),
+   * and only then types — briefly taking the foreground, which the user chose knowingly.
+   */
+  typeIntoWindow?(sessionId: string, text: string, submit: boolean): Promise<WindowType> | WindowType;
+}
+
+/**
+ * The outcome of typing into a window.
+ *
+ * A refusal is a result rather than an error, because the ordinary refusals are states of a healthy system — a
+ * shared window, a session with no window, a window that will not take focus — and the UI has to say which one
+ * applies rather than showing a failure it cannot explain.
+ */
+export interface WindowType {
+  readonly ok: boolean;
+  /** A stated reason when nothing was typed; absent on success. */
+  readonly reason?: string;
+  /** The window's title, so the UI can state what it typed into. */
+  readonly title?: string;
+  readonly typed?: number;
+  readonly submitted?: boolean;
+  readonly focusRestored?: boolean;
 }
 
 /**
@@ -135,8 +164,12 @@ export interface ShellActionRequest {
   /** Only meaningful for `setTitleBarOverlay`. */
   readonly color?: string;
   readonly symbolColor?: string;
-  /** Only meaningful for `windowPreview`: the watched session to preview. */
+  /** Only meaningful for the window actions: the watched session to act on. */
   readonly sessionId?: string;
+  /** Only meaningful for `windowType`: the line to type. */
+  readonly text?: string;
+  /** Only meaningful for `windowType`: press Enter afterwards. */
+  readonly submit?: boolean;
 }
 
 /** The zoomable surface of a window, whichever shape Electron hands back. */
@@ -196,6 +229,9 @@ export function applyShellAction(context: ShellActionContext, request: ShellActi
       // caller used the synchronous dispatcher for it, which is a programming error rather than
       // something to paper over.
       throw new TypeError('windowPreview is asynchronous: use applyAsyncShellAction');
+    case 'windowType':
+      // Asynchronous for a different reason: it spawns a helper that takes the foreground, types and restores.
+      throw new TypeError('windowType is asynchronous: use applyAsyncShellAction');
     default: {
       const exhaustive: never = request.action;
       throw new TypeError(`unknown shell action: ${String(exhaustive)}`);
@@ -220,6 +256,8 @@ export function parseShellRequest(payload: unknown): ShellActionRequest {
     color?: unknown;
     symbolColor?: unknown;
     sessionId?: unknown;
+    text?: unknown;
+    submit?: unknown;
   };
   if (!isShellAction(entry.action)) {
     throw new TypeError(`unknown shell action: ${String(entry.action)}`);
@@ -231,6 +269,8 @@ export function parseShellRequest(payload: unknown): ShellActionRequest {
     ...(entry.color === undefined ? {} : { color: String(entry.color) }),
     ...(entry.symbolColor === undefined ? {} : { symbolColor: String(entry.symbolColor) }),
     ...(entry.sessionId === undefined ? {} : { sessionId: String(entry.sessionId) }),
+    ...(entry.text === undefined ? {} : { text: String(entry.text) }),
+    ...(entry.submit === undefined ? {} : { submit: entry.submit === true }),
   };
 }
 
@@ -244,7 +284,26 @@ export function parseShellRequest(payload: unknown): ShellActionRequest {
 export async function applyAsyncShellAction(
   context: ShellActionContext,
   request: ShellActionRequest,
-): Promise<WindowPreview> {
+): Promise<WindowPreview | WindowType> {
+  if (request.action === 'windowType') {
+    const typeHandler = context.typeIntoWindow;
+    if (typeHandler === undefined) return { ok: false, reason: 'windowType is not wired up' };
+    const sessionId = request.sessionId;
+    const text = request.text;
+    // A session id and a line are the only things the renderer may name here. An empty id is refused rather than
+    // passed down, and the text is validated by the handler before anything is typed.
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      return { ok: false, reason: 'windowType needs a session id' };
+    }
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      return { ok: false, reason: 'windowType needs text to type' };
+    }
+    try {
+      return await typeHandler(sessionId, text, request.submit === true);
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+  }
   if (request.action !== 'windowPreview') {
     throw new TypeError(`not an async shell action: ${request.action}`);
   }
@@ -265,5 +324,16 @@ export async function applyAsyncShellAction(
 
 /** Whether an action is one the asynchronous dispatcher handles. */
 export function isAsyncShellAction(action: ShellAction): boolean {
-  return action === 'windowPreview';
+  return action === 'windowPreview' || action === 'windowType';
+}
+
+/**
+ * Distinguish the two async outcomes.
+ *
+ * `applyAsyncShellAction` returns a union because the two actions produce different results. A caller that knows
+ * which action it sent still has to narrow the type, and a named guard reads better at the call site than a
+ * property check — and it keeps the discrimination in one place if a field is ever renamed.
+ */
+export function isWindowPreviewResult(result: WindowPreview | WindowType): result is WindowPreview {
+  return 'state' in result;
 }

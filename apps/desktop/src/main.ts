@@ -17,6 +17,7 @@ import {
   isAsyncShellAction,
   parseShellRequest,
   type WindowPreview,
+  type WindowType,
 } from './shell-actions.js';
 import {
   readDesktopSettings,
@@ -37,6 +38,7 @@ import {
   resolveRestoreScriptPath,
   showWindowWithoutActivating,
 } from './window-restore.js';
+import { resolveInputScriptPath, typeIntoWindow, typingRefusal } from './window-input.js';
 import {
   readWatchdogRecord,
   resolveStateDirectory,
@@ -343,6 +345,8 @@ export function registerShellHandlers(
     readonly setTitleBarOverlay?: (colors: { color: string; symbolColor?: string }) => void;
     /** Capture a preview of a watched session's window; optional so stubs keep working. */
     readonly previewWindow?: (sessionId: string) => Promise<WindowPreview> | WindowPreview;
+    /** Type a line into a watched session's window; optional so stubs keep working. */
+    readonly typeIntoWindow?: (sessionId: string, text: string, submit: boolean) => Promise<WindowType> | WindowType;
   },
 ): boolean {
   const ipcMain = shell.ipcMain;
@@ -359,6 +363,7 @@ export function registerShellHandlers(
           quit: context.quit,
           openExternal: context.openExternal,
           ...(context.previewWindow === undefined ? {} : { previewWindow: context.previewWindow }),
+          ...(context.typeIntoWindow === undefined ? {} : { typeIntoWindow: context.typeIntoWindow }),
         },
         request,
       );
@@ -524,6 +529,10 @@ export async function main(): Promise<void> {
   const restoreScriptPath = resolveRestoreScriptPath(
     app.isPackaged === true && typeof resourcesPath === 'string' ? resourcesPath : undefined,
   );
+  // The typing helper ships beside the restore helper, in the same service tree.
+  const inputScriptPath = resolveInputScriptPath(
+    app.isPackaged === true && typeof resourcesPath === 'string' ? resourcesPath : undefined,
+  );
 
   const stateDirectory = resolveStateDirectory();
   // Tracked in a mutable box so the close handler always reads the current value.
@@ -620,6 +629,44 @@ export async function main(): Promise<void> {
           },
         },
         sessionId,
+      );
+    },
+    /**
+     * Type a line into a session's window.
+     *
+     * The session id is resolved against the service's own list, exactly as the preview does, so the renderer
+     * cannot point this at an arbitrary window. Two refusals sit in front of the typing itself: a session with no
+     * window, and a window shared by several sessions — measured on this machine, two Tabby Codex sessions share
+     * one window, and text typed into it would reach whichever pane holds the focus inside it rather than the
+     * session the person chose.
+     */
+    typeIntoWindow: async (sessionId, text, submit) => {
+      let sessions: readonly PreviewSession[];
+      try {
+        const record = await readWatchdogRecord(stateDirectory);
+        if (record === null) return { ok: false, reason: '服务未在运行' };
+        const response = await fetch(`${watchdogOrigin(record.port)}/api/sessions`);
+        if (!response.ok) return { ok: false, reason: `无法读取会话列表：${response.status}` };
+        const body = (await response.json()) as { sessions?: readonly PreviewSession[] };
+        sessions = body.sessions ?? [];
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+      }
+
+      const session = sessions.find((entry) => entry.id === sessionId);
+      if (session === undefined) return { ok: false, reason: '该会话已不在运行' };
+      const handle = session.host?.windowHandle ?? null;
+      if (handle === null) return { ok: false, reason: '该会话没有可写入的窗口' };
+
+      const sharedBy = sessions.filter((entry) => (entry.host?.windowHandle ?? null) === handle).length;
+      const refusal = typingRefusal(sharedBy);
+      if (refusal !== null) return { ok: false, reason: refusal };
+
+      return await typeIntoWindow(
+        handle,
+        text,
+        submit,
+        restoreScriptPath === undefined ? {} : { scriptPath: inputScriptPath },
       );
     },
   });

@@ -53,6 +53,14 @@ contextBridge.exposeInMainWorld('selbstlaufDesktop', {
      * window. Unlike the actions above this one returns a value, so it is awaited.
      */
     windowPreview: (sessionId) => invoke({ action: 'windowPreview', sessionId }),
+    /**
+     * Type a line into a session's window.
+     *
+     * Same session-id indirection as the preview, so the renderer still never names a window. The main process
+     * refuses a session with no window and a window shared by several sessions before anything is typed, and the
+     * helper itself refuses unless it has confirmed the target took the foreground.
+     */
+    windowType: (sessionId, text, submit) => invoke({ action: 'windowType', sessionId, text, submit: submit === true }),
   }),
   settings: Object.freeze({
     get: () => ipcRenderer.invoke(SHELL_CHANNELS.settingsGet),

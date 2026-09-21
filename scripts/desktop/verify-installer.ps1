@@ -62,6 +62,8 @@ $requiredFiles = @(
     # that preview silently degrades to "cannot capture", which is exactly the
     # state this asset exists to remove.
     'resources\service-dist\src\process\window-restore.ps1',
+    # Typing into a session's window uses this, so the installed app needs it or that action silently fails.
+    'resources\service-dist\src\process\window-input.ps1',
     # The packaged app must ship the logon-task script tree; start-watchdog.ps1
     # resolves service-dist and web-dist beside it at runtime.
     'resources\scripts\continuation\start-watchdog.ps1',

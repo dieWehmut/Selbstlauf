@@ -11,6 +11,7 @@ const cliDist = path.join(repositoryRoot, 'apps', 'cli', 'dist');
 const processProviderScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'process', 'windows-processes.ps1');
 const windowFocusScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'process', 'window-focus.ps1');
 const windowRestoreScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'process', 'window-restore.ps1');
+const windowInputScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'process', 'window-input.ps1');
 const webDist = path.join(repositoryRoot, 'apps', 'web', 'dist');
 const continuationScripts = path.join(repositoryRoot, 'scripts', 'continuation');
 const preload = path.join(appRoot, 'src', 'preload.cjs');
@@ -21,6 +22,7 @@ for (const [label, target] of [
   ['apps/cli/src/process/windows-processes.ps1', processProviderScript],
   ['apps/cli/src/process/window-focus.ps1', windowFocusScript],
   ['apps/cli/src/process/window-restore.ps1', windowRestoreScript],
+  ['apps/cli/src/process/window-input.ps1', windowInputScript],
   ['apps/web/dist', webDist],
   ['scripts/continuation', continuationScripts],
 ]) {
@@ -57,6 +59,7 @@ export default {
     // the module, and an installed app without it cannot raise a session window.
     { from: windowFocusScript, to: 'service-dist/src/process/window-focus.ps1' },
     { from: windowRestoreScript, to: 'service-dist/src/process/window-restore.ps1' },
+    { from: windowInputScript, to: 'service-dist/src/process/window-input.ps1' },
     { from: webDist, to: 'web-dist' },
     // The logon-task script the watchdog registers must exist in the installed
     // app; start-watchdog.ps1 resolves service-dist and web-dist beside it.

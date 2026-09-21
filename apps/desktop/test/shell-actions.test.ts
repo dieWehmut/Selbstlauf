@@ -8,6 +8,7 @@ import {
   isAsyncShellAction,
   isHexColor,
   isShellAction,
+  isWindowPreviewResult,
   isZoomDelta,
   parseShellRequest,
   type ShellActionContext,
@@ -133,9 +134,13 @@ test('refuses every non-http(s) URL before it reaches the OS', () => {
 
 test('rejects unknown actions and malformed payloads', () => {
   // Pinned so the renderer's reachable surface cannot grow without this test being updated.
+  //
+  // `windowType` is a deliberate addition: the user asked for the ability to drive a window's contents, and chose
+  // to accept that it takes the foreground briefly. It goes through the same session-id indirection as
+  // `windowPreview`, so the renderer still never names a window.
   assert.deepEqual(
     [...SHELL_ACTIONS],
-    ['reload', 'toggleFullScreen', 'zoom', 'quit', 'openExternal', 'setTitleBarOverlay', 'windowPreview'],
+    ['reload', 'toggleFullScreen', 'zoom', 'quit', 'openExternal', 'setTitleBarOverlay', 'windowPreview', 'windowType'],
   );
   assert.equal(isShellAction('reload'), true);
   assert.equal(isShellAction('eval'), false);
@@ -232,6 +237,7 @@ test('windowPreview takes a session id and returns the capture', async () => {
   };
 
   const result = await applyAsyncShellAction(context, { action: 'windowPreview', sessionId: 'codex:1' });
+  assert.ok(isWindowPreviewResult(result), 'expected a preview result');
   assert.deepEqual(asked, ['codex:1']);
   assert.equal(result.state, 'captured');
 });
@@ -250,6 +256,7 @@ test('windowPreview refuses an empty session id instead of previewing some defau
 
   for (const sessionId of ['', undefined]) {
     const result = await applyAsyncShellAction(context, { action: 'windowPreview', ...(sessionId === undefined ? {} : { sessionId }) });
+  assert.ok(isWindowPreviewResult(result), 'expected a preview result');
     assert.equal(result.state, 'unsupported');
   }
   assert.equal(called, 0, 'no lookup was attempted without a session id');
@@ -262,6 +269,7 @@ test('windowPreview reports itself unavailable when the shell has no capturer', 
     openExternal: () => undefined,
   };
   const result = await applyAsyncShellAction(context, { action: 'windowPreview', sessionId: 'a' });
+  assert.ok(isWindowPreviewResult(result), 'expected a preview result');
   assert.equal(result.state, 'unsupported');
 });
 
@@ -273,6 +281,7 @@ test('a throwing capturer becomes a stated outcome rather than crossing IPC as a
     previewWindow: () => { throw new Error('capture exploded'); },
   };
   const result = await applyAsyncShellAction(context, { action: 'windowPreview', sessionId: 'a' });
+  assert.ok(isWindowPreviewResult(result), 'expected a preview result');
   assert.equal(result.state, 'unsupported');
   if (result.state !== 'unsupported') return;
   assert.match(result.reason ?? '', /capture exploded/u);

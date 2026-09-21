@@ -2260,6 +2260,53 @@ reported rather than implemented.
 
 Suites: CLI 280 -> 291, browser 57 -> 59.
 
+#### Driving a window's contents, and the cost that had to be accepted
+
+The request was 实现操控窗口内页面 完全地模拟. Four routes were measured, all against windows **this session
+created** — never a user application, because an earlier probe in this project destroyed unsaved Notepad edits:
+
+| Route | Result |
+| --- | --- |
+| `PostMessage(WM_CHAR)` into a background window | **delivers nothing** (10 characters posted, control empty) |
+| `SendInput` | **delivers**, but only to the **foreground** window |
+| `SetForegroundWindow` from a background process | returns **False** under Windows' foreground lock |
+| `AttachThreadInput` + `SetFocus` | **works, and visibly steals focus** |
+| UI Automation `ValuePattern`/`InvokePattern` | the window is reachable, but its **child controls are absent from the automation tree while it is minimized** |
+
+So the only route that delivers input must take the foreground. That was put to the user rather than decided
+unilaterally, and they chose it knowing the cost. What is built therefore states its cost **before** acting:
+
+    发送时会把该窗口切到前台约 1 秒（Windows 不允许后台程序发送键盘输入），随后自动切回原来的窗口。
+
+**A defect found by measuring, not by testing.** The first version sent the whole string in one `SendInput`
+batch and reported `typed:20, sentInputs:20` while the control received only **the first five characters** — a
+silent partial delivery, which for a prompt box is worse than a failure. A tight per-character loop failed the
+same way; only per-character sends **with a pause between them** delivered the full line. The message queue
+cannot keep up with input arriving faster than it processes. The helper now paces the keystrokes, and the
+reason is recorded where the pause is.
+
+The apparent truncation in the test harness was itself a **reading artefact** the first time: the helper was in
+fact delivering, and the test read the control before its message loop had processed the input. Confirmed by
+having the target window report its own state from its own message loop:
+
+    after 0.7s the target reports: 'TYPED-BY-HELPER-42'
+    delivered completely: True
+
+**The hazard that shaped the design.** A window is typed into by giving it the foreground, so the text goes to
+whatever holds the keyboard focus *inside* it. Measured on this machine, two Tabby Codex sessions share window
+handle 67008 — so typing there would reach whichever terminal pane happened to be focused, which need not be the
+session the person selected. That is a silent wrong-target failure, and nothing in the window's own state reveals
+which pane it is. A window hosting more than one monitored session is therefore **refused**, with the reason
+stated, and so is a session with no window. Verified on the installed build:
+
+    3 panels refusing typing (2 shared windows, 1 with no window)
+    2 panels allowing typing
+
+The renderer still never names a window: it names a session, and the main process resolves it against the
+service's own list, exactly as the preview does.
+
+Suites: desktop 129 -> 141, web 141 -> 154. Installed as a local build; no release was cut.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
