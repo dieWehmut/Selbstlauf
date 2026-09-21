@@ -1,7 +1,15 @@
 param(
     [string[]]$IncludeExecutableName = @(),
     [int[]]$IncludeProcessId = @(),
-    [string[]]$WindowTitleMarker = @()
+    # Window-title markers, comma separated in ONE argument.
+    #
+    # This is `[string]` rather than `[string[]]` on purpose. Under `-File`, arguments arrive as literal
+    # strings and are not parsed as PowerShell expressions, so an array parameter cannot be bound from the
+    # command line at all: repeating `-WindowTitleMarker a -WindowTitleMarker b` fails with
+    # "parameter is specified more than once", and the documented array syntax `-WindowTitleMarker a,b`
+    # binds the whole thing as the SINGLE string "a,b". Measured both ways. A single string that the script
+    # splits is therefore the only form that works, and it is what the caller sends.
+    [string]$WindowTitleMarker = ''
 )
 
 Set-StrictMode -Version Latest
@@ -356,11 +364,11 @@ $includeProcessIds = @(
     }
 )
 
+# Split the comma-separated marker list the caller sends. See the param block for why this is a string.
 $windowTitleMarkers = @(
-    foreach ($configuredMarker in $WindowTitleMarker) {
-        $marker = ([string]$configuredMarker).Trim()
-        if ($marker.Length -gt 0) { $marker }
-    }
+    $WindowTitleMarker -split ',' |
+        ForEach-Object { ([string]$_).Trim() } |
+        Where-Object { $_.Length -gt 0 }
 )
 
 # The signature that marks a process as a supported CLI. It is used both to keep

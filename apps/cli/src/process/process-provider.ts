@@ -299,16 +299,24 @@ export class WindowsProcessProvider implements ProcessProvider {
         args.push('-IncludeProcessId', String(processId));
       }
     }
-    // A `[string[]]` parameter must be bound ONCE with comma-separated values. Passing the parameter
-// repeatedly fails with "ParameterAlreadyBound" and the whole provider call then throws, so the app
-// discovers nothing at all — measured: with two markers configured this way the packaged app listed 0
-// sessions and the installer check failed. The comma-joined form is what PowerShell binds to an array.
-    const markers = this.windowTitleMarkers
-      .map((marker) => marker.trim())
-      .filter((marker) => marker.length > 0);
-    if (markers.length > 0) {
-      args.push('-WindowTitleMarker', markers.join(','));
-    }
+    // Sent as ONE comma-separated argument, which the script splits.
+//
+// Under `-File`, arguments arrive as literal strings rather than PowerShell expressions, so an array
+// parameter cannot be bound from a command line at all. Both obvious forms were measured:
+//
+//   -WindowTitleMarker a -WindowTitleMarker b   -> "parameter is specified more than once", the provider
+//                                                  call throws, and the app discovers NOTHING (this broke
+//                                                  the packaged app and the installer check caught it)
+//   -WindowTitleMarker "a,b"                    -> binds as the single string "a,b", which matches no
+//                                                  window, so the harness session reported no window
+//
+// The script therefore takes a single string and splits it itself, which is the only form that works.
+const markers = this.windowTitleMarkers
+  .map((marker) => marker.trim())
+  .filter((marker) => marker.length > 0);
+if (markers.length > 0) {
+  args.push('-WindowTitleMarker', markers.join(','));
+}
     const abort = new AbortController();
     this.activeAbort?.abort();
     this.activeAbort = abort;
