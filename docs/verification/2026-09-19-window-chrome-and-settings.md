@@ -1913,6 +1913,47 @@ became worth keeping.
 Both fixes are pinned: CLI 255 -> 256, web 134 -> 135. Each was proved by reverting it — the exclusion test
 fails with the label reappearing, and the live filter fails with `expected 6 rows to have a length of 4`.
 
+#### The fix for the harness window broke the packaged app completely
+
+Worth recording in full, because it is the most damaging mistake of this session. Passing two markers to the
+PowerShell provider as **repeated** `-WindowTitleMarker` arguments is invalid: PowerShell raises
+`ParameterAlreadyBound`, the provider call throws, and the app **discovers nothing at all**:
+
+    Windows process provider failed: ... -WindowTitleMarker DeepSeek Harness -WindowTitleMarker DSH
+    windows-processes.ps1 : 无法绑定参数，因为参数"WindowTitleMarker"指定了多次
+
+The release check caught it — `the installed app never discovered probe PID 8472; it listed 0 session(s)` —
+which is exactly what that check exists for. A `[string[]]` parameter must be bound **once** with
+comma-separated values, which is what it now does; verified by calling the provider directly (16 records, 18
+windows) before rebuilding.
+
+The lesson: the first version of the marker fix was validated only through the *pure* classification
+function and its tests, which never exercise the argument marshalling between Node and PowerShell. The
+integration check is what covered that seam, and it is the reason this was caught before shipping.
+
+#### Three layout changes asked for directly
+
+1. **The bottom status bar is flush in the sidebar's bottom corners.** The sidebar's padding is cancelled by
+   negative margins, so the bar reaches the edges: measured side and bottom gaps of **0/1/0px**, down from
+   12/13/14px, and its height **51px → 42px**.
+2. **The popup is flush against that bar.** It sat `8px` above it as a floating card; it now meets it exactly,
+   square at the bottom and rounded only at its free top edge.
+3. **The page heading row scrolls away.** It was `sticky` under the window title bar, which kept an empty
+   heading strip across the top of every scrolled page. The title bar is the row that must stay reachable, and
+   it still is: measured, the heading moves to `-250` while the title bar stays at `0`.
+
+One existing test asserted the old behaviour — "the page title row sticks under it rather than scrolling off
+too" — and was inverted deliberately rather than deleted, so the change is pinned.
+
+Browser suite 54 -> 57.
+
+#### A corrupted stylesheet, from my own tooling
+
+`apps/web/src/styles/index.css` stopped being valid UTF-8: a comment line I had appended through a PowerShell
+`Add-Content` had been written in the console's code page, leaving bytes that no UTF-8 decoder accepts. It was
+found because the file could not be read, located by validating the bytes, and repaired by rewriting the one
+affected comment. Nothing else in the file was touched.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

@@ -157,7 +157,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .nav-button:hover { border-color: var(--line-soft); color: var(--text); background: var(--panel-raised); }
 .nav-button:hover > svg { transform: translateX(1px) scale(1.04); }
 .nav-button.is-active { border-color: var(--line-soft); color: var(--accent-strong); background: var(--panel-raised); box-shadow: inset 3px 0 var(--accent); }
-.sidebar__footer { display: grid; gap: 10px; margin-top: auto; }
+/* The footer sits flush in the sidebar's bottom corners rather than as a floating card.
+   The negative margins cancel the sidebar's own padding, so the bar reaches the left, right and
+   bottom edges with no gap; the height comes down so it reads as a status strip rather than a panel. */
+.sidebar__footer { display: grid; gap: 10px; margin: auto -12px -14px; }
 .service-mini { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow-soft); }
 .service-mini strong { font-size: 12px; }
 .service-mini span:not(.status-light) { color: var(--faint); font: 10px var(--mono); margin-top: 3px; }
@@ -183,7 +186,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .workspace::before { content: ''; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--bg) 74%, transparent); pointer-events: none; }
 /* Sticks to the top of the scrolling content column, so the page title and the service
    controls stay reachable while a long section scrolls under them. */
-.topbar { position: sticky; top: 0; z-index: 15; min-height: 94px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line-soft); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); }
+/* Scrolls away with the page instead of staying pinned. The window's own title bar above it is
+   sticky, which is what must remain reachable; this row is a page heading, and holding it in place
+   kept an empty strip across the top of every scrolled page for no benefit. */
+.topbar { position: static; min-height: 94px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line-soft); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); }
 
 /* ---------- Row 1: the window's own title bar ---------- */
 /* The OS paints nothing but the window buttons here (titleBarStyle: 'hidden'),
@@ -825,15 +831,20 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .process-detail__sibling:hover { color: var(--text); background: var(--panel-raised); }
 
 /* ---------- The bottom bar and the menu it opens upwards ---------- */
+/* Flush against the sidebar's bottom corners: the bar is the window's own footer rather than a card
+   floating inside it, so it has no side or bottom border and no rounding at those edges. The height is
+   lower than a panel's, because it is one line of status with a chevron. */
 .account-bar { position: relative; }
 .account-bar__button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   width: 100%;
-  padding: 9px 10px;
-  border: 1px solid var(--line-whisper);
-  border-radius: var(--radius);
+  min-height: 40px;
+  padding: 5px 12px;
+  border: 0;
+  border-top: 1px solid var(--line-whisper);
+  border-radius: 0;
   color: var(--text);
   background: var(--panel);
   text-align: left;
@@ -849,19 +860,23 @@ button:disabled { cursor: not-allowed; opacity: .45; }
    it inside the window in a short one: without it the popup's top edge landed above the
    window, so its first row ‚Äî the identity ‚Äî could not be read at all. It scrolls rather
    than clipping. */
+/* Flush against the bar it opens from, and against the sidebar's side edges: no gap below it and no
+   side border or rounding at the bottom, so it reads as one surface with the bar rather than a card
+   hovering above it. Rounded only at the top, where it is a free edge. */
 .account-popup {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: calc(100% + 8px);
+  bottom: 100%;
   z-index: 30;
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - var(--titlebar-height) - 24px);
   overflow-y: auto;
   padding: 6px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: var(--radius) var(--radius) 0 0;
   background: var(--panel-raised);
   box-shadow: var(--shadow-lift);
 }
@@ -963,9 +978,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .window-preview__actions .button { min-height: 30px; padding: 0 11px; font-size: 12px; }
 
 /* ---------- Writing a line into a session ---------- */
-/* The app already writes text into sessions °™ ¡¢º¥–¯–¥ sends the configured prompt °™ so this only lets a
-   person choose the words. The panel therefore says plainly WHERE the text goes, because it lands in a
-   running session rather than in a form. */
+/* The app already writes text into sessions (the one-click Á´ãÂç≥Áª≠ÂÜô action sends the configured prompt), so
+   this only lets a person choose the words. The panel therefore says plainly WHERE the text goes, because
+   it lands in a running session rather than in a form. */
 .prompt-composer { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); }
 .prompt-composer__head { display: flex; align-items: center; gap: 10px; }
 .prompt-composer__title { margin: 0; font-size: 14px; }
@@ -993,3 +1008,4 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .prompt-composer__sent code { padding: 1px 5px; border-radius: var(--radius-xs); background: var(--bg); font: 11px var(--mono); overflow-wrap: anywhere; }
 .prompt-composer__spinner { display: inline-grid; place-items: center; animation: prompt-composer-spin .8s linear infinite; }
 @keyframes prompt-composer-spin { to { transform: rotate(360deg); } }
+

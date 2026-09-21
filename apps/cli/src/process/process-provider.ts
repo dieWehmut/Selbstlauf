@@ -299,10 +299,15 @@ export class WindowsProcessProvider implements ProcessProvider {
         args.push('-IncludeProcessId', String(processId));
       }
     }
-    for (const marker of this.windowTitleMarkers) {
-      if (marker.trim().length > 0) {
-        args.push('-WindowTitleMarker', marker);
-      }
+    // A `[string[]]` parameter must be bound ONCE with comma-separated values. Passing the parameter
+// repeatedly fails with "ParameterAlreadyBound" and the whole provider call then throws, so the app
+// discovers nothing at all — measured: with two markers configured this way the packaged app listed 0
+// sessions and the installer check failed. The comma-joined form is what PowerShell binds to an array.
+    const markers = this.windowTitleMarkers
+      .map((marker) => marker.trim())
+      .filter((marker) => marker.length > 0);
+    if (markers.length > 0) {
+      args.push('-WindowTitleMarker', markers.join(','));
     }
     const abort = new AbortController();
     this.activeAbort?.abort();
