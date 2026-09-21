@@ -380,7 +380,18 @@ while ([DateTime]::UtcNow -lt $quitDeadline -and $null -eq $quitWindow) {
 Assert-Condition ($null -ne $quitWindow) 'no visible window after restarting with closeToTray=false'
 
 [void][SelbstlaufWindowProbe]::SendMessage($quitWindow.Handle, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero)
-Start-Sleep -Seconds 6
+# Wait for the app to actually exit rather than sleeping a fixed six seconds.
+#
+# The fixed sleep is what made this fail intermittently on CI: the app takes longer to shut down there than
+# on a workstation, so the count was read while the process was still going and the check reported
+# "closeToTray=false did not quit the application" for a shutdown that was merely still in progress. Waiting
+# for the condition is both more reliable and a stronger assertion, since it fails only when the process
+# genuinely does not go away.
+$quitDeadline = [DateTime]::UtcNow.AddSeconds(60)
+while ([DateTime]::UtcNow -lt $quitDeadline) {
+    if (@(Get-Process -Name 'Selbstlauf' -ErrorAction SilentlyContinue).Count -eq 0) { break }
+    Start-Sleep -Milliseconds 500
+}
 $quitAlive = @(Get-Process -Name 'Selbstlauf' -ErrorAction SilentlyContinue).Count
 $quitServiceUp = $false
 try {
