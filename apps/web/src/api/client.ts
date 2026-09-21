@@ -46,6 +46,13 @@ export interface SessionView {
   runningTurn?: boolean;
   /** The application the session runs inside, when it could be resolved. */
   host?: SessionHostView | null;
+  /**
+   * The WSL distribution the session runs in, or absent for a Windows process.
+   *
+   * Its presence is what explains the absent host: a Linux pid has no Win32 window, so the session cannot be
+   * previewed or revealed, and saying "WSL: <distro>" is more useful than "host unrecognised".
+   */
+  distribution?: string;
 }
 
 export interface WatchdogConfig {

@@ -147,6 +147,20 @@ describe('SessionWindowPreview', () => {
     expect(note.textContent).not.toContain('DeepSeek Harness');
   });
 
+  it('explains that a WSL session has no window because it is in another pid namespace', async () => {
+    /**
+     * A WSL session has no host by design — a Linux pid has no Win32 window — so "host unrecognised" would
+     * read as a failure to identify rather than as the expected state. Naming the distribution says where it
+     * really runs.
+     */
+    const wsl = session({ id: 'wsl:Ubuntu-22.04:codex:98051', tool: 'codex', host: null, distribution: 'Ubuntu-22.04' });
+    render(<SessionWindowPreview session={wsl} requestPreview={async () => ({ state: 'no-window' })} />);
+    const note = await screen.findByText(/运行在 WSL/u);
+    expect(note.textContent).toContain('Ubuntu-22.04');
+    // It must not claim the host was simply not identified.
+    expect(note.textContent).not.toContain('未识别出');
+  });
+
   it('disables the switch-to-window button when there is no window to switch to', async () => {
     render(<SessionWindowPreview session={session()} requestPreview={async () => ({ state: 'no-window' })} />);
     const button = await screen.findByRole('button', { name: /切换到该窗口/u });

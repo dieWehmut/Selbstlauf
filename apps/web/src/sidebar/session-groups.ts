@@ -79,8 +79,19 @@ export function groupSessionsByHost(
   const groups = new Map<string, { label: string; category: string; sessions: SessionView[] }>();
   for (const session of rest) {
     const host = session.host ?? null;
-    const label = host === null || host.label.trim().length === 0 ? UNKNOWN_HOST_LABEL : host.label;
-    const category = host?.category ?? 'unknown';
+    /**
+     * A WSL session is grouped under its distribution, not as an unidentified host.
+     *
+     * It has no host by design — a Linux pid has no Win32 window — so the generic label would read as a
+     * failure to identify it. The distribution is what actually says where the session runs, and grouping by
+     * it keeps several sessions in one distribution together.
+     */
+    const label = session.distribution !== undefined && session.distribution.length > 0
+      ? `WSL: ${session.distribution}`
+      : host === null || host.label.trim().length === 0 ? UNKNOWN_HOST_LABEL : host.label;
+    const category = session.distribution !== undefined && session.distribution.length > 0
+      ? 'terminal'
+      : host?.category ?? 'unknown';
     const existing = groups.get(label);
     if (existing === undefined) {
       groups.set(label, { label, category, sessions: [session] });

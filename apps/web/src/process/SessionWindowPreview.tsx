@@ -168,6 +168,11 @@ export function SessionWindowPreview(props: {
 export function noWindowReason(session: SessionView): string {
   const host = session.host;
   const label = host?.label?.trim() ?? '';
+  // A WSL session cannot have a window at all, which is a fact about Linux pids rather than a failure to
+  // identify anything: the process runs in another kernel's pid namespace, so Windows has no window for it.
+  if (session.distribution) {
+    return `该进程运行在 WSL（${session.distribution}）里，Windows 没有它的窗口，因此没有可预览的画面。`;
+  }
   // A harness session's interface is the browser page showing its WebUI, which is why it has no
   // window of its own.
   if (session.tool === 'dsh') {

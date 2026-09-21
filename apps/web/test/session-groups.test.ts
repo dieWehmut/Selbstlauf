@@ -61,6 +61,28 @@ describe('sidebar session grouping', () => {
     expect(groups[0].sessions.map((entry) => entry.id).sort()).toEqual(['a', 'b', 'c']);
   });
 
+  it('groups WSL sessions under their distribution, not as an unidentified host', () => {
+    /**
+     * A WSL session has no host by design — a Linux pid has no Win32 window — so the generic label would read
+     * as a failure to identify it. The distribution says where it actually runs, and grouping by it keeps
+     * several sessions in one distribution together.
+     */
+    const groups = groupSessionsByHost([
+      session({ id: 'w1', host: null, distribution: 'Ubuntu-22.04' }),
+      session({ id: 'w2', host: null, distribution: 'Ubuntu-22.04' }),
+      session({ id: 'w3', host: null, distribution: 'Debian' }),
+      session({ id: 'plain', host: null }),
+    ]);
+
+    const labels = groups.map((group) => group.label).sort();
+    expect(labels).toContain('WSL: Ubuntu-22.04');
+    expect(labels).toContain('WSL: Debian');
+    expect(labels).toContain(UNKNOWN_HOST_LABEL);
+    // The two sessions in one distribution share a group, and it is not the unknown-host group.
+    const ubuntu = groups.find((group) => group.label === 'WSL: Ubuntu-22.04');
+    expect(ubuntu?.sessions.map((entry) => entry.id).sort()).toEqual(['w1', 'w2']);
+  });
+
   it('orders groups by category so the list does not reshuffle between polls', () => {
     // Inserted in an order that is neither the category order nor alphabetical, to
     // prove the sort is doing the work.

@@ -627,7 +627,21 @@ function SessionActions({ session, busy, onPause, onInject, onFocus, allowReveal
 
 function HostCell({ session }: { session: SessionView }) {
   const host = session.host ?? null;
-  if (host === null) return <span className="subtle">未识别宿主</span>;
+  if (host === null) {
+    // A session inside a WSL distribution has no host by design: a Linux pid has no Win32 window, so there is
+    // nothing to identify it by. Naming the distribution says where it actually runs, which "未识别宿主" does
+    // not — that reads as a failure to identify rather than as the expected state for a Linux process.
+    if (session.distribution) {
+      const distribution = session.distribution;
+      return (
+        <div className="host-cell">
+          <span className="host-badge host-badge--terminal">WSL</span>
+          <span className="subtle" title={distribution}>{distribution}</span>
+        </div>
+      );
+    }
+    return <span className="subtle">未识别宿主</span>;
+  }
   return (
     <div className="host-cell">
       <span className={`host-badge host-badge--${host.category}`}>{host.label}</span>

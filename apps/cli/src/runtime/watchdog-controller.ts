@@ -100,6 +100,13 @@ export interface RuntimeSessionView extends SessionSnapshot {
   readonly runningTurn?: boolean;
   /** The application the session runs inside, with the window to raise. */
   readonly host?: SessionHost | null;
+  /**
+   * The WSL distribution the session runs in, or absent for a Windows process.
+   *
+   * Its presence explains why there is no host and no window: a Linux pid has no Win32 handle, so nothing can
+   * be previewed or revealed for it, and the UI says so rather than calling the host unrecognised.
+   */
+  readonly distribution?: string;
 }
 
 export interface WatchdogRuntimeStatus {
@@ -1369,6 +1376,10 @@ export class WatchdogController {
         runningTurn: session.dshSession?.turnOpen ?? false,
       } : {}),
       host: session.group.host ?? null,
+      // Reported so the UI can say a session runs inside a distribution rather than calling it unrecognised.
+      // It is the only thing that explains why such a session has no window: a Linux process has no Win32
+      // handle, so nothing can be previewed or revealed for it.
+      ...(session.group.distribution === undefined ? {} : { distribution: session.group.distribution }),
       ...(session.transportError === undefined ? {} : { transportError: session.transportError }),
     });
   }
