@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CornerDownLeft, Keyboard, TriangleAlert } from 'lucide-react';
+import { ChevronDown, CornerDownLeft, Keyboard, TriangleAlert } from 'lucide-react';
 
 import type { SessionView } from '../api/client';
 import type { WindowTypeResult } from '../App';
@@ -40,10 +40,20 @@ export function WindowTypePanel(props: {
   readonly onType?: (sessionId: string, text: string, submit: boolean) => Promise<WindowTypeResult>;
   /** How many watched sessions share this window; more than one is refused. */
   readonly sharedBy?: number;
+  /**
+   * Whether the panel starts expanded.
+   *
+   * It shares the page with the transport composer, and when both are open they look like two identical input
+   * boxes — which is how the duplication was reported. This one is the narrower mechanism (it takes the
+   * foreground), so it starts collapsed whenever the other one can do the job, and expanded only when it is the
+   * only way in.
+   */
+  readonly defaultOpen?: boolean;
 }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WindowTypeResult | null>(null);
+  const [open, setOpen] = useState(props.defaultOpen === true);
   // A draft belongs to one session, so it must not follow the user to another one.
   const sequence = useRef(0);
 
@@ -52,7 +62,9 @@ export function WindowTypePanel(props: {
     setDraft('');
     setResult(null);
     setBusy(false);
-  }, [props.session.id]);
+    setOpen(props.defaultOpen === true);
+    // `defaultOpen` is derived from the session, so it is re-read when the session changes.
+  }, [props.session.id, props.defaultOpen]);
 
   const hasWindow = (props.session.host?.windowHandle ?? null) !== null;
   const sharedBy = props.sharedBy ?? 1;
@@ -85,10 +97,46 @@ export function WindowTypePanel(props: {
 
   return (
     <section className="window-type" aria-label="写入窗口">
-      <div className="window-type__head">
-        <span className="eyebrow">Input</span>
-        <h3 className="window-type__title">把这一行写进窗口</h3>
-      </div>
+      {/*
+        A disclosure, not a second input box.
+
+        Both this and the transport composer used to be open "INPUT" rows with an identical field and button, which
+        read as the same control twice. This one is the narrower mechanism — it types real keystrokes and takes the
+        foreground — so its summary states what it does and what it costs, and the field appears only when asked
+        for. The eyebrow is deliberately not "Input", so the two are never confused at a glance.
+      */}
+      <button
+        className="window-type__summary"
+        type="button"
+        aria-expanded={open}
+        aria-controls="window-type-body"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Keyboard size={16} aria-hidden="true" />
+        <span className="window-type__summaryText">
+          <strong>模拟键盘写入窗口</strong>
+          {/* The cost and the refusal are both visible while collapsed, so nothing is hidden that would change a
+              decision to open it. */}
+          <span className="window-type__summaryMeta">
+            {!hasWindow
+              ? '该会话没有窗口，无法使用'
+              : shared
+                ? `窗口内有 ${sharedBy} 个会话，无法确定写入哪一个`
+                : '会短暂切到前台，把这一行作为真实按键输入'}
+          </span>
+        </span>
+        <ChevronDown className={open ? 'window-type__chevron is-open' : 'window-type__chevron'} size={16} aria-hidden="true" />
+      </button>
+
+      {/*
+        Not rendered at all while collapsed, rather than rendered and hidden.
+        `hidden` alone leaves the field in the DOM, where a query can still reach it and an assistive technology may
+        still announce it — and the CSS needed an explicit `[hidden]` rule because `display: flex` overrode it. Not
+        rendering it removes all three problems.
+      */}
+      {open && (
+      <div className="window-type__body" id="window-type-body">
+      <h3 className="window-type__title">把这一行写进窗口</h3>
 
       <p className="window-type__cost">
         <TriangleAlert size={14} aria-hidden="true" />
@@ -165,6 +213,8 @@ export function WindowTypePanel(props: {
           {/* Whether focus came back is part of the outcome, because taking it was the cost. */}
           {result.focusRestored === true ? '，焦点已切回' : '，焦点未切回（可能是原来的窗口已关闭）'}。
         </p>
+      )}
+      </div>
       )}
     </section>
   );

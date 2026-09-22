@@ -1058,12 +1058,28 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 
 
 /* ---------- Typing a line into a window ---------- */
-/* This panel states its cost before acting, because the cost is real: Windows refuses synthesized keyboard input
-   to a background process, so the target window is brought forward for a moment. Saying that up front is the
-   difference between a capability and a surprise. */
-.window-type { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); }
-.window-type__head { display: flex; align-items: center; gap: 10px; }
-.window-type__title { margin: 0; font-size: 14px; }
+/*
+ * This panel is a DISCLOSURE, not a second input box.
+ *
+ * It and the transport composer above it were both open "INPUT" rows with an identical field and button, which
+ * read as one control shown twice. It is the narrower mechanism — real keystrokes, so it takes the foreground —
+ * so it collapses to a summary that states what it does and what it costs, and expands on request.
+ */
+.window-type { display: flex; flex-direction: column; gap: 8px; padding: 12px 18px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); }
+.window-type__summary { display: flex; align-items: center; gap: 10px; width: 100%; padding: 4px 0; border: 0; color: var(--text); background: transparent; text-align: left; font-size: 13px; }
+.window-type__summary:hover .window-type__summaryText strong { color: var(--accent-strong); }
+.window-type__summaryText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.window-type__summaryText strong { font-size: 13px; transition: color .16s ease; }
+.window-type__summaryMeta { color: var(--faint); font-size: 12px; }
+.window-type__chevron { margin-left: auto; flex: 0 0 auto; transition: transform .18s cubic-bezier(.2,.7,.3,1); }
+.window-type__chevron.is-open { transform: rotate(180deg); }
+/* The body carries its own top rule, so the collapsed state is a single clean row.
+   `[hidden]` must be honoured explicitly: an author rule with `display: flex` beats the user-agent stylesheet's
+   `[hidden] { display: none }`, so without this the "collapsed" panel would still show its field. Measured by the
+   test that renders it collapsed and finds the input still present. */
+.window-type__body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line-whisper); }
+.window-type__body[hidden] { display: none; }
+.window-type__title { margin: 0; font-size: 13px; color: var(--muted); }
 .window-type__cost { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--amber, #e6b65b); font-size: 12px; }
 .window-type__cost > svg { flex: 0 0 auto; margin-top: 2px; }
 .window-type__form { display: flex; align-items: center; gap: 10px; }

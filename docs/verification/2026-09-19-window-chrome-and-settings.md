@@ -2426,6 +2426,39 @@ makes it mean something, and it now fails with the state named:
 
 Suites: web 164 -> 170.
 
+#### Two input boxes that were not duplicates, presented as if they were
+
+Reported from a screenshot: the process detail page showed two rows both headed **INPUT**, each with the same field
+and the same button — one titled 写入这一行 and one 把这一行写进窗口. It reads as the same control shown twice.
+
+They are **not** the same mechanism, and measuring that is what shaped the fix:
+
+| Panel | How it writes | Cost | Works for |
+| --- | --- | --- | --- |
+| 写入这一行 | the session's own transport (codex app-server / harness API) | none | 4 of 5 sessions |
+| 把这一行写进窗口 | synthesized keystrokes into the window | **takes the foreground** | 2 of 5 sessions |
+
+So neither is redundant: the composer is strictly better wherever it works, and the window panel is the only way in
+for a session the service can watch but not write. **The defect was that they looked identical**, not that both
+existed. The second is now a collapsed disclosure — different icon, different wording, and a summary that states the
+cost (or the reason it cannot be used) *before* it is opened, so nothing that would change the decision is hidden.
+It starts expanded only when nothing else can write.
+
+**A bug the tests caught while making that change.** The body was `hidden` while collapsed, but its CSS set
+`display: flex`, and an author rule beats the user-agent stylesheet's `[hidden] { display: none }`. So the "collapsed"
+panel would still have shown its field. Found by a test that renders it collapsed and finds the input still present
+— a jsdom query cannot see `display: none`, which is exactly why asserting on the DOM rather than on the intent is
+worth doing. The field is now not rendered at all while collapsed, which also removes it from what an assistive
+technology could reach.
+
+**A test that asserted something impossible.** The first browser test checked that the collapsed summary was present
+and could be opened. It failed with `summaries=0`, and the reason is the harness: the browser suite runs with
+`VITE_STATIC_DEMO=true`, so there is no desktop bridge and the window-typing panel is not rendered at all. The test
+was asserting on something that cannot exist there. It now pins the half that *is* real in that harness — exactly one
+input box, and it is the composer — and the disclosure itself was verified in the installed app instead.
+
+Suites: web 170 -> 171, browser 61 -> 63.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

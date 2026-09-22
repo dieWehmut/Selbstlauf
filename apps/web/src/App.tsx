@@ -856,15 +856,24 @@ function ProcessDetail(props: {
         {...(props.onSendPrompt === undefined ? {} : { onSend: props.onSendPrompt })}
       />
 
-      {/* Driving the window itself, which is a different capability from the one above: that one writes through
-          the session's own transport, this one types into the window and so needs the foreground for a moment. */}
-      {props.onTypeIntoWindow === undefined ? null : (
-        <WindowTypePanel
-          session={session}
-          onType={props.onTypeIntoWindow}
-          sharedBy={props.windowSharedBy}
-        />
-      )}
+      {/*
+          Driving the window itself, which is a **different mechanism** from the composer above.
+
+          The two used to appear together as two identical "Input" rows and read as a duplicate; they are not
+          duplicates. The composer writes through the session's own transport and costs nothing, while this types
+          real keystrokes and must take the foreground. So the composer is strictly better wherever it works, and
+          this is kept for the cases it cannot serve — but collapsed behind a disclosure, so the page no longer
+          presents two equal-looking input boxes.
+        */}
+        {props.onTypeIntoWindow === undefined ? null : (
+          <WindowTypePanel
+            session={session}
+            onType={props.onTypeIntoWindow}
+            sharedBy={props.windowSharedBy}
+            /* Expanded by default only when nothing else can write, which is when it is the only way in. */
+            defaultOpen={!canInject(session)}
+          />
+        )}
 
       <footer className="process-detail__actions">
         <SessionActions
