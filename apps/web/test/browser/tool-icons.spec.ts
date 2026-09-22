@@ -7,7 +7,7 @@ import { expect, test } from '@playwright/test';
  * and the second is the one that would go unnoticed: the image must actually **load** (a broken `src` renders as
  * an empty box rather than an error) and it must be the publisher's art rather than a placeholder.
  */
-test('every tool row shows its own application icon, and the image really loads', async ({ page }) => {
+test('every tool row shows its own application icon, and the image really loads', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1249, height: 704 });
   const failures: string[] = [];
   page.on('response', (response) => {
@@ -92,7 +92,10 @@ test('every tool row shows its own application icon, and the image really loads'
   console.log(`process-table icons: ${tableIcons}`);
   expect(tableIcons).toBeGreaterThan(0);
 
-  await page.screenshot({ path: 'tmp/final-tool-icons.png' });
+  // Written to Playwright's own output directory rather than a workspace-relative `tmp/`: the working directory
+// during a browser run is apps/web, so a relative path landed in apps/web/tmp/ and was committed by accident twice.
+  // testInfo.outputPath keeps every artefact inside test-results, which is ignored.
+  await page.screenshot({ path: testInfo.outputPath('tool-icons.png') });
 });
 
 test('the icon falls back to a glyph rather than a broken image when the asset is missing', async ({ page }) => {
