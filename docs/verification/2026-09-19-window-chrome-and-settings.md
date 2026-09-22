@@ -2389,6 +2389,43 @@ test pins the agreement itself, so the two can never silently diverge again:
 
 Suites: web 156 -> 164.
 
+#### The word "disabled" next to every session
+
+Verifying the write fix on the installed app turned up a third defect, and it plausibly *is* the impression the
+user reported. Every session's decision chip displayed the raw English word:
+
+    dsh pid=7984       lastDecision=disabled -> displays: disabled
+    codex pid=30780    lastDecision=disabled -> displays: disabled
+    codex pid=9232     lastDecision=disabled -> displays: disabled
+    codex pid=32256    lastDecision=disabled -> displays: disabled
+    codex pid=98051    lastDecision=disabled -> displays: disabled
+
+The cause: `decisionLabel` had a case for ten of the engine's states and a `default` that printed the raw value.
+`disabled` — the state reported while the master switch is off, which is how this app is configured — had no case,
+so a Chinese interface showed the English word. Read beside a session, **"disabled" means "this session is
+disabled"**, which is exactly the wrong conclusion and matches the complaint closely.
+
+Fixed by labelling the engine's complete union. The union is declared, so the list is taken from it rather than
+guessed:
+
+    engine decisions (14): awaiting-quiet-period, clock-rollback, cooldown, disabled, enabled, injected,
+    injection-pending, max-attempts, new, output-observed, paused, process-exited, resumed, transport-error
+
+`disabled` now reads **自动续写已关闭** — which says what is actually true: a feature is switched off, nothing is
+wrong with the session. Four further states had no label either (`injection-pending`, `resumed`, `enabled`,
+`clock-rollback`), all now named.
+
+**A test that was weaker than it looked, twice.** The first version rejected a label equal to the identifier; the
+second also rejected labels made only of Latin letters. **Both passed while four states were still unlabelled**,
+because the fallthrough returns 未知状态, which is neither. Requiring the fallthrough to be distinguishable is what
+makes it mean something, and it now fails with the state named:
+
+    × covers every decision the engine can report
+      → these decisions have no label of their own and fall through to 未知状态:
+        expected [ 'injection-pending' ] to deeply equal []
+
+Suites: web 164 -> 170.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

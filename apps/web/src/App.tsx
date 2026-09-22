@@ -501,7 +501,15 @@ function transportLabel(transport: SessionView['transport']): string {
   return labels[transport];
 }
 
-function decisionLabel(decision: string | undefined): { label: string; tone: 'ready' | 'waiting' | 'limited' | 'error' } {
+/**
+ * The label for the engine's last decision.
+ *
+ * Every decision the engine can emit has a label here. The `default` branch used to print the raw value, so a
+ * decision with no case — `disabled`, which is what every session reports while the master switch is off — showed
+ * the English word to a Chinese-speaking user. Worse, "disabled" reads as "this session cannot be written to",
+ * which is exactly the wrong impression: that switch governs automatic continuation only.
+ */
+export function decisionLabel(decision: string | undefined): { label: string; tone: 'ready' | 'waiting' | 'limited' | 'error' } {
   switch (decision) {
     case 'awaiting-quiet-period': return { label: '等待静默', tone: 'waiting' };
     case 'output-observed': return { label: '输出活跃', tone: 'ready' };
@@ -513,7 +521,22 @@ function decisionLabel(decision: string | undefined): { label: string; tone: 're
     case 'skip': return { label: '跳过', tone: 'limited' };
     case 'injection': return { label: '已写入', tone: 'ready' };
     case 'output-recovery': return { label: '输出恢复', tone: 'ready' };
-    default: return { label: decision ?? '等待活动', tone: 'waiting' };
+    // The states the engine reports that had no label, so they fell through to the raw string.
+    case 'disabled': return { label: '自动续写已关闭', tone: 'limited' };
+    case 'cooldown': return { label: '冷却中', tone: 'waiting' };
+    case 'max-attempts': return { label: '已达本轮上限', tone: 'limited' };
+    case 'paused': return { label: '已暂停', tone: 'limited' };
+    case 'new': return { label: '新发现', tone: 'waiting' };
+    case 'process-exited': return { label: '进程已退出', tone: 'error' };
+    // The rest of the engine's union. Labelling every reachable state keeps each one meaningful: a fallthrough to
+    // 未知状态 is honest about an unknown value but says nothing useful about a known one.
+    case 'injection-pending': return { label: '写入中', tone: 'waiting' };
+    case 'resumed': return { label: '已恢复', tone: 'ready' };
+    case 'enabled': return { label: '自动续写已开启', tone: 'ready' };
+    case 'clock-rollback': return { label: '时钟回退', tone: 'error' };
+    // A decision this build does not know is still reported as an unknown state rather than shown raw, because a
+    // bare English identifier in a Chinese interface reads as a fault.
+    default: return { label: decision === undefined ? '等待活动' : '未知状态', tone: 'waiting' };
   }
 }
 
