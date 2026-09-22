@@ -655,6 +655,49 @@ describe('watchdog dashboard', () => {
     ));
   });
 
+  /**
+   * The master switch governs *automatic* continuation, not manual writing.
+   *
+   * This is a defect that shipped and was reported by the user: with the master switch off — which is how the app
+   * was configured, to stop it continuing sessions on its own — every row said "会话无法写入", while the service
+   * would in fact have accepted the write. Verified against the running service: a session reporting
+   * `enabled=false` answered `200` to a manual inject.
+   *
+   * The fixture above has `enabled: true` everywhere, which is exactly why no test caught it.
+   */
+  it('allows a manual write when the master switch is off, because the service does', async () => {
+    const fake = api();
+    const sessions = await fake.sessions();
+    // Every session reports enabled=false, as they do when automatic continuation is switched off.
+    fake.sessions = vi.fn(async () => sessions.map((session) => ({ ...session, enabled: false })));
+
+    render(<App api={fake} />);
+    await screen.findByRole('group', { name: '进程列表' });
+    fireEvent.click(screen.getAllByRole('button', { name: /立即续写 PID/u })[0]!);
+
+    await waitFor(() => expect(fake.inject).toHaveBeenCalled());
+    // And the row must not claim it is unwritable.
+    expect(screen.queryByText(/该会话不可写入/u)).not.toBeInTheDocument();
+  });
+
+  it('still refuses a session the service can only watch, and says why', async () => {
+    // A monitor-only session has nowhere to put the text, which is the real blocker.
+    const fake = api();
+    const sessions = await fake.sessions();
+    const monitorOnly = sessions.find((session) => session.transport === 'monitor-only');
+    expect(monitorOnly, 'the fixture needs a monitor-only session').toBeDefined();
+
+    render(<App api={fake} />);
+    await screen.findByRole('group', { name: '进程列表' });
+    // Open the detail page for the monitor-only session.
+    const row = document.querySelector(`.sidebar-row[data-session-id="${monitorOnly!.id}"] .sidebar-row__open`);
+    expect(row, 'the monitor-only session should have a sidebar row').not.toBeNull();
+    fireEvent.click(row!);
+
+    // The composer explains the reason rather than offering a control that cannot work.
+    expect(await screen.findByText(/只能监控，无法写入/u)).toBeInTheDocument();
+  });
+
   it('renders and manages the explicit Claude Stop Hook settings', async () => {
     const fake = api();
     render(<App api={fake} />);

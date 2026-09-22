@@ -2307,6 +2307,58 @@ service's own list, exactly as the preview does.
 
 Suites: desktop 129 -> 141, web 141 -> 154. Installed as a local build; no release was cut.
 
+#### Two reported defects: the icons, and a write gate that was stricter than the service
+
+**1. Every session read as unwritable, and the app caused it.**
+
+Reported as "现在各个进程页面都显示会话无法写入 我要能控制对应的输入框". The cause was mine, and it came from an
+earlier fix in this same session: the master switch `config.enabled` had been turned off to stop the watchdog
+continuing sessions on its own, and the UI's `canInject` required `session.enabled`. So the flag that governs
+*automatic* continuation also disabled *manual* writing.
+
+It should not have. Verified against the running service — a session reporting `enabled=false` answered **HTTP
+200** to a manual inject, and the audit log records manual injections as their own action:
+
+    session: codex:30780 (enabled=false)
+    HTTP 200
+    body: {"ok":true,"prompt":"dry-run probe: nothing is written",...}
+
+So the UI was stricter than the service, and its message ("该会话不可写入") was simply false. `canInject` now
+requires only a live, unpaused session whose transport can carry text, and the refusal names the actual reason
+from the service's own `transportError` rather than a bare disabled control.
+
+No test caught this because the shared fixture sets `session.enabled: true` everywhere. A test now pins the real
+configuration, and it fails when the old rule is restored:
+
+    × allows a manual write when the master switch is off, because the service does
+      → expected "spy" to be called at least once
+
+**2. Each tool now shows its own icon rather than a generic glyph.**
+
+The art is the publishers' own, from the most faithful source available on this machine:
+
+| Tool | Source | Result |
+| --- | --- | --- |
+| codex | the running Codex app window's icon, read via `WM_GETICON` | the genuine OpenAI mark, 128×128 |
+| dsh | the harness's own `favicon.svg` | the DeepSeek whale, 300×300 |
+| claude | `anthropic.com`'s favicon | the Anthropic mark, 256×256 |
+
+The Claude CLI ships **no** icon at all — it is terminal-only, and the desktop app is not installed here — so the
+publisher's own site is the honest source. Both vector sources were rasterized through Electron, which is a real
+browser and already a dependency; the first attempt drew the whale in a corner because forcing `width`/`height` on
+an SVG root does not scale its content, which rendering through an `<img>` fixes.
+
+A missing asset falls back to the previous glyph rather than leaving a broken image, and that fallback is tested by
+aborting the requests.
+
+**A test that was wrong about the browser.** The first version waited for *every* `.tool-icon__image` to decode and
+timed out. The measurement explains it: the settings page renders four more instances whose container is not
+mounted, so their boxes are zero sized and a lazy image inside one is never fetched — `complete` stays false even
+though the art is known. Requiring those to complete hangs on correct behaviour, so the assertion now covers only
+the images the browser actually laid out: `tool icons rendered: 12, on screen: 7`.
+
+Suites: web 154 -> 156, browser 59 -> 61.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

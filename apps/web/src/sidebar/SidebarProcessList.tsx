@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 
 import type { SessionView } from '../api/client';
 import { conversationShortId, formatSilence, groupSessionsByHost, sessionTone, sessionToneLabel, toolLabel } from './session-groups';
+import { ToolIcon } from './ToolIcon';
 
 /**
  * The list of discovered processes, grouped the way the reference sidebar groups its
@@ -125,6 +126,8 @@ export function SidebarProcessList(props: {
                     <span className={`process-dot process-dot--${tone}`} aria-hidden="true" />
                     <span className="sidebar-row__text">
                       <span className="sidebar-row__top">
+                        {/* The tool's own icon, so a row is identifiable at a glance rather than by reading the label. */}
+                        <ToolIcon tool={session.tool} />
                         <span className="sidebar-row__label">{toolLabel(session.tool)}</span>
                         <span className="sidebar-row__meta">{formatSilence(session.quietForMs ?? 0)}</span>
                       </span>

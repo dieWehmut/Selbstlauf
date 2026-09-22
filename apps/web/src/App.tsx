@@ -57,6 +57,7 @@ import {
 import { SettingsRail, SETTINGS_SECTION_IDS } from './settings/SettingsRail';
 import { SessionWindowPreview } from './process/SessionWindowPreview';
 import { WindowTypePanel } from './process/WindowTypePanel';
+import { ToolIcon } from './sidebar/ToolIcon';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
@@ -515,8 +516,34 @@ function decisionLabel(decision: string | undefined): { label: string; tone: 're
   }
 }
 
+/**
+ * Whether a session can be written to **by hand**.
+ *
+ * `session.enabled` is deliberately NOT part of this, and requiring it was a defect: that flag is the master
+ * switch for *automatic* continuation, and the service never consults it for a manual write. Verified against the
+ * running service — a session reporting `enabled=false` accepted a manual write and answered `200`. So with the
+ * master switch off (which is how the app is configured, to stop it continuing sessions on its own) every row
+ * claimed "会话无法写入" while the write would in fact have worked.
+ *
+ * What actually blocks a manual write is the transport: a session the service can only watch has nowhere to put
+ * the text. That is what this checks, and the reason is shown rather than a bare disabled control.
+ */
 function canInject(session: SessionView): boolean {
-  return session.alive && session.enabled && !['monitor-only', 'cannot-inject', 'unknown'].includes(session.transport);
+  return session.alive && !session.paused
+    && !['monitor-only', 'cannot-inject', 'unknown'].includes(session.transport);
+}
+
+/** Why a manual write is refused, or null when it is allowed. Stated so the UI can explain itself. */
+export function injectRefusal(session: SessionView): string | null {
+  if (!session.alive) return '该会话已停止';
+  if (session.paused) return '该会话已被暂停，恢复后才能写入';
+  if (['monitor-only', 'cannot-inject', 'unknown'].includes(session.transport)) {
+    // The service's own reason is more precise than the transport name, so it is preferred when present.
+    return session.transportError !== undefined
+      ? `只能监控，无法写入：${session.transportError}`
+      : '只能监控，无法写入';
+  }
+  return null;
 }
 
 function toolLabel(tool: SessionView['tool']): string {
@@ -587,9 +614,10 @@ function DecisionChip({ decision }: { decision: string | undefined }) {
 }
 
 function ToolMark({ tool }: { tool: SessionView['tool'] }) {
+  // One shared component, so the process table and the sidebar can never drift apart on which art they show.
   return (
     <span className={`tool-mark tool-mark--${tool}`} aria-hidden="true">
-      {tool === 'codex' ? <Terminal size={16} /> : tool === 'dsh' ? <Network size={16} /> : <Bot size={16} />}
+      <ToolIcon tool={tool} size={18} />
     </span>
   );
 }
@@ -809,6 +837,7 @@ function ProcessDetail(props: {
       <SessionPromptComposer
         session={session}
         canSend={canInject(session)}
+        blockedReason={injectRefusal(session)}
         busy={props.busy === session.id}
         {...(props.onSendPrompt === undefined ? {} : { onSend: props.onSendPrompt })}
       />

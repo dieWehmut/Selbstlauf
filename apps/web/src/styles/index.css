@@ -351,10 +351,21 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .process-id strong, .process-id span { display: block; }
 .process-id strong { font-size: 13px; }
 .process-id span, .subtle { margin-top: 4px; color: var(--muted); font: 10px var(--mono); }
-.tool-mark { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid transparent; border-radius: var(--radius-sm); }
-.tool-mark--codex { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
-.tool-mark--claude { color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 13%, transparent); }
-.tool-mark--dsh { color: var(--green); background: color-mix(in srgb, var(--green) 13%, transparent); }
+/* The mark is now the tool's own artwork rather than a tinted glyph, so its background is a neutral surface: a
+   publisher's icon carries its own colours, and tinting behind it would fight them. The colour variables are kept
+   for the fallback glyph, which is still drawn when an asset cannot load. */
+.tool-mark { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--line-whisper); border-radius: var(--radius-sm); background: var(--panel-soft); }
+.tool-mark--codex { color: var(--blue); }
+.tool-mark--claude { color: var(--accent-strong); }
+.tool-mark--dsh { color: var(--green); }
+/* Sizing is left to the element's own width/height attributes with `object-fit`, so a non-square source is
+   contained rather than stretched. */
+.tool-icon { display: inline-grid; place-items: center; flex: 0 0 auto; }
+.tool-icon__image { object-fit: contain; }
+.tool-icon--fallback { color: currentColor; }
+/* In the sidebar the icon sits inline with the label, so it aligns on the text baseline rather than the row. */
+.sidebar-row__top .tool-icon { margin-right: 5px; }
+.sidebar-row__top .tool-icon__image { display: block; opacity: .9; }
 .capability { padding: 5px 10px; border: 1px solid var(--line-soft); border-radius: var(--radius-pill); font: 10px var(--mono); background: var(--panel-soft); }
 .capability-view { display: grid; justify-items: start; gap: 5px; }
 .capability-detail { display: block; max-width: 190px; color: var(--faint); font: 10px/1.45 var(--mono); }

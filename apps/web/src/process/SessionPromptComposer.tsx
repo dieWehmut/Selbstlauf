@@ -48,6 +48,14 @@ export function SessionPromptComposer(props: {
   readonly session: SessionView;
   /** Refuses when the session cannot accept input, matching the one-click action. */
   readonly canSend: boolean;
+  /**
+   * Why writing is refused, when it is.
+   *
+   * The previous wording said only "该会话不可写入", which was both vague and — for a session the service would
+   * happily write to — simply wrong. A stated reason is the difference between a control the user cannot use and
+   * one they can understand.
+   */
+  readonly blockedReason?: string | null;
   readonly busy?: boolean;
   /**
    * Send the line, reporting whether it was actually written.
@@ -160,7 +168,7 @@ export function SessionPromptComposer(props: {
         {/* Says exactly where the text goes, because this writes into a running session. */}
         {props.canSend
           ? <>将作为一行输入写入 <strong>PID {props.session.rootPid}</strong>，与“立即续写”走同一条通道。</>
-          : <span className="prompt-composer__blocked"><TriangleAlert size={14} aria-hidden="true" />该会话不可写入，因此无法发送。</span>}
+          : <span className="prompt-composer__blocked"><TriangleAlert size={14} aria-hidden="true" />{props.blockedReason ?? '该会话不可写入，因此无法发送。'}</span>}
       </p>
 
       {problem !== null && draft.length > 0 && (
