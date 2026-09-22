@@ -58,6 +58,7 @@ import { SettingsRail, SETTINGS_SECTION_IDS } from './settings/SettingsRail';
 import { SessionWindowPreview } from './process/SessionWindowPreview';
 import { WindowTypePanel } from './process/WindowTypePanel';
 import { ToolIcon } from './sidebar/ToolIcon';
+import { canWriteSession, writeEligibility } from './session/write-eligibility';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
@@ -517,33 +518,23 @@ function decisionLabel(decision: string | undefined): { label: string; tone: 're
 }
 
 /**
- * Whether a session can be written to **by hand**.
+ * Whether a session can be written to by hand, and the reason when it cannot.
  *
- * `session.enabled` is deliberately NOT part of this, and requiring it was a defect: that flag is the master
- * switch for *automatic* continuation, and the service never consults it for a manual write. Verified against the
- * running service — a session reporting `enabled=false` accepted a manual write and answered `200`. So with the
- * master switch off (which is how the app is configured, to stop it continuing sessions on its own) every row
- * claimed "会话无法写入" while the write would in fact have worked.
+ * Both come from the shared rule in `session/write-eligibility`, so the dot in the sidebar and this page can never
+ * disagree — which they did, on a real session, when each kept its own copy.
  *
- * What actually blocks a manual write is the transport: a session the service can only watch has nowhere to put
- * the text. That is what this checks, and the reason is shown rather than a bare disabled control.
+ * `session.enabled` is deliberately not part of it: that flag is the master switch for *automatic* continuation,
+ * and the service never consults it for a manual write. Verified against the running service — a session reporting
+ * `enabled=false` answered 200 to a manual inject — so requiring it here made every row claim "会话无法写入"
+ * while the write would in fact have worked.
  */
 function canInject(session: SessionView): boolean {
-  return session.alive && !session.paused
-    && !['monitor-only', 'cannot-inject', 'unknown'].includes(session.transport);
+  return canWriteSession(session);
 }
 
-/** Why a manual write is refused, or null when it is allowed. Stated so the UI can explain itself. */
-export function injectRefusal(session: SessionView): string | null {
-  if (!session.alive) return '该会话已停止';
-  if (session.paused) return '该会话已被暂停，恢复后才能写入';
-  if (['monitor-only', 'cannot-inject', 'unknown'].includes(session.transport)) {
-    // The service's own reason is more precise than the transport name, so it is preferred when present.
-    return session.transportError !== undefined
-      ? `只能监控，无法写入：${session.transportError}`
-      : '只能监控，无法写入';
-  }
-  return null;
+/** Why a manual write is refused, or null when it is allowed. */
+function injectRefusal(session: SessionView): string | null {
+  return writeEligibility(session).reason;
 }
 
 function toolLabel(tool: SessionView['tool']): string {

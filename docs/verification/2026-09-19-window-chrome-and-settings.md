@@ -2359,6 +2359,36 @@ the images the browser actually laid out: `tool icons rendered: 12, on screen: 7
 
 Suites: web 154 -> 156, browser 59 -> 61.
 
+#### One question, two implementations, and a row that contradicted its own page
+
+Continuing the same report, one more defect surfaced and it was structural rather than a single wrong condition:
+**"can this session be written to" was answered in two places, by two different rules.**
+
+    the sidebar's dot      checked `transportError` against a blocker list
+    the composer's gate    checked `transport`      against a blocker list
+
+Those are different fields, so they could disagree — and they did, on a real session. Measured:
+
+    codex:9232   transport = 'monitor-only'   transportError = 'no-cwd-match'
+      dot rule      'no-cwd-match' is not a blocker name  -> 可写入
+      composer rule 'monitor-only' is a blocker           -> 只能监控
+
+So a row promised 可写入 while its own detail page refused. Probed across the combinations, **4 of 7 disagreed**,
+including both fields being set in the opposite way from what each rule expected.
+
+Fixed by giving the question one owner: `apps/web/src/session/write-eligibility.ts` now holds the rule and the
+reason text, and the dot, the composer and the process table all read from it. The master switch is deliberately
+absent for the reason established earlier — the service does not consult it for a manual write.
+
+The old dot rule had a test, and that test asserted the wrong field. It is corrected rather than deleted, and a new
+test pins the agreement itself, so the two can never silently diverge again:
+
+    × never disagrees with the write rule about the same session
+      → the dot says writable while the write rule says blocked for
+        {"transport":"monitor-only","transportError":"no-cwd-match"}
+
+Suites: web 156 -> 164.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

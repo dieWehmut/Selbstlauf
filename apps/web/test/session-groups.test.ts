@@ -8,6 +8,7 @@ import {
   toolLabel,
 } from '../src/sidebar/session-groups';
 import type { SessionView } from '../src/api/client';
+import { writeEligibility } from '../src/session/write-eligibility';
 
 /**
  * The sidebar's grouping and labelling rules.
@@ -157,17 +158,49 @@ describe('sidebar session grouping', () => {
   });
 
   it('gives a row the tone that matches whether the session is actionable', () => {
-    expect(sessionTone(session({ alive: true, paused: false, transportError: undefined }))).toBe('writable');
-    // A blocker in transportError is what makes a live session unwritable, which is the
-    // same rule the process table's own badge uses.
-    expect(sessionTone(session({ transportError: 'monitor-only' }))).toBe('monitor');
-    expect(sessionTone(session({ transportError: 'cannot-inject' }))).toBe('monitor');
+    expect(sessionTone(session({ alive: true, paused: false }))).toBe('writable');
+    /**
+     * The tone now comes from the shared rule, which keys on `transport`.
+     *
+     * This test previously asserted the opposite — that a blocker appearing in `transportError` was what made a
+     * session unwritable — and that was a second, divergent implementation. Measured on a real session,
+     * `codex:9232` has `transport: 'monitor-only'` with `transportError: 'no-cwd-match'`, so the old dot rule
+     * called it 可写入 while its own detail page said 只能监控.
+     */
+    expect(sessionTone(session({ transport: 'monitor-only' }))).toBe('monitor');
+    expect(sessionTone(session({ transport: 'cannot-inject' }))).toBe('monitor');
     expect(sessionTone(session({ paused: true }))).toBe('monitor');
-    // An unrelated transport error is not a reason to show "only monitoring": the
-    // session is still writable, and the error is surfaced on the detail page.
+    // An unrelated transport error is not a reason to show "only monitoring": the session is still writable, and
+    // the error is surfaced on the detail page.
     expect(sessionTone(session({ transportError: 'something-else' }))).toBe('writable');
     // A dead session is an error tone regardless of the rest.
     expect(sessionTone(session({ alive: false }))).toBe('error');
-    expect(sessionTone(session({ alive: false, paused: false, transportError: undefined }))).toBe('error');
+    expect(sessionTone(session({ alive: false, paused: false }))).toBe('error');
+  });
+
+  /**
+   * The dot and the composer must agree, on every combination of the two fields that used to be read separately.
+   *
+   * This is the regression the shared rule exists to prevent, so it is pinned here as well as in the rule's own
+   * tests: a row that promises 可写入 while its own page refuses is the contradiction the user reported.
+   */
+  it('never disagrees with the write rule about the same session', () => {
+    const combinations: Partial<SessionView>[] = [
+      { transport: 'classic-console', transportError: undefined },
+      { transport: 'codex-app-server', transportError: undefined },
+      { transport: 'monitor-only', transportError: 'no-cwd-match' },
+      // The two cases where the old rules diverged: a blocker in one field but not the other.
+      { transport: 'codex-app-server', transportError: 'monitor-only' },
+      { transport: 'monitor-only', transportError: undefined },
+    ];
+    for (const combination of combinations) {
+      const target = session(combination);
+      const tone = sessionTone(target);
+      const writable = writeEligibility(target).writable;
+      expect(
+        tone === 'writable',
+        `the dot says ${tone} while the write rule says ${writable ? 'writable' : 'blocked'} for ${JSON.stringify(combination)}`,
+      ).toBe(writable);
+    }
   });
 });

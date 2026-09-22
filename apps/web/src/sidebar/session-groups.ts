@@ -1,4 +1,5 @@
 import type { SessionView } from '../api/client';
+import { writeEligibility } from '../session/write-eligibility';
 
 /**
  * The sidebar's process list, grouped the way the reference sidebar groups its
@@ -196,22 +197,20 @@ export function conversationShortId(id: string | null | undefined): string | nul
 }
 
 /**
- * The dot beside a row, which must agree with the process table's own badges.
+ * The dot beside a row.
  *
- * This mirrors the app's `canInject` rule rather than testing `transport` directly: the
- * reason a session cannot be written to lives in `transportError`, not in the transport
- * kind, so a transport comparison would have been wrong.
+ * It now derives from the **same rule** the detail page uses, rather than a second implementation. The two used to
+ * check different fields — the dot inspected `transportError` while the composer inspected `transport` — and on a
+ * real session they disagreed: `codex:9232` has `transport: 'monitor-only'` with `transportError: 'no-cwd-match'`,
+ * so the dot said 可写入 while its own detail page said 只能监控.
  */
 export type SessionTone = 'writable' | 'monitor' | 'idle' | 'error';
 
-/** The reasons a live session still cannot be written to, matching `canInject`. */
-const INJECT_BLOCKERS: readonly string[] = ['monitor-only', 'cannot-inject', 'unknown'];
-
 export function sessionTone(session: SessionView): SessionTone {
   if (!session.alive) return 'error';
+  // Paused is its own state: the session exists and could be written to, but not until it is resumed.
   if (session.paused) return 'monitor';
-  if (session.transportError !== undefined && INJECT_BLOCKERS.includes(session.transportError)) return 'monitor';
-  return 'writable';
+  return writeEligibility(session).writable ? 'writable' : 'monitor';
 }
 
 export function sessionToneLabel(tone: SessionTone): string {
