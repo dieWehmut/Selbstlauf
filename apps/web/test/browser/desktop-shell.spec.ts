@@ -68,24 +68,59 @@ test('reserves the native window-button gutter only in desktop shell mode', asyn
   }
 
   // The renderer reports the colour it painted, so the strip follows the theme.
-  const painted = await titlebar.evaluate((el) => getComputedStyle(el).backgroundColor);
-  await page.waitForTimeout(400);
-  const calls = await page.evaluate(() => (window as unknown as { __overlayCalls?: Array<{ color: string; symbolColor: string; height?: number }> }).__overlayCalls ?? []);
-  expect(calls.length, 'the renderer must report its overlay colour to the main process').toBeGreaterThan(0);
+  const readOverlayCalls = () => page.evaluate(() => (
+    window as unknown as { __overlayCalls?: Array<{ color: string; symbolColor: string }> }
+  ).__overlayCalls ?? []);
 
-  // Convert the reported colour to the same form the browser computed.
+  /** Convert a reported colour to the same form the browser computed. */
   const toRgb = (hex: string) => {
     const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/iu.exec(hex.trim());
     if (m === null) return null;
     return `rgb(${Number.parseInt(m[1], 16)}, ${Number.parseInt(m[2], 16)}, ${Number.parseInt(m[3], 16)})`;
   };
-  const last = calls[calls.length - 1];
-  const reported = toRgb(last.color);
-  expect(reported, `the reported colour must be a hex triple: ${last.color}`).not.toBeNull();
-  expect(
-    reported,
-    'the colour reported to the main process must be the colour the page painted',
-  ).toBe(painted);
+
+  const expectReportMatchesPaint = async (label: string) => {
+    const painted = await titlebar.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await page.waitForTimeout(400);
+    const calls = await readOverlayCalls();
+    expect(calls.length, `the renderer must report its overlay colour to the main process (${label})`).toBeGreaterThan(0);
+
+    const last = calls[calls.length - 1]!;
+    const reported = toRgb(last.color);
+    expect(reported, `the reported colour must be a hex triple: ${last.color}`).not.toBeNull();
+    expect(
+      reported,
+      `the colour reported to the main process must be the colour the page painted (${label})`,
+    ).toBe(painted);
+    return { painted, reported };
+  };
+
+  const dark = await expectReportMatchesPaint('default dark theme');
+
+  /**
+   * And the same must hold *after* the theme changes.
+   *
+   * Until now this was only ever asserted in the default theme, so the path the effect exists for —
+   * report the colour again when the palette or the theme moves — was never exercised. It matters
+   * here because the light theme's rail is no longer the colour the dark one derives to
+   * (`#0d0d0d` against `#e3e7e7`), so a report captured once at startup would leave the native
+   * buttons on a visibly different strip from the painted bar.
+   */
+  await page.keyboard.press('Control+,');
+  await page.getByRole('tab', { name: '外观' }).click();
+  const before = (await readOverlayCalls()).length;
+  // The theme control is a radio in the 外观主题 group; `getByRole('button', …)` finds nothing
+  // here, which is how the light half of theme-chrome.spec.ts went unrun until it was corrected.
+  await page.getByRole('radio', { name: '浅色' }).click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+  await expect
+    .poll(async () => (await readOverlayCalls()).length, {
+      message: 'the renderer did not report a new overlay colour after the theme changed',
+    })
+    .toBeGreaterThan(before);
+
+  const light = await expectReportMatchesPaint('light theme');
+  expect(light.painted, 'the theme change did not repaint the title bar, so this proves nothing').not.toBe(dark.painted);
 
   // The named commands from the menu bar and the tray must reach the app. This is
   // the same channel the tray's 打开主界面 / 设置 items use.

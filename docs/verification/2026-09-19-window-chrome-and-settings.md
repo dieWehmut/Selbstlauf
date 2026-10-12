@@ -2658,6 +2658,35 @@ something next to a local reproduction.
 
 Suites: web 171 (unchanged), browser 66 -> 69.
 
+### Two browser tests that were weaker than they read
+
+Extending the desktop shell's overlay check turned up two tests that were not testing what their
+comments said.
+
+**1. The desktop overlay was only ever checked in the default theme.** `desktop-shell.spec.ts`
+already compared the colour the renderer reports — the colour the main process paints the native
+window strip with — against the colour the page painted, but once, at startup, on the dark theme.
+The path the effect exists for, *reporting again when the palette or the theme moves*, was never
+exercised. It is now: the test switches to the light theme, requires a **new** report to arrive,
+and re-checks the pair. Measured: `rgb(13, 13, 13)` on the dark theme and `rgb(227, 231, 231)` on
+the light one, each equal to the painted bar — which is the same invariant the split top edge was
+about, now checked wherever the theme can change.
+
+**2. The light half of `theme-chrome.spec.ts` had never run.** It looked for the theme control as
+`getByRole('button', { name: /浅色/ })` and skipped the assertion when nothing matched. The control
+is a radio in the 外观主题 group, so nothing ever matched — measured on the same build with a
+throwaway probe:
+
+    getByRole(button, /浅色/) count: 0
+    getByRole(radio, 浅色) count: 1
+
+It now uses the radio, asserts that the switch actually happened (`aria-checked`, then
+`data-theme`) before reading `color-scheme`, and reads it only then. The claim it was making does
+hold — the light theme does opt back into light chrome — but it can no longer pass while asserting
+nothing, and a renamed, moved or re-roled control fails here.
+
+Suites: web 171 (unchanged), browser 69 (none added; two tests strengthened).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

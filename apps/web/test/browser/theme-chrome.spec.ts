@@ -50,14 +50,21 @@ test('declares the colour scheme so native chrome follows the theme', async ({ p
 
   // Switching to the light theme must flip it back, or the light theme would inherit the
   // dark chrome.
+  //
+  // The control is a radio inside the 外观主题 group (see the theme previews in App.tsx). This
+  // used to look for a *button* named 浅色 and to skip the whole assertion when it found none —
+  // and it never found one, so the light half of this test had never run. The switch is now
+  // asserted to have happened before the colour scheme is read, so a control that is renamed,
+  // moved or changed role fails here instead of quietly passing.
   await page.getByRole('tab', { name: '外观' }).click();
-  const lightButton = page.getByRole('button', { name: /浅色/u }).first();
-  if (await lightButton.count() > 0) {
-    await lightButton.click();
-    await page.waitForTimeout(400);
-    const light = await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme);
-    expect(light, 'the light theme did not opt back into light chrome').toBe('light');
-  }
+  const lightRadio = page.getByRole('radio', { name: '浅色' });
+  await expect(lightRadio, 'the light theme control is not the 浅色 radio in the 外观主题 group').toHaveCount(1);
+  await lightRadio.click();
+  await expect(lightRadio, 'the light theme was not selected').toHaveAttribute('aria-checked', 'true');
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+
+  const light = await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme);
+  expect(light, 'the light theme did not opt back into light chrome').toBe('light');
 
   await page.screenshot({ path: testInfo.outputPath('themed-scrollbars.png') });
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
