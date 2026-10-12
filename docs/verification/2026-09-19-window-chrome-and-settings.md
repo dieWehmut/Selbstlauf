@@ -2656,6 +2656,22 @@ first, i.e. the first run was competing for the machine. No behaviour this round
 service-outage path; the diff is colour tokens and specs. Recorded because a re-run only means
 something next to a local reproduction.
 
+Two later full-suite runs on the same tree were hit by the same effect, and the numbers are the
+evidence for calling it environmental rather than a defect:
+
+    run                wall time   result
+    2 workers          2.0m        69 passed           <- the clean run
+    2 workers          6.5m        64 passed, 5 timeouts across unrelated specs (goto, screenshot, click)
+    --workers=1       29.7m        67 passed, 2 timeouts (service-outage, sidebar-header-and-conversations)
+
+Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
+**3.9m** on a later one — a 12x spread on a test that did not change — and
+`sidebar-header-and-conversations` passed in the same chunk run that failed the first. The host was
+carrying several other browser processes throughout (8 logical CPUs, with the GUI's own browser
+among them). The 69/69 run is the one to trust: it completed, and it is the only full run that was
+not starved. Worth recording because "it timed out" and "it is broken" are different claims, and
+only a reproduction separates them.
+
 Suites: web 171 (unchanged), browser 66 -> 69.
 
 ### Two browser tests that were weaker than they read
