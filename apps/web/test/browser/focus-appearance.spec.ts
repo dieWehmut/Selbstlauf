@@ -67,8 +67,9 @@ test('the focus ring is visible against the surface it is drawn on, in both them
    * WCAG 2.2 "Focus Appearance" asks for 3:1 between the focused and unfocused states.
    *
    * This is the check that found a real defect: the browser's default ring is `auto 1px rgb(16,16,16)`,
-   * and against the dark sidebar (#1a1e22) that is **1.14:1** — present, and effectively invisible. The
-   * light theme was fine at 17:01, so only the dark one was broken and only for keyboard users.
+   * and against the dark sidebar (#0d0d0d on the built-in pure-black palette) that is **1.02:1** —
+   * present, and effectively invisible. The light theme was fine at 17:01, so only the dark one was
+   * broken and only for keyboard users.
    */
   const measurements: { theme: string; ratio: number; ring: string }[] = [];
 
