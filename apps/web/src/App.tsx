@@ -2274,7 +2274,27 @@ export default function App({ api: suppliedApi }: AppProps) {
       ? lift(0.004)
       : mixColor(palette.background, palette.foreground, 0.004 + palette.contrast / 1400);
     root.style.setProperty('--panel-soft', recessed);
-    root.style.setProperty('--line', mixColor(palette.background, palette.foreground, 0.1 + palette.contrast / 420));
+
+    /**
+     * The two line tokens.
+     *
+     * `--line` is only ever used through its translucent children (`--line-soft` and
+     * `--line-whisper`), so nothing paints it directly. `--line-strong` is the opaque
+     * one: it draws an icon button's hover border and the scrollbar thumb. It used to
+     * be a literal in each theme block, which made it the only colour token a custom
+     * palette left behind — every other token followed a user's palette and this one
+     * did not — and it left the dark theme painting a blue-grey (`#39464d`) from the
+     * palette the pure-black page replaced.
+     *
+     * A fixed extra step above `--line` keeps the two in order and keeps the slider's
+     * slope. Measured against what each is drawn on, before -> after:
+     *
+     *     dark   #39464d -> #505152   hover border 1.92:1 -> 2.36:1, thumb 1.55:1 -> 1.78:1
+     *     light  #bac9c4 -> #a6acad   hover border 1.53:1 -> 2.06:1, thumb 1.25:1 -> 1.51:1
+     */
+    const line = 0.1 + palette.contrast / 420;
+    root.style.setProperty('--line', mixColor(palette.background, palette.foreground, line));
+    root.style.setProperty('--line-strong', mixColor(palette.background, palette.foreground, line + 0.08));
 
     const uiType = fontStack(palette.uiType.family);
     const content = palette.contentType.sameAsUi ? uiType : fontStack(palette.contentType.family);

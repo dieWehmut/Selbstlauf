@@ -26,7 +26,10 @@
   --panel-raised: #121212;
   --panel-soft: #0d0d0d;
   --line: #3d3e3f;
-  --line-strong: #39464d;
+  /* The opaque line. Derived like the rest (`--line`'s step plus a fixed extra), because as a
+     literal it was the one colour a custom palette did not move; the old blue-grey was a
+     leftover of the palette the pure-black page replaced. */
+  --line-strong: #505152;
   /* Softer separators: the same hue, spent more sparingly, so a surface reads
      as one piece instead of a stack of ruled boxes. */
   --line-soft: color-mix(in srgb, var(--line) 52%, transparent);
@@ -73,7 +76,11 @@
   --panel-raised: #eff3f2;
   --panel-soft: #e3e7e7;
   --line: #b7bdbd;
-  --line-strong: #bac9c4;
+  /* Derived, not a literal: see the note in the dark block. This was `#bac9c4`, which is
+     *lighter* than the `--line` above it — the inversion had no visible effect while `--line`
+     only fed its translucent children, but it left the token pair saying the opposite of
+     what it meant. */
+  --line-strong: #a6acad;
   --line-soft: color-mix(in srgb, var(--line) 62%, transparent);
   --line-whisper: color-mix(in srgb, var(--line) 36%, transparent);
   --text: #1c262b;
