@@ -94,9 +94,18 @@
   --faint: #5f686a;
   --accent: #a56a08;
   --accent-strong: #774c06;
-  --green: #247c59;
-  --red: #b5493e;
-  --blue: #2e718d;
+  --green: #206f50;
+  --red: #a74339;
+  --blue: #2b6983;
+  /* These three are literals, not derived — a status colour means something, so a user's background
+     must not move it — which makes their contrast a function of the surface behind them. They were
+     solved against the card, and then the rail became *darker* than the card (`--panel-soft`
+     #eff3f2 -> #e3e7e7) so that the rail and its selection would stop collapsing into one colour.
+     Chips and pills paint themselves with `--panel-soft`, so a ready chip's green text fell from
+     4.58:1 to 4.11:1 — below AA, at 10px. These values clear 4.5:1 on every surface of this theme
+     and on each colour's own wash (a chip fills itself with a 9% wash of the colour it writes):
+     measured green 4.88 on the rail and 4.81 on its wash, red 4.81/4.82, blue 4.88/4.83.
+     `theme-status-colours.spec.ts` checks the whole matrix, so it cannot regress quietly. */
   --shadow-soft: 0 1px 2px rgba(31, 57, 48, .04), 0 12px 30px rgba(31, 57, 48, .06);
   --shadow-lift: 0 2px 6px rgba(31, 57, 48, .05), 0 20px 46px rgba(31, 57, 48, .08);
   --shadow: 0 16px 38px rgba(31, 57, 48, .07);
