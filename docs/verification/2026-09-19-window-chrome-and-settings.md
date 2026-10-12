@@ -2703,6 +2703,54 @@ nothing, and a renamed, moved or re-roled control fails here.
 
 Suites: web 171 (unchanged), browser 69 (none added; two tests strengthened).
 
+### The status colours went below AA on the light rail
+
+Round 1 made the light theme's rail darker than its cards so that the rail and its selection would
+stop collapsing into one colour. That was measured against surfaces — and it moved the surface the
+*status colours* are painted on, which nothing checked.
+
+`--green`, `--red` and `--blue` are literals rather than derived tokens: they mean something, so a
+user's background must not move them. Their contrast is therefore a function of the surface behind
+them, and chips and pills paint *themselves* with `--panel-soft` — the token round 1 changed.
+Measured in the browser, on the elements the demo paints:
+
+    light   ready state chip   #247c59 on #e3e7e7 (its own --panel-soft fill)   4.11:1   below AA, 10px
+            ready capability   green on a 9% wash of itself over the card      4.08:1   below AA, 10px
+            emergency stop     red on a 7% wash of itself over the page        4.25:1   below AA, 12px
+            online indicator   the green dot against the page                  4.54:1   (3:1 bar, fine)
+    dark    the same four                                                      9.54 / 8.24 / 7.92 / 10.31:1
+
+The chip was 4.58:1 before round 1, so the rail change cost it 0.47. The matrix of every status
+colour against every surface said the same thing and named the surface:
+
+    --green on --panel-soft 4.11:1        --red 4.23:1        --blue 4.36:1
+
+**The fix darkens only the light theme's three status colours**, to the lightest values that clear
+4.5:1 on every surface *and* on each colour's own wash — a chip fills itself with a 9% wash of the
+colour it writes, which is why the painted numbers sit below the plain-surface ones:
+
+    green  #247c59 -> #206f50   4.88 on the rail, 4.81 on its wash
+    red    #b5493e -> #a74339   4.81, 4.82
+    blue   #2e718d -> #2b6983   4.88, 4.83
+
+The dark theme's values are 7.5:1 or better everywhere and are untouched. Run against the old file
+the new spec fails, naming all three.
+
+**Two measurement traps, each of which produced a wrong number first.** `sidebar-row-in` eases
+opacity from 0 over .18s, and a row read mid-animation reported a background of `rgb(185, 188, 188)`
+— a colour no rule declares, against which the green dot would have "measured" 2.68:1 on a surface
+it is not on. And `.button` eases its background over .18s, so a mid-transition read returns
+`oklab(…)`, which is not a colour that ever reaches the screen. The spec therefore waits for the
+rows to reach opacity 1 and for two consecutive reads to agree before it measures anything.
+
+**A limit this leaves open, deliberately.** The status colours are literals, so a *custom* palette
+moves the surfaces under them and can re-open this; the matrix is checked against the built-in
+palettes only. Deriving them would make them follow a user's background, which is the wrong
+trade for a colour that means "writable" or "failed" — so the honest thing is to record the limit
+rather than paper over it.
+
+Suites: web 171 (unchanged), browser 69 -> 71.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

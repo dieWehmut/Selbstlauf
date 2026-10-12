@@ -70,7 +70,7 @@ export function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-export function describe(colour: Colour): string {
+export function describeColour(colour: Colour): string {
   const alpha = colour.a === 1 ? '' : ` / ${round2(colour.a)}`;
   return `rgb(${Math.round(colour.r)}, ${Math.round(colour.g)}, ${Math.round(colour.b)}${alpha})`;
 }
