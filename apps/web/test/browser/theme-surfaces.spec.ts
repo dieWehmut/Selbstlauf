@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { levels, parseColour } from './paint';
+
 /**
  * Where the design changes a surface, the paint has to change with it.
  *
@@ -25,7 +27,9 @@ import { expect, test, type Page } from '@playwright/test';
  * ships are what the window paints before the bundle runs, so each one has to equal the colour the
  * renderer resolves for that theme. They did not: the move to a pure-black dark page left the
  * block's blue-greys (`#141b20` …) describing a palette that no longer existed, a flash of the
- * wrong colour on every launch.
+ * wrong colour on every launch. And since a literal is only a *default*, the last test sets a
+ * custom palette and requires every one of the tokens — including the opaque line — to move with
+ * it.
  */
 
 const CSS = readFileSync(fileURLToPath(new URL('../../src/styles/index.css', import.meta.url)), 'utf8');
@@ -38,6 +42,7 @@ const APPLIED_TOKENS = [
   '--panel-soft',
   '--panel-raised',
   '--line',
+  '--line-strong',
   '--accent',
   '--accent-strong',
 ] as const;
@@ -66,17 +71,9 @@ async function openTheme(theme: 'dark' | 'light', page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe(theme);
 }
 
-function channels(colour: string): [number, number, number] {
-  const match = /rgba?\((\d+),\s*(\d+),\s*(\d+)/u.exec(colour);
-  if (match === null) throw new Error(`not a colour: ${colour}`);
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
-}
-
-/** The largest per-channel difference, i.e. how many levels of 255 the paint moved. */
+/** The largest per-channel difference between two resolved colours, i.e. how far the paint moved. */
 function step(from: string, to: string): number {
-  const a = channels(from);
-  const b = channels(to);
-  return Math.max(...a.map((value, index) => Math.abs(value - b[index]!)));
+  return levels(parseColour(from), parseColour(to));
 }
 
 async function measure(theme: 'dark' | 'light', page: Page): Promise<void> {
@@ -138,17 +135,22 @@ test('the light theme paints the page, its rail and a selected row apart', async
   await measure('light', page);
 });
 
+/** The colour every token resolves to on the document root, i.e. what the renderer paints with. */
+async function readAppliedTokens(page: Page): Promise<Record<string, string>> {
+  return page.evaluate(
+    (tokens) => {
+      const style = getComputedStyle(document.documentElement);
+      return Object.fromEntries(tokens.map((token) => [token, style.getPropertyValue(token).trim().toLowerCase()]));
+    },
+    APPLIED_TOKENS as unknown as string[],
+  );
+}
+
 test('every first-paint literal is the colour the renderer paints, in both themes', async ({ page }) => {
   const mismatches: string[] = [];
   for (const theme of ['dark', 'light'] as const) {
     await openTheme(theme, page);
-    const applied = await page.evaluate(
-      (tokens) => {
-        const style = getComputedStyle(document.documentElement);
-        return Object.fromEntries(tokens.map((token) => [token, style.getPropertyValue(token).trim().toLowerCase()]));
-      },
-      APPLIED_TOKENS as unknown as string[],
-    );
+    const applied = await readAppliedTokens(page);
     const declared = literals(theme === 'dark' ? ':root' : ":root[data-theme='light']");
 
     console.log(
@@ -167,4 +169,36 @@ test('every first-paint literal is the colour the renderer paints, in both theme
     mismatches,
     'a literal in index.css disagrees with the colour the renderer resolves, so the first paint is wrong',
   ).toEqual([]);
+});
+
+test('a custom palette moves every colour token, including the opaque line', async ({ page }) => {
+  /**
+   * A literal in a `:root` block is a *default*, not a decision: the appearance section lets the
+   * user set a background, a foreground, an accent and a contrast, and every colour has to follow
+   * them. `--line-strong` was the one that did not — the palette effect never wrote it — so a
+   * custom palette moved the other eight tokens and left this one at the built-in dark palette's
+   * blue-grey `#39464d`, which is where an icon button's hover border and the scrollbar thumb get
+   * their colour from.
+   */
+  await openTheme('dark', page);
+  const builtIn = await readAppliedTokens(page);
+
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'watchdog-palette',
+      JSON.stringify({ dark: { accent: '#4c9cd4', background: '#101820', foreground: '#e8f0f8', contrast: 90 } }),
+    );
+  });
+  await page.reload();
+  await expect(page.locator('.sidebar-row__open').first()).toBeVisible();
+  const custom = await readAppliedTokens(page);
+
+  console.log(
+    ['custom palette vs built-in dark:']
+      .concat(APPLIED_TOKENS.map((token) => `  ${token.padEnd(15)} ${builtIn[token]}  ${custom[token]}`))
+      .join('\n'),
+  );
+
+  const stuck = APPLIED_TOKENS.filter((token) => custom[token] === builtIn[token]);
+  expect(stuck, 'these tokens ignored the custom palette and stayed at the built-in value').toEqual([]);
 });

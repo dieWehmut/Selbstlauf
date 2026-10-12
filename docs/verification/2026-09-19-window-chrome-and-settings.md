@@ -2558,10 +2558,10 @@ reverted it fails, naming the colour it found:
 and with the fix in place it reports a step of 11 from the page and 12 from the rail. The bar is
 4 levels, below the 5 the dark theme's own selection uses, so it is not a new demand.
 
-**Found while fixing this, not fixed:** `--line-strong` is not derived — it is a literal in each
-block — and in the light theme it is `#bac9c4` against a `--line` of `#b7bdbd`, i.e. the *strong*
-line is the lighter one, so a hover border is fainter than the border it replaces. Recorded for
-the next round rather than folded into this one.
+**Found while fixing this, and recorded for the next round:** `--line-strong` is not derived — it
+is a literal in each block — and in the light theme it is `#bac9c4` against a `--line` of
+`#b7bdbd`, i.e. the *strong* line is the lighter of the two. What that actually does was measured
+in the next round, and the guess made here about the consequence was wrong; see below.
 
 Suites: web 171 (unchanged), browser 63 -> 65.
 
@@ -2591,11 +2591,72 @@ run against the old file:
     dark --line:          stylesheet #2a353b vs renderer #3d3e3f
     dark --accent-strong: stylesheet #f4ca75 vs renderer #edca89
 
-Tokens the effect does not write (`--line-strong`, `--line-soft`, `--line-whisper`, `--green`,
-`--red`, `--blue`) have no derived value to compare against, so they are not covered — which is
-exactly why the `--line-strong` inversion noted above is still open.
+Tokens the effect does not write (`--line-soft`, `--line-whisper`, `--green`, `--red`, `--blue`)
+have no derived value to compare against, so they are not covered. `--line-strong` was in that
+list when this was written; the next round derived it.
 
 Suites: web 171 (unchanged), browser 65 -> 66.
+
+### The opaque line was the one colour a custom palette did not move
+
+The previous round left a note saying `--line-strong` was inverted in the light theme and that a
+hover border was therefore *fainter* than the border it replaced. **The second half of that was
+wrong**, and checking the consequence before acting on it is what this round rests on.
+
+The token paints exactly two things — an icon button's hover border and the scrollbar thumb — and
+the border a hover *replaces* is not `--line` but `--line-whisper`, a 26% (dark) / 36% (light)
+translucent mix of it. Composited over what is actually behind them, in the browser:
+
+    dark    rest border (whisper over the topbar)  1.10:1      shipped hover border  1.92:1
+    light   rest border                            1.19:1      shipped hover border  1.53:1
+
+The affordance was intact. The inversion had no visible effect at all, because nothing in the
+stylesheet paints `--line` itself — it only feeds `--line-soft`, `--line-whisper` and `--mesh-line`.
+Two real defects were sitting under it:
+
+1. **`--line-strong` was the only colour token the palette effect did not write.** The appearance
+   section lets the user set a background, a foreground, an accent and a contrast; eight tokens
+   followed the palette and this one stayed at the built-in value. Measured with a custom dark
+   palette (background `#101820`, contrast 90): every token moved except `--line-strong`, which
+   stayed `#39464d`.
+2. **That dark value was a blue-grey**, left over from the palette the pure-black page replaced,
+   while every other colour in the app had become neutral.
+
+Both are fixed by deriving it, one fixed step above `--line` (`+0.08`), which keeps the pair in
+order and keeps the contrast slider's slope. Measured in the browser, before → after:
+
+    dark   #39464d -> #505152    hover border 1.92:1 -> 2.36:1    scrollbar thumb 1.55:1 -> 1.78:1
+    light  #bac9c4 -> #a6acad    hover border 1.53:1 -> 2.06:1    scrollbar thumb 1.25:1 -> 1.51:1
+
+The literals in both blocks carry the derived values, and the literal test covers this token as the
+ninth.
+
+**The tests were run against the old code first.** The border spec fails on the light theme alone,
+with the pair named:
+
+    × the light theme strengthens an icon button border on hover
+      → the light --line-strong (#bac9c4) is not a further step from a raised surface than --line (#b7bdbd)
+
+and the palette-coverage test fails with `--line-strong` as the single stuck token. That last test
+is the one that could not have been written before: for a token the effect does not write, its
+literal and its resolved value agree by definition, so only a *custom* palette can show that nothing
+derives it.
+
+**A colour helper that composites before it compares.** `paint.ts` parses the three forms a
+resolved colour arrives in — `rgb()`, `color(srgb … / a)` for anything built with `color-mix()`,
+and the bare hex a custom property returns — and composites a translucent colour over its backdrop
+before measuring contrast. Without that step the rest border, a 26%-opacity hairline, would have
+been compared as though it were opaque.
+
+**One full run failed, and it was the machine rather than the change.** `service-outage.spec.ts`
+("survives the service going away mid-session") exceeded the 30s test timeout in the first full
+run of this tree. It was reproduced alone — **passed, 19.1s** — and the same full suite was re-run:
+**69 passed in 2.0m**, with the breakpoint sweep taking 1.6m in the second run against 3.5m in the
+first, i.e. the first run was competing for the machine. No behaviour this round touched the
+service-outage path; the diff is colour tokens and specs. Recorded because a re-run only means
+something next to a local reproduction.
+
+Suites: web 171 (unchanged), browser 66 -> 69.
 
 ## Not verified
 
