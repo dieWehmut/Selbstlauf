@@ -2758,6 +2758,40 @@ rather than paper over it.
 
 Suites: web 171 (unchanged), browser 69 -> 71.
 
+### The overview had no empty state, so a quiet machine showed a table with no rows
+
+Every launch begins with zero sessions until the first poll lands, and a machine with nothing running
+stays at zero. The overview rendered the table's header row and an empty card list — six column
+titles, an empty `<tbody>`, and nothing else. The sidebar list and the 事件 page have both explained
+their empty state since they were built; the overview panel, which is the larger surface and the
+first one on screen, did not.
+
+The new test's failure output is the clearest description of what was there:
+
+    <table class="process-table">
+      <thead>… <th>进程</th> <th>运行位置</th> <th>能力</th> <th>对话</th> <th>静默</th>
+             <th>下一输入</th> <th><span class="sr-only">操作</span></th> …</thead>
+      <tbody />
+    </table>
+    <div class="session-cards" />
+
+An empty table is also announced as a table with no data, which reads as a broken render rather than
+as a state. The panel now says it in words, and neither the table nor the card list is rendered:
+
+    尚未发现进程
+    进程出现后会自动出现在这里，同时列在左侧列表。
+
+The wording mirrors the detail page's own empty state (`进程出现后会自动出现在左侧列表。`), so the
+same situation is not described in two different voices.
+
+**Where it could not be tested.** The browser suite runs with `VITE_STATIC_DEMO=true` and the demo
+always has four sessions, so no browser spec can reach a zero-session overview. The regression test
+is therefore a jsdom one in `App.test.tsx`, next to the connecting-state test that already exercised
+exactly this state without asserting anything about it. The browser's `dashboard` and
+`accessibility` specs (21 tests) confirm the populated path is untouched.
+
+Suites: web 171 -> 172; browser 71 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
