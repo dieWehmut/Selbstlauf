@@ -418,6 +418,29 @@ describe('watchdog dashboard', () => {
     expect(screen.queryByText('样例数据')).not.toBeInTheDocument();
   });
 
+  it('explains an empty process list instead of showing a table with no rows', async () => {
+    /**
+     * The connecting state above is also the state of a machine where nothing has been discovered:
+     * zero sessions. The overview rendered the table's header row and an empty card list, so the
+     * first screen of a quiet machine was six column titles and nothing else — and an empty table
+     * is announced as a table with no data, which reads as a rendering fault rather than a state.
+     * The sidebar list and the 事件 page both explain their empty state; this panel did not.
+     */
+    const fake = api();
+    fake.sessions = vi.fn(async () => []);
+    render(<App api={fake} />);
+
+    expect(await screen.findByText('0 个进程')).toBeInTheDocument();
+
+    const section = screen.getByRole('heading', { name: '独立进程' }).closest('section');
+    expect(section, 'the process section is not rendered at all').not.toBeNull();
+    expect(within(section!).getByText('尚未发现进程')).toBeInTheDocument();
+    expect(
+      within(section!).queryByRole('table'),
+      'an empty table is announced as a table with no data',
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps example sessions in the static demo', () => {
     vi.stubEnv('VITE_STATIC_DEMO', 'true');
     const view = render(<App />);

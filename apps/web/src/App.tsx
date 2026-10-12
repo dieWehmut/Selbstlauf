@@ -726,6 +726,25 @@ function ProcessTable(props: {
   onFocus: (session: SessionView) => void;
   allowReveal?: boolean;
 }) {
+  /**
+   * With nothing discovered, there is nothing to tabulate.
+   *
+   * The overview is the first screen on every launch, and while the first poll is in flight it
+   * legitimately has no sessions; on a machine where nothing is running it stays that way. It
+   * rendered the table's header row and an empty card list — six column titles, no rows, and no
+   * explanation — and an empty `<table>` is announced as a table with no data, which reads as a
+   * broken render rather than as a state. The sidebar list and the 事件 page already explain their
+   * empty state; this was the panel that did not.
+   */
+  if (props.sessions.length === 0) {
+    return (
+      <div className="empty-state">
+        <p>尚未发现进程</p>
+        <p className="subtle">进程出现后会自动出现在这里，同时列在左侧列表。</p>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="process-table-wrap">
