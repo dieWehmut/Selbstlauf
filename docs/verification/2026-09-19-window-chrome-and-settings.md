@@ -2565,6 +2565,38 @@ the next round rather than folded into this one.
 
 Suites: web 171 (unchanged), browser 63 -> 65.
 
+### The dark block's literals were left behind, and a test now compares every one
+
+The move to a pure-black dark page changed the *derived* colours, but five literals in `:root`
+still described the palette it replaced. They are what the window paints before the bundle runs,
+so the first frame of every launch was a blue-grey rail and blue-grey cards on a black page:
+
+    --panel         #141b20  ->  #0f0f0f        --line           #2a353b  ->  #3d3e3f
+    --panel-soft    #11181d  ->  #0d0d0d        --accent-strong  #f4ca75  ->  #edca89
+    --panel-raised  #192228  ->  #121212
+
+Each new value is the effect's own output, so the two now agree by construction rather than by
+review. The dark block's comment says so, and names the browser spec that checks it.
+
+**The check reads the stylesheet and the browser, not two copies of the code.** `theme-surfaces.spec.ts`
+now parses every custom property out of both `:root` blocks with Node, then compares each of the
+eight colour tokens the palette effect writes against the colour the renderer actually resolved for
+that theme. Reading both sides out of the source would only have proved the source agrees with
+itself; the renderer is the side that matters, and it is what produced this list when the test was
+run against the old file:
+
+    dark --panel:         stylesheet #141b20 vs renderer #0f0f0f
+    dark --panel-soft:    stylesheet #11181d vs renderer #0d0d0d
+    dark --panel-raised:  stylesheet #192228 vs renderer #121212
+    dark --line:          stylesheet #2a353b vs renderer #3d3e3f
+    dark --accent-strong: stylesheet #f4ca75 vs renderer #edca89
+
+Tokens the effect does not write (`--line-strong`, `--line-soft`, `--line-whisper`, `--green`,
+`--red`, `--blue`) have no derived value to compare against, so they are not covered — which is
+exactly why the `--line-strong` inversion noted above is still open.
+
+Suites: web 171 (unchanged), browser 65 -> 66.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

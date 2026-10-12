@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -17,10 +20,51 @@ import { expect, test, type Page } from '@playwright/test';
  *
  * A card is different: it carries a border and a shadow, so it is allowed to be delineated that
  * way rather than by fill (the dark theme happens to use fill as well; the light one does not).
+ *
+ * The second half compares the two sides of the same coin: the *literals* each `:root` block
+ * ships are what the window paints before the bundle runs, so each one has to equal the colour the
+ * renderer resolves for that theme. They did not: the move to a pure-black dark page left the
+ * block's blue-greys (`#141b20` …) describing a palette that no longer existed, a flash of the
+ * wrong colour on every launch.
  */
+
+const CSS = readFileSync(fileURLToPath(new URL('../../src/styles/index.css', import.meta.url)), 'utf8');
+
+/** The colour tokens the palette effect writes, and therefore every literal that must match it. */
+const APPLIED_TOKENS = [
+  '--bg',
+  '--text',
+  '--panel',
+  '--panel-soft',
+  '--panel-raised',
+  '--line',
+  '--accent',
+  '--accent-strong',
+] as const;
 
 /** 4/255: below the 5-level step the dark theme's selected row already uses. */
 const MINIMUM_STEP = 4;
+
+/** The custom properties a block in index.css declares. */
+function literals(selector: string): Record<string, string> {
+  const start = CSS.indexOf(`${selector} {`);
+  if (start === -1) throw new Error(`index.css has no ${selector} block`);
+  const body = CSS.slice(start, CSS.indexOf('}', start));
+  const declared: Record<string, string> = {};
+  for (const [, name, value] of body.matchAll(/(--[a-z-]+):\s*([^;]+);/gu)) declared[name!] = value!.trim();
+  return declared;
+}
+
+async function openTheme(theme: 'dark' | 'light', page: Page): Promise<void> {
+  if (theme === 'light') {
+    // Set before the bundle runs, which is how a saved preference arrives.
+    await page.addInitScript(() => localStorage.setItem('watchdog-theme', 'light'));
+  }
+  await page.setViewportSize({ width: 1249, height: 704 });
+  await page.goto('/');
+  await expect(page.locator('.sidebar-row__open').first()).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe(theme);
+}
 
 function channels(colour: string): [number, number, number] {
   const match = /rgba?\((\d+),\s*(\d+),\s*(\d+)/u.exec(colour);
@@ -36,14 +80,7 @@ function step(from: string, to: string): number {
 }
 
 async function measure(theme: 'dark' | 'light', page: Page): Promise<void> {
-  if (theme === 'light') {
-    // Set before the bundle runs, which is how a saved preference arrives.
-    await page.addInitScript(() => localStorage.setItem('watchdog-theme', 'light'));
-  }
-  await page.setViewportSize({ width: 1249, height: 704 });
-  await page.goto('/');
-  await expect(page.locator('.sidebar-row__open').first()).toBeVisible();
-  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe(theme);
+  await openTheme(theme, page);
 
   const below = await page.evaluate(() => {
     const paint = (selector: string) => {
@@ -99,4 +136,35 @@ test('the dark theme paints the page, its rail and a selected row apart', async 
 
 test('the light theme paints the page, its rail and a selected row apart', async ({ page }) => {
   await measure('light', page);
+});
+
+test('every first-paint literal is the colour the renderer paints, in both themes', async ({ page }) => {
+  const mismatches: string[] = [];
+  for (const theme of ['dark', 'light'] as const) {
+    await openTheme(theme, page);
+    const applied = await page.evaluate(
+      (tokens) => {
+        const style = getComputedStyle(document.documentElement);
+        return Object.fromEntries(tokens.map((token) => [token, style.getPropertyValue(token).trim().toLowerCase()]));
+      },
+      APPLIED_TOKENS as unknown as string[],
+    );
+    const declared = literals(theme === 'dark' ? ':root' : ":root[data-theme='light']");
+
+    console.log(
+      [`${theme}: stylesheet literal vs renderer`]
+        .concat(APPLIED_TOKENS.map((token) => `  ${token.padEnd(15)} ${declared[token] ?? '(missing)'}  ${applied[token]}`))
+        .join('\n'),
+    );
+
+    for (const token of APPLIED_TOKENS) {
+      if (declared[token]?.toLowerCase() !== applied[token]) {
+        mismatches.push(`${theme} ${token}: stylesheet ${declared[token] ?? '(missing)'} vs renderer ${applied[token]}`);
+      }
+    }
+  }
+  expect(
+    mismatches,
+    'a literal in index.css disagrees with the colour the renderer resolves, so the first paint is wrong',
+  ).toEqual([]);
 });

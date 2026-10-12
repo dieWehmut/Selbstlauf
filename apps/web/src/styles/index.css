@@ -15,10 +15,17 @@
      window shows before the bundle runs, so it must stay black rather than the
      old dark blue-grey. */
   --bg: #000000;
-  --panel: #141b20;
-  --panel-raised: #192228;
-  --panel-soft: #11181d;
-  --line: #2a353b;
+  /* The rest of the built-in dark palette: exactly what the palette effect in App.tsx writes
+     for DEFAULT_PALETTES.dark at contrast 68 (`mix(background, #ffffff, weight + contrast /
+     1400)` for the surfaces, and the background-to-text mix for the line). These literals are
+     what the window paints before the bundle runs, so one that disagrees with the effect is a
+     visible flash of the wrong colour. The blue-greys below (`#141b20`, `#192228`, `#11181d`,
+     `#2a353b`) were left behind by the move to a pure-black page; `theme-surfaces.spec.ts`
+     compares every literal in this block and the light one against what the renderer resolves. */
+  --panel: #0f0f0f;
+  --panel-raised: #121212;
+  --panel-soft: #0d0d0d;
+  --line: #3d3e3f;
   --line-strong: #39464d;
   /* Softer separators: the same hue, spent more sparingly, so a surface reads
      as one piece instead of a stack of ruled boxes. */
@@ -34,7 +41,7 @@
   --muted: #9ea2a5;
   --faint: #868b8d;
   --accent: #e6b65b;
-  --accent-strong: #f4ca75;
+  --accent-strong: #edca89;
   --green: #74c69d;
   --red: #e98b81;
   --blue: #83b9d4;
