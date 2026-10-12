@@ -2459,6 +2459,112 @@ input box, and it is the composer — and the disclosure itself was verified in 
 
 Suites: web 170 -> 171, browser 61 -> 63.
 
+### The dark page went pure black, and every derived surface moved with it
+
+The dark theme's page background was `#0d1216`, a blue-grey. It is now `#000000`, and the literals that describe
+the same colour before the bundle runs were moved with it:
+
+    apps/web/src/App.tsx           DEFAULT_PALETTES.dark.background   #0d1216 -> #000000
+    apps/web/src/styles/index.css  :root background, --bg            #0d1216 -> #000000
+    apps/web/index.html            <meta name="theme-color">         #10151a -> #000000
+    apps/desktop/src/navigation.ts window backgroundColor            #0b1120 -> #000000
+    apps/desktop/src/navigation.ts TITLE_BAR_OVERLAY.color           #1a1e22 -> #0d0d0d
+
+Nothing else needed to change, because every surface in this app is *derived* rather than written down: the
+palette effect mixes each one from the background toward white,
+
+    lift(w) = mix(background, #ffffff, w + contrast / 1400)
+
+so the same slider that produced a run of blue-greys now produces a run of neutral greys. Measured with the
+built-in dark palette (contrast 68), by evaluating that mix independently of the app:
+
+    --panel         #0f0f0f      --panel-soft   #0d0d0d
+    --panel-raised  #121212      --line         #3d3e3f
+
+**The comments' contrast claims were checked, not copied.** The round that changed the colours had written
+specific ratios into the stylesheet and the stylesheet's tests; all five reproduce exactly against the new
+surfaces:
+
+    --faint on a selected row (#121212)     5.43:1      --muted on a selected row   7.28:1
+    --faint on the sidebar   (#0d0d0d)      5.64:1      --muted on the sidebar      7.56:1
+    --accent on the sidebar                10.37:1
+    the browser default ring (rgb(16,16,16)) on the sidebar: 1.02:1
+
+The last line is the one that justifies the focus ring: the user-agent's ring is now 1.02:1 against the sidebar,
+i.e. indistinguishable, which is why `:focus-visible` draws `--accent` (10.37:1) instead.
+
+**A colour is only correct if all three of its owners agree**, and that is what the tests pin. `App.test.tsx`
+now reads the two tokens the desktop shell mirrors after the palette is applied —
+
+    --bg          #000000
+    --panel-soft  #0d0d0d
+
+— and `apps/desktop/test/navigation.test.ts` pins the static `TITLE_BAR_OVERLAY.color` to the same `#0d0d0d`, so
+the OS window buttons cannot drift back onto a differently coloured strip than the painted title bar.
+
+Suites on this tree: web 171, browser 63, desktop 141 — all passing.
+
+### The light theme painted its rail, its cards and its selection the same colour
+
+Reading the resolved tokens in a browser — not the stylesheet — showed the light theme had one
+surface colour instead of three:
+
+    light  page rgb(238, 242, 241)   --panel-soft #eff3f2   --panel #eff3f2   --panel-raised #eff3f2
+
+All three derive from `weight + contrast/1400` of the distance from the background to white. That
+scales with the page: on the dark theme's `#000000` the weights land 13, 15 and 18 levels apart,
+which is why the dark theme looks right. On `#eef2f1` there are only **13 levels** of headroom
+below white, and `0.004 + 68/1400 = 0.0526` of that is **one level**, so all three weights round
+into the same one.
+
+Measured in the browser on the tree before the fix, with a new spec that reads the paint rather
+than the intent:
+
+    light  rail (rgb(239,243,242))            step from page  1     (1.007:1 — invisible)
+    light  selected row (rgb(239,243,242))    step from rail  0     (the same paint, exactly)
+
+So on the light theme a session row's hover and selection changed **nothing but the inset ring**:
+the fill the stylesheet uses to express both was the colour it was drawn on. The dark theme's
+equivalents were 13 and 5 levels.
+
+**The fix keeps one rule per kind of surface rather than one rule for all of them.** A raised
+surface still lifts toward white (a card is lighter than the page in both schemes). A *recessed*
+surface — the rail, its search field, the input and chip backgrounds, the title bar — now steps
+toward the text colour instead, which is the direction that has room on both pages:
+
+    --panel-soft  dark  #0d0d0d  (unchanged: a dark page's text colour is near-white, so the
+                                 two directions already agreed there)
+    --panel-soft  light #e3e7e7  (was #eff3f2, the page's own colour)
+
+**The light stylesheet had already described this surface.** Its comment solved `--faint` and
+`--muted` against a "darkest surface" it named `#e2e8e6`, which no longer existed as a token —
+the recessed rail now resolves to `#e3e7e7`, within a level of the value that reasoning assumed.
+The ratios were recomputed for it:
+
+    --faint #5f686a   5.11:1 on a card, 4.59:1 on the rail   (AA, and no longer inverted)
+    --muted #4f575b   6.59:1 on a card, 5.92:1 on the rail
+    --accent #a56a08  3.61:1 on the rail                     (the focus ring's own 3:1 bar)
+
+The light block's literals were moved to the values the effect now produces (`--panel` and
+`--panel-raised` `#eff3f2`, `--panel-soft` `#e3e7e7`, `--line` `#b7bdbd`, `--accent-strong`
+`#774c06`), because a literal that disagrees with the paint is what the next section is about.
+
+**The test was run against the old code to prove it means something.** With the derivation
+reverted it fails, naming the colour it found:
+
+    × the light theme paints the page, its rail and a selected row apart
+      → the light rail (rgb(239, 243, 242)) is not a visible step from the page (rgb(238, 242, 241))
+
+and with the fix in place it reports a step of 11 from the page and 12 from the rail. The bar is
+4 levels, below the 5 the dark theme's own selection uses, so it is not a new demand.
+
+**Found while fixing this, not fixed:** `--line-strong` is not derived — it is a literal in each
+block — and in the light theme it is `#bac9c4` against a `--line` of `#b7bdbd`, i.e. the *strong*
+line is the lighter one, so a hover border is fainter than the border it replaces. Recorded for
+the next round rather than folded into this one.
+
+Suites: web 171 (unchanged), browser 63 -> 65.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's

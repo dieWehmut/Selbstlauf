@@ -2253,8 +2253,27 @@ export default function App({ api: suppliedApi }: AppProps) {
     // use: a dark page gains a lighter card, a light page gains a white one.
     const lift = (weight: number) => mixColor(palette.background, '#ffffff', weight + palette.contrast / 1400);
     root.style.setProperty('--panel', lift(0.012));
-    root.style.setProperty('--panel-soft', lift(0.004));
     root.style.setProperty('--panel-raised', lift(0.022));
+
+    /**
+     * The recessed surfaces — the rail, its search field and the title bar — step
+     * *into* the page instead, toward the text colour.
+     *
+     * Lifting them toward white leaves a light page with nowhere to go: white is 13
+     * levels above `#eef2f1`, and `0.004 + 68/1400` of that is one level, so all three
+     * surfaces resolved to the same `#eff3f2`. Measured in the browser before this
+     * change: the light rail was `rgb(239, 243, 242)` against a `rgb(238, 242, 241)`
+     * page — 1.007:1, i.e. invisible — and a selected row's fill was identical to the
+     * rail it sat on, so hover and selection changed nothing but the inset ring.
+     *
+     * Toward the text colour the step has room in both schemes: `#e3e7e7` for the
+     * built-in light palette, and `#0d0d0d` for the dark one — unchanged, because a
+     * dark page's text colour is near-white and the two directions agree there.
+     */
+    const recessed = theme === 'dark'
+      ? lift(0.004)
+      : mixColor(palette.background, palette.foreground, 0.004 + palette.contrast / 1400);
+    root.style.setProperty('--panel-soft', recessed);
     root.style.setProperty('--line', mixColor(palette.background, palette.foreground, 0.1 + palette.contrast / 420));
 
     const uiType = fontStack(palette.uiType.family);

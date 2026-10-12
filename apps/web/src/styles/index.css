@@ -62,23 +62,24 @@
   /* The light theme must opt back in, or it would inherit the dark scrollbars. */
   color-scheme: light;
   --bg: #eef2f1;
-  --panel: #ffffff;
-  --panel-raised: #f7f9f8;
-  --panel-soft: #e7edeb;
-  --line: #d6e0dd;
+  --panel: #eff3f2;
+  --panel-raised: #eff3f2;
+  --panel-soft: #e3e7e7;
+  --line: #b7bdbd;
   --line-strong: #bac9c4;
   --line-soft: color-mix(in srgb, var(--line) 62%, transparent);
   --line-whisper: color-mix(in srgb, var(--line) 36%, transparent);
   --text: #1c262b;
-  /* Same reasoning as the dark theme, solved against the *darkest* surface these sit on — a
-     selected row (#e2e8e6) rather than the panel (#eff3f2). The light theme had less headroom:
+  /* Same reasoning as the dark theme, solved against the *darkest* surface these sit on — the
+     recessed rail (#e3e7e7) rather than a card (#eff3f2). The light theme had less headroom:
      --muted was only 4.95:1, so pushing --faint to AA with the original --muted would have made
      --faint *darker* than --muted and inverted the hierarchy. Both were solved together.
-     Measured: --faint 2.95:1 before, 5.11:1 on the panel and 4.60:1 on a selected row. */
+     Measured on the built-in light palette: --faint 5.11:1 on a card and 4.59:1 on the rail,
+     --muted 6.59:1 and 5.92:1. */
   --muted: #4f575b;
   --faint: #5f686a;
   --accent: #a56a08;
-  --accent-strong: #7a4d00;
+  --accent-strong: #774c06;
   --green: #247c59;
   --red: #b5493e;
   --blue: #2e718d;
