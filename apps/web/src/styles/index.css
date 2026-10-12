@@ -1,7 +1,7 @@
 :root {
   font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
   color: #e9eef0;
-  background: #0d1216;
+  background: #000000;
   /* Tells the browser which way its own chrome should be drawn. Without it the native
      scrollbars, form controls and focus rings stay light on the dark theme, which is
      the bright bar that showed down the settings rail. The light theme below overrides
@@ -10,7 +10,11 @@
   color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --bg: #0d1216;
+  /* The built-in dark palette's background. The renderer repaints this from the
+     chosen palette (see DEFAULT_PALETTES in App.tsx); this literal is what the
+     window shows before the bundle runs, so it must stay black rather than the
+     old dark blue-grey. */
+  --bg: #000000;
   --panel: #141b20;
   --panel-raised: #192228;
   --panel-soft: #11181d;
@@ -23,9 +27,10 @@
   --text: #e9eef0;
   /* --muted and --faint carry real text: row labels, timestamps, conversation lines, group
      headings and captions. Both are solved against the *lightest* surface they can sit on, which is
-     a selected row (#1e2326) rather than the sidebar itself (#1a1e22) — solving for the wrong
-     surface left the selected row's timestamp at 4.36:1. --faint stays dimmer than --muted so the
-     hierarchy survives. Measured: 3.29:1 before, 4.86:1 on the sidebar and 4.60:1 on a selected row. */
+     a selected row (#121212) rather than the sidebar itself (#0d0d0d) — solving for the wrong
+     surface once left the selected row's timestamp at 4.36:1. --faint stays dimmer than --muted so
+     the hierarchy survives. Measured with the built-in dark palette on its pure-black page: --faint
+     is 5.43:1 on a selected row and 5.64:1 on the sidebar, --muted 7.28:1 and 7.56:1. */
   --muted: #9ea2a5;
   --faint: #868b8d;
   --accent: #e6b65b;
@@ -99,10 +104,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 /* One visible focus ring for every interactive control, in both themes.
  *
  * Measured before this existed: the browser default ring is `auto 1px rgb(16,16,16)` — near-black —
- * which against the dark sidebar (#1a1e22) is a contrast of **1.14:1**, effectively invisible. The
+ * which against the dark sidebar (#0d0d0d) is a contrast of **1.02:1**, effectively invisible. The
  * light theme was fine at 17:1, so only the dark one was broken, and only for keyboard users, who are
  * the ones who depend on it. `--accent` is used rather than a fixed colour so a custom palette carries
- * through, and it clears 3:1 against every surface in both themes (the accent is at 8.9:1 on the dark
+ * through, and it clears 3:1 against every surface in both themes (the accent is at 10.37:1 on the dark
  * sidebar and 4.6:1 on the light panel).
  *
  * `:focus-visible` only, so a mouse click does not leave a ring behind; `outline-offset` keeps the

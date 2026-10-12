@@ -282,6 +282,13 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     expect(diff).toContain('accent: "#e6b65b"');
     expect(diff).toContain('contrast: 68');
 
+    // The stock dark scheme paints a pure-black page, and the surfaces are lifted
+    // from it. `--panel-soft` is the value the desktop shell's static
+    // TITLE_BAR_OVERLAY.color mirrors (apps/desktop/src/navigation.ts), so this pair
+    // is what keeps the window buttons on the same strip as the painted title bar.
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe('#000000');
+    expect(document.documentElement.style.getPropertyValue('--panel-soft')).toBe('#0d0d0d');
+
     // The type rows are independent: the interface stack and the reading stack
     // can differ, and "same as UI" stops mattering once they do.
     fireEvent.change(screen.getByRole('combobox', { name: 'UI 字体' }), { target: { value: 'mono' } });

@@ -247,7 +247,11 @@ interface ThemePalette {
 /** The palette each theme starts from; also what reset returns to. */
 const DEFAULT_PALETTES: Record<Theme, ThemePalette> = {
   dark: {
-    accent: '#e6b65b', background: '#0d1216', foreground: '#e9eef0', contrast: 68,
+    // Pure black: the dark theme's page background, which every surface
+    // (`--panel*`) and border (`--line`) is then mixed up from in the palette
+    // effect below. Keep the `:root` fallback in index.css and the desktop
+    // window's own colours in step with it.
+    accent: '#e6b65b', background: '#000000', foreground: '#e9eef0', contrast: 68,
     translucentSidebar: false,
     uiType: { family: 'system', weight: 400 },
     contentType: { family: 'system', weight: 400, sameAsUi: true },
