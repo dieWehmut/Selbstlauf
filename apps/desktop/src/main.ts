@@ -767,6 +767,17 @@ export function resolvePreloadPath(options: PreloadPathOptions): string {
   return resolve(options.appRoot, 'src', 'preload.cjs');
 }
 
+/**
+ * The page a window shows when there is no service to load.
+ *
+ * Its colours are the console's own dark palette rather than an unrelated pair of
+ * blues: this page *is* the app from the user's point of view, and it used to
+ * answer with `#0b1120` on `#e2e8f0` while the window behind it was black — the
+ * one screen that looks like a different application. The three values are the
+ * ones the renderer paints for the same tokens, so the fallback and the real page
+ * agree: page `--bg`, text `--text`, panel `--panel` (`mix(background, #ffffff,
+ * 0.012 + contrast/1400)` for the built-in dark palette).
+ */
 const PLACEHOLDER_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -774,9 +785,9 @@ const PLACEHOLDER_HTML = `<!doctype html>
     <title>Selbstlauf Console</title>
     <style>
       :root { color-scheme: dark; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b1120; color: #e2e8f0; font: 15px/1.6 "Segoe UI", system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #000000; color: #e9eef0; font: 15px/1.6 "Segoe UI", system-ui, sans-serif; }
       main { max-width: 32rem; padding: 2rem; text-align: center; }
-      code { background: #1e293b; border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.9em; }
+      code { background: #0f0f0f; border: 1px solid #3d3e3f; border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.9em; }
     </style>
   </head>
   <body>

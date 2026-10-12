@@ -15,7 +15,11 @@ export const DEFAULT_WINDOW_POLICY = Object.freeze({
   height: 900,
   minWidth: 960,
   minHeight: 640,
-  backgroundColor: '#0b1120',
+  // The bare window colour before the page arrives. The window is created hidden
+  // and revealed on first paint, so this is only visible if the renderer lags;
+  // it matches the built-in dark palette's background (`#000000`, see
+  // DEFAULT_PALETTES in apps/web/src/App.tsx).
+  backgroundColor: '#000000',
 });
 
 /**
@@ -46,14 +50,14 @@ export const TITLE_BAR_OVERLAY = Object.freeze({
    *
    * The bar is `--panel-soft`, which the app derives from the palette as
    * `mix(background, #ffffff, 0.004 + contrast/1400)`. For the built-in dark
-   * palette (`#0d1216`, contrast 68) that resolves to `#1a1e22`. This static
+   * palette (`#000000`, contrast 68) that resolves to `#0d0d0d`. This static
    * value is the starting point so the strip lines up on first paint; the
    * renderer then reports the exact colour it used (see the
    * `setTitleBarOverlay` shell action) so a custom palette or the light theme
    * follows. A fixed `#0b1120` here was measurably wrong: it left the OS window
    * buttons on a visibly different strip from the rest of the row.
    */
-  color: '#1a1e22',
+  color: '#0d0d0d',
   symbolColor: '#e9eef0',
 });
 

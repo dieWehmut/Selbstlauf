@@ -140,6 +140,22 @@ test('falls back to the placeholder page when no watchdog is recorded', async ()
   }
 });
 
+test('paints the placeholder page in the console palette rather than an unrelated blue', () => {
+  /**
+   * The fallback page is the app as far as the user can tell: it is what the window
+   * shows when the watchdog is not running. It used to answer with `#0b1120` on
+   * `#e2e8f0` while the window it sat in was `#000000`, which reads as a different
+   * application. These are the values the renderer paints for the same tokens on the
+   * built-in dark palette (page `--bg`, text `--text`, panel `--panel`), so the
+   * fallback and the real page have to agree.
+   */
+  const page = decodeURIComponent(placeholderUrl());
+  assert.match(page, /background: #000000/u, 'the fallback page must use the dark theme page colour');
+  assert.match(page, /color: #e9eef0/u, 'the fallback page must use the dark theme text colour');
+  assert.match(page, /background: #0f0f0f/u, 'inline code must use the dark theme panel colour');
+  assert.doesNotMatch(page, /#0b1120|#1e293b/u, 'the old blues must not come back');
+});
+
 test('opens a hardened window pointed at a healthy watchdog service', async () => {
   const localAppData = await mkdtemp(join(tmpdir(), 'desktop-launch-'));
   const stateDirectory = join(localAppData, 'ai-cli-bypass', 'continuation');

@@ -125,10 +125,13 @@ test('draws the title bar in the page while the window controls stay native', ()
    * Regression: this was `#0b1120` while the page painted its title bar
    * `#1a1e22`, so the OS window buttons sat on a visibly different strip and the
    * top row read as two pieces. Measured on a real window at 1456x908.
+   *
+   * The built-in dark palette now starts from a pure-black page background, so
+   * `--panel-soft` resolves to `#0d0d0d` and this static value follows it.
    */
   assert.equal(
     options.titleBarOverlay.color,
-    '#1a1e22',
+    '#0d0d0d',
     'the overlay must match the built-in dark title bar (--panel-soft)',
   );
   assert.notEqual(options.titleBarOverlay.color, '#0b1120', 'the old mismatched colour must not return');
