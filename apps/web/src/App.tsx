@@ -62,7 +62,7 @@ import { canWriteSession, writeEligibility } from './session/write-eligibility';
 import { isLight, mix, paletteSurfaces, readableText } from './theme/palette';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
-import { sessionTone, sessionToneLabel, conversationLabel, formatDuration, quietMs, togglePinnedId } from './sidebar/session-groups';
+import { sessionTone, sessionToneLabel, conversationLabel, formatDuration, quietMs, togglePinnedId, toolLabel } from './sidebar/session-groups';
 import { describeAuditDetails } from './timeline/audit-details';
 import {
   AccountSection,
@@ -622,12 +622,6 @@ function injectRefusal(session: SessionView): string | null {
   return writeEligibility(session).reason;
 }
 
-function toolLabel(tool: SessionView['tool']): string {
-  if (tool === 'codex') return 'Codex';
-  if (tool === 'dsh') return 'DeepSeek Harness';
-  return 'Claude';
-}
-
 /* `conversationLabel` lives in ./sidebar/session-groups so the sidebar list and this
    table describe a session's conversation identically rather than duplicating the rule. */
 
@@ -669,6 +663,7 @@ const AUDIT_DETAIL_LABELS = {
   time,
   decision: (decision: string) => decisionLabel(decision).label,
   reason: (reason: string) => transportReason(reason) ?? reason,
+  tool: toolLabel,
 } as const;
 
 function nextPrompt(session: SessionView, config: WatchdogConfig): string {

@@ -740,6 +740,32 @@ describe('watchdog dashboard', () => {
     expect(table.textContent, 'the table writes the same duration differently').toBe(sidebar?.textContent);
   });
 
+  /**
+   * A tool the table does not know must not be called Claude.
+   *
+   * There were two `toolLabel`s: the sidebar's, which names every tool it knows and otherwise prints the raw
+   * name, and App's own, which ended `return 'Claude'`. The web client casts the sessions response without
+   * validating it, so a newer service can send a tool this build has never heard of — and the table then said
+   * "Claude" for it while the sidebar row beside it said the truth.
+   */
+  it('names an unknown tool honestly in the table as well as the sidebar', async () => {
+    const fake = api();
+    const [template] = await fake.sessions();
+    // `opencode` is a tool the app can install (it is in the environment catalogue), so a service that reports
+    // it as a session's tool is the realistic case — the union simply refuses to admit it yet.
+    fake.sessions = vi.fn(async () => [{ ...template!, id: 'unknown-tool', tool: 'opencode' as SessionView['tool'] }]);
+    render(<App api={fake} />);
+
+    const table = await waitFor(() => {
+      const cell = document.querySelector('.process-table tbody tr td:nth-child(1) strong');
+      expect(cell).not.toBeNull();
+      return cell as HTMLElement;
+    });
+    const sidebar = document.querySelector('.sidebar-row__label');
+    expect(sidebar?.textContent).toBe('opencode');
+    expect(table.textContent, 'the table calls an unknown tool Claude').toBe(sidebar?.textContent);
+  });
+
   it('explains an empty process list instead of showing a table with no rows', async () => {
     /**
      * The connecting state above is also the state of a machine where nothing has been discovered:

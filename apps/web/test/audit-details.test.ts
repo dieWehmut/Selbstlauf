@@ -10,6 +10,7 @@ const labels = {
   time: (timestampMs: number) => `T${timestampMs}`,
   decision: (decision: string) => (decision === 'awaiting-quiet-period' ? '等待静默' : `未知状态(${decision})`),
   reason: (reason: string) => (reason === 'no-cwd-match' ? '未找到同目录 Codex 线程' : reason),
+  tool: (tool: string) => (tool === 'dsh' ? 'DeepSeek Harness' : tool),
 };
 
 describe('describeAuditDetails', () => {
@@ -21,7 +22,6 @@ describe('describeAuditDetails', () => {
     expect(describeAuditDetails({ action: 'manual-inject' }, labels)).toBe('操作：手动续写');
     expect(describeAuditDetails({ action: 'claude-hook-disable' }, labels)).toBe('操作：停用 Stop Hook');
     expect(describeAuditDetails({ source: 'dsh-session' }, labels)).toBe('来源：Harness 会话');
-    expect(describeAuditDetails({ tool: 'dsh' }, labels)).toBe('工具：DeepSeek Harness');
     expect(describeAuditDetails({ dryRun: true }, labels)).toBe('Dry Run：是');
     expect(describeAuditDetails({ restartRequired: false }, labels)).toBe('需重启：否');
     // `ok` is a verdict, not a flag.
@@ -29,9 +29,12 @@ describe('describeAuditDetails', () => {
     expect(describeAuditDetails({ succeeded: 3 }, labels)).toBe('成功数：3');
   });
 
-  it('delegates the decisions and reasons that already have owners', () => {
+  it('delegates the decisions, reasons and tools that already have owners', () => {
     expect(describeAuditDetails({ reason: 'no-cwd-match' }, labels)).toBe('原因：未找到同目录 Codex 线程');
     expect(describeAuditDetails({ decision: 'cooldown' }, labels)).toBe('决策：未知状态(cooldown)');
+    // The tool names come from the same owner the sidebar and the process table use.
+    expect(describeAuditDetails({ tool: 'dsh' }, labels)).toBe('工具：DeepSeek Harness');
+    expect(describeAuditDetails({ tool: 'opencode' }, labels)).toBe('工具：opencode');
   });
 
   it('renders a timestamp as a time rather than an epoch number', () => {

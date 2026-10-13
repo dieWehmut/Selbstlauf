@@ -7,10 +7,10 @@ import type { AuditEvent } from '../api/client';
  * Lines read `awaiting-quiet-period`, or `1789000000000` for a decision event's `atMs`, and a reader could not
  * tell which field a value belonged to — while the chip directly above each line translated the event's type.
  *
- * This module owns the shape and the vocabularies that live here (actions, sources, tools, booleans, the
- * timestamp), and takes the two that already have an owner — the engine's decisions, and its transport reasons
- * — as functions, so neither vocabulary is duplicated. Anything unmapped is printed under its own key rather
- * than dropped: a payload this build has never seen stays legible instead of vanishing.
+ * This module owns the shape and the vocabularies that live here (actions, sources, booleans, the timestamp),
+ * and takes the three that already have an owner — the engine's decisions, its transport reasons, and the tool
+ * names — as functions, so none of them is duplicated here. Anything unmapped is printed under its own key
+ * rather than dropped: a payload this build has never seen stays legible instead of vanishing.
  */
 export interface AuditDetailLabels {
   /** Only the caller knows how this app writes a time, so `atMs` is formatted through it. */
@@ -19,6 +19,8 @@ export interface AuditDetailLabels {
   readonly decision: (decision: string) => string;
   /** The engine's transport-reason vocabulary, which the capability badge already translates. */
   readonly reason: (reason: string) => string;
+  /** The tool names the sidebar and the process table use, so a payload names a tool the same way. */
+  readonly tool: (tool: string) => string;
 }
 
 /** The payload's known keys, named. A key that is not here is printed as itself. */
@@ -68,12 +70,6 @@ const SOURCE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   'dsh-session': 'Harness 会话',
 });
 
-const TOOL_LABELS: Readonly<Record<string, string>> = Object.freeze({
-  codex: 'Codex',
-  claude: 'Claude',
-  dsh: 'DeepSeek Harness',
-});
-
 /** A single value, or null when there is nothing worth saying. */
 function detailValue(key: string, value: string | number | boolean, labels: AuditDetailLabels): string | null {
   if (key === 'atMs' && typeof value === 'number') return labels.time(value);
@@ -86,7 +82,7 @@ function detailValue(key: string, value: string | number | boolean, labels: Audi
   switch (key) {
     case 'action': return ACTION_LABELS[value] ?? value;
     case 'source': return SOURCE_LABELS[value] ?? value;
-    case 'tool': return TOOL_LABELS[value] ?? value;
+    case 'tool': return labels.tool(value);
     case 'decision': return labels.decision(value);
     case 'reason': return labels.reason(value);
     default: return value;
