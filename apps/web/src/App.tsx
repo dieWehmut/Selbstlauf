@@ -2742,8 +2742,12 @@ export default function App({ api: suppliedApi }: AppProps) {
     setEnvironmentUpgrading(id); setNotice(null);
     try {
       const result = await api.upgradeTool(id);
-      setEnvironment(await api.environment());
-      setNotice(result.ok ? `${id} 升级完成` : `${id} 升级失败：${result.error ?? '未知错误'}`, result.ok ? 'info' : 'error');
+      const report = await api.environment();
+      setEnvironment(report);
+      // The card is titled with the tool's label and its button reads 升级 <label>, so the notice uses that name
+      // too. The id is only the fallback for a tool the report does not describe.
+      const name = report.tools.find((tool) => tool.id === id)?.label ?? id;
+      setNotice(result.ok ? `${name} 升级完成` : `${name} 升级失败：${result.error ?? '未知错误'}`, result.ok ? 'info' : 'error');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '升级失败', 'error');
     } finally { setEnvironmentUpgrading(null); }

@@ -499,6 +499,24 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     expect(screen.queryByText('本地环境已刷新')).toBeNull();
   });
 
+  /**
+   * The upgrade notice names the tool the way its own card does.
+   *
+   * The card is titled with the tool's label and its button reads 升级 Claude Code, while the notice said
+   * "claude 升级完成" — the package id, printed a few centimetres below the name the app had just shown.
+   */
+  it('reports an upgrade by the tool name its card shows', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    openSettings();
+    const tabs = await screen.findByRole('tablist', { name: '设置分区' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: '升级 Claude Code' }));
+    await waitFor(() => expect(fake.upgradeTool).toHaveBeenCalledWith('claude'));
+    expect((await screen.findByText(/升级完成/u)).textContent, 'the notice names the package id').toBe('Claude Code 升级完成');
+  });
+
   it('still reports errors when only the success switch is off', async () => {
     // The two switches are separate: silencing confirmations must not silence failures.
     notificationsPref({ onSuccess: false });
