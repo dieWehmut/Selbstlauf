@@ -19,7 +19,7 @@ const demoURL = 'http://127.0.0.1:4174';
 const liveURL = 'http://127.0.0.1:4175';
 
 /** Specs that need the real client, and so run on the live server. */
-const liveSpecs = /(service-outage|no-service)\.spec\.ts$/u;
+const liveSpecs = /(service-outage|no-service|extreme-content)\.spec\.ts$/u;
 
 /** The live server must not inherit the demo switch from the shell that started the run. */
 const liveEnv = { ...process.env };

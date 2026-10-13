@@ -383,6 +383,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .process-table .is-muted { opacity: .55; }
 .process-id { gap: 11px; min-width: 145px; }
 .process-id strong, .process-id span { display: block; }
+/* The PID line carries the workspace path, which can be any length. It wraps rather than being
+   ellipsised: a cap with `white-space: nowrap` made the cell *wider* for the demo's own values (the
+   table went from a fitting 939px to 1225px, with 286px of scroll), because content that used to wrap
+   was forced onto one line. `anywhere` bounds the absurd case — a 300-character path can break — and
+   hides nothing. Measured with that path: the table grows 164px over the demo's own values, against
+   1586px without this rule. */
+.process-id span { overflow-wrap: anywhere; }
 .process-id strong { font-size: 13px; }
 .process-id span, .subtle { margin-top: 4px; color: var(--muted); font: 10px var(--mono); }
 /* The mark is now the tool's own artwork rather than a tinted glyph, so its background is a neutral surface: a
@@ -415,9 +422,18 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .state-chip--waiting { color: var(--accent-strong); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 .state-chip--limited { color: var(--muted); }
 .state-chip--error { color: var(--red); border-color: color-mix(in srgb, var(--red) 30%, transparent); }
+/* The conversation id is a raw identifier: a session id or a thread id can be any length, and this
+   cell is what made the table 2525px wide with one long one. It wraps anywhere, like the workspace
+   path above, rather than being ellipsised — a cap with `nowrap` would widen the cell for the demo's
+   own ids too. */
+.conversation-id { overflow-wrap: anywhere; }
 .host-cell { display: grid; gap: 5px; min-width: 120px; }
 .host-cell .subtle { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.host-badge { display: inline-flex; align-items: center; width: fit-content; padding: 4px 10px; border: 1px solid var(--line-soft); border-radius: var(--radius-pill); background: var(--panel-soft); color: var(--text); font-size: 11px; font-weight: 600; white-space: nowrap; }
+/* A pill, capped and ellipsised: the label comes from the host, so it can be any length, and an
+   uncapped one stretched its cell to 520px in a 286px column — which the workspace's own
+   `overflow-x: hidden` then cut off mid-word with no ellipsis. `inline-block` rather than the
+   `inline-flex` it used to be, because `text-overflow` applies to the box, not to a flex item. */
+.host-badge { display: inline-block; max-width: 220px; padding: 4px 10px; overflow: hidden; border: 1px solid var(--line-soft); border-radius: var(--radius-pill); background: var(--panel-soft); color: var(--text); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .host-badge--terminal { color: var(--green); border-color: color-mix(in srgb, var(--green) 30%, transparent); background: color-mix(in srgb, var(--green) 9%, transparent); }
 .host-badge--editor { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 30%, transparent); background: color-mix(in srgb, var(--blue) 9%, transparent); }
 .host-badge--desktop-app { color: var(--accent-strong); border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }

@@ -705,9 +705,11 @@ function HostCell({ session }: { session: SessionView }) {
    */
   if (session.distribution) {
     const distribution = session.distribution;
+    const label = host?.label ?? 'WSL';
     return (
       <div className="host-cell">
-        <span className={`host-badge host-badge--${host?.category ?? 'terminal'}`}>{host?.label ?? 'WSL'}</span>
+        {/* The pill truncates a long host name, so the full one stays reachable in a title. */}
+        <span className={`host-badge host-badge--${host?.category ?? 'terminal'}`} title={label}>{label}</span>
         <span className="subtle" title={distribution}>WSL · {distribution}</span>
       </div>
     );
@@ -715,7 +717,7 @@ function HostCell({ session }: { session: SessionView }) {
   if (host === null) return <span className="subtle">未识别宿主</span>;
   return (
     <div className="host-cell">
-      <span className={`host-badge host-badge--${host.category}`}>{host.label}</span>
+      <span className={`host-badge host-badge--${host.category}`} title={host.label}>{host.label}</span>
       <span className="subtle" title={host.windowTitle ?? undefined}>
         {host.windowTitle ?? (host.windowHandle === null ? '网页界面' : `PID ${host.processId}`)}
       </span>
@@ -766,7 +768,7 @@ function ProcessTable(props: {
                 </td>
                 <td><HostCell session={session} /></td>
                 <td><CapabilityBadge session={session} /></td>
-                <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle">{session.conversationId ?? '未关联'}</span></td>
+                <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle conversation-id">{session.conversationId ?? '未关联'}</span></td>
                 <td><strong>{duration(session.quietForMs ?? (session.lastActivityAtMs ? Date.now() - session.lastActivityAtMs : null))}</strong><DecisionChip decision={session.lastDecision} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
                 <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} /></td>
