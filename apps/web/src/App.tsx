@@ -81,6 +81,7 @@ import {
   PARENTAL_DEFAULTS,
   PERSONALIZATION_DEFAULTS,
   PINNED_SESSIONS_DEFAULTS,
+  PLUGINS_DEFAULTS,
   PREF_KEYS,
   PROFILE_DEFAULTS,
   TRUSTED_CONTACT_DEFAULTS,
@@ -89,6 +90,7 @@ import {
   isParentalPref,
   isPersonalizationPref,
   isPinnedSessionsPref,
+  isPluginsPref,
   isProfilePref,
   isTrustedContactPref,
   readPref,
@@ -105,6 +107,28 @@ const APP_VERSION = '0.9.5';
 function isRevealPref(value: unknown): value is { allowReveal: boolean } {
   return typeof value === 'object' && value !== null
     && typeof (value as { allowReveal?: unknown }).allowReveal === 'boolean';
+}
+
+/**
+ * The 续写插件 prompts, joined into the single line the service accepts.
+ *
+ * The 续写插件 section tells the user that "这些提示词会依次拼接，作为手动续写时使用的提示" — and nothing
+ * read them: the one-click 立即续写 called `inject` with no prompt, so the list was a notebook. They are
+ * joined with a space because the service refuses anything but a non-empty single line
+ * (`apps/cli/src/server/http-server.ts`), and a join longer than that service's 4096-character limit is
+ * refused rather than truncated: quietly dropping the end of a prompt is worse than not sending it.
+ */
+const PLUGIN_PROMPT_LIMIT = 4096;
+function pluginPromptLine(): string | undefined {
+  const prompts = readPref(PREF_KEYS.plugins, PLUGINS_DEFAULTS, isPluginsPref).prompts
+    .map((prompt) => prompt.trim())
+    .filter((prompt) => prompt.length > 0);
+  if (prompts.length === 0) return undefined;
+  const line = prompts.join(' ');
+  if (line.length > PLUGIN_PROMPT_LIMIT) {
+    throw new Error(`续写插件提示词拼接后共 ${line.length} 字符，超过 ${PLUGIN_PROMPT_LIMIT} 字符上限，未发送`);
+  }
+  return line;
 }
 
 type Page = 'overview' | 'process' | 'timeline' | 'settings';
@@ -2582,9 +2606,12 @@ export default function App({ api: suppliedApi }: AppProps) {
       // A supplied prompt goes through the same transport as the one-click action; the service
       // accepts any single line and rejects anything it could not carry.
       if (action === 'inject') {
-        // Only a typed prompt adds the second argument, so the one-click path calls exactly as
+        // A typed prompt is the user's and wins; the one-click path falls back to the 续写插件 list, so
+        // the section's promise — that those prompts are what a manual continuation sends — holds.
+        const line = prompt ?? pluginPromptLine();
+        // Only a supplied prompt adds the second argument, so an empty plugin list calls exactly as
         // before and its callers see an unchanged shape.
-        outcome = prompt === undefined ? await api.inject(session.id) : await api.inject(session.id, prompt);
+        outcome = line === undefined ? await api.inject(session.id) : await api.inject(session.id, line);
       }
       else if (session.paused) await api.resume(session.id);
       else await api.pause(session.id);

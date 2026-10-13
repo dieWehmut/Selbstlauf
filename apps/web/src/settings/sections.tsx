@@ -654,7 +654,7 @@ export function PluginsSection() {
     <Section
       eyebrow="Plugins"
       title="续写插件"
-      hint="这些提示词会依次拼接，作为手动续写时使用的提示。"
+      hint="这些提示词会依次拼接成一行，作为“立即续写”发送的提示；超过 4096 字符时不会发送。"
       icon={<Plug size={20} />}
     >
       <div className="pref-inline">

@@ -450,10 +450,14 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
   };
 
   /**
-   * These tests write that key, and it outlives them: a switch left off silenced a later test's
-   * notice (the Codex endpoint switch asserts 端点已切换), which is how this was noticed at all.
+   * These tests write preference keys, and they outlive a test: a switch left off silenced a later
+   * test's notice (the Codex endpoint switch asserts 端点已切换), which is how this was noticed at all.
    */
-  afterEach(() => { localStorage.removeItem('watchdog-notifications'); });
+  afterEach(() => {
+    for (const key of ['watchdog-notifications', 'watchdog-personalization', 'watchdog-plugins']) {
+      localStorage.removeItem(key);
+    }
+  });
 
   /** Refresh the environment from the 关于 section, which reports success or the error it throws. */
   const refreshFromAbout = async () => {
@@ -787,6 +791,43 @@ describe('watchdog dashboard', () => {
     await waitFor(() => expect(fake.inject).toHaveBeenCalledWith('goal'));
     fireEvent.click(screen.getAllByRole('button', { name: '暂停 PID 10' })[0]);
     await waitFor(() => expect(fake.pause).toHaveBeenCalledWith('goal'));
+  });
+
+  /**
+   * The 续写插件 prompts have to reach the write they are documented to reach.
+   *
+   * The section says "这些提示词会依次拼接，作为手动续写时使用的提示" and the preference was read by
+   * nothing but the section: the one-click 立即续写 called `inject` with no prompt, so the list was a
+   * notebook. The typed composer line still wins, because that path always supplies one.
+   */
+  it('sends the 续写插件 prompts joined, on a one-click continuation', async () => {
+    localStorage.setItem('watchdog-plugins', JSON.stringify({ prompts: ['继续', '保持现有风格'] }));
+    const fake = api();
+    render(<App api={fake} />);
+
+    fireEvent.click((await screen.findAllByRole('button', { name: '立即续写 PID 10' }))[0]);
+    await waitFor(() => expect(fake.inject).toHaveBeenCalledWith('goal', '继续 保持现有风格'));
+  });
+
+  it('leaves the one-click continuation to the service when the plugin list is empty', async () => {
+    // The contrast case, and the shape every existing caller expects: no prompt argument at all.
+    const fake = api();
+    render(<App api={fake} />);
+
+    fireEvent.click((await screen.findAllByRole('button', { name: '立即续写 PID 10' }))[0]);
+    await waitFor(() => expect(fake.inject).toHaveBeenCalledWith('goal'));
+  });
+
+  it('refuses a plugin prompt list the service could not carry', async () => {
+    // The service accepts one line of at most 4096 characters, so a longer join is refused and said so
+    // rather than truncated: silently dropping the end of a prompt is worse than not sending it.
+    localStorage.setItem('watchdog-plugins', JSON.stringify({ prompts: ['x'.repeat(4096), 'y'] }));
+    const fake = api();
+    render(<App api={fake} />);
+
+    fireEvent.click((await screen.findAllByRole('button', { name: '立即续写 PID 10' }))[0]);
+    expect(await screen.findByText(/超过 4096 字符/u)).toBeInTheDocument();
+    expect(fake.inject, 'an over-long prompt was sent anyway').not.toHaveBeenCalled();
   });
 
   it('persists editable prompt settings through the API', async () => {
