@@ -3164,6 +3164,31 @@ unused pref are gone.
 Suites: web 191 -> 193; browser 85 -> 87 (a density case in each of the appearance and boot specs;
     `--list` reports 87 tests in 33 files, and the full run is green in 2.2m).
 
+### The profile section offered two fields nothing rendered
+
+个人资料 had three fields. 显示名称 works — the account popup's header shows it. The other two were
+stored, validated on read, and rendered by nothing:
+
+    头像    默认 / 浅色 / 深色        no part of the app shows an avatar
+    备注    a three-row textarea     no part of the app shows a note
+
+Same class as the notification switches, and the same reason it survived: **no test touched the section
+at all**. The rail's own docstring has the precedent — sections that "changed nothing a person could
+observe" were removed rather than left as placeholders — so the two fields are gone rather than given
+invented behaviour. `ProfilePref`, `isProfilePref` and `PROFILE_DEFAULTS` carry `displayName` alone now;
+a value stored by an older build still validates, because extra keys are ignored rather than rejected.
+
+**My own sentence was the first thing caught.** The rewritten hint said the name appears "在账户弹窗与
+底部栏"; reading the markup showed the bottom bar shows the *service status and the session count*, and
+only the popup header shows the name. Writing a claim beside a control and then checking it against the
+app is the discipline the rest of this record is about, and it applies to a hint added five minutes
+earlier as much as to one from the first version.
+
+A test pins the section to what it can show: 显示名称 present, 头像 and 备注 absent — so re-adding either
+means wiring it first.
+
+Suites: web 193 -> 194; browser 87 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
