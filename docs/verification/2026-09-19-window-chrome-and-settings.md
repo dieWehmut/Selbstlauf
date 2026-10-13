@@ -2666,6 +2666,8 @@ evidence for calling it environmental rather than a defect:
     2 workers          4.7m        69 passed, 2 timeouts (breakpoint-sweep, service-outage)
     2 workers          8.1m        68 passed, 3 timeouts (breakpoint-sweep, window-preview, dashboard)
     --last-failed      1.5m, 2.2m  all five re-ran green
+    2 workers (73)     9.6m        65 passed, 4 timeouts (dashboard, focus-appearance, navigation, theme-surfaces)
+    --last-failed      3.5m        6 of 7 green; the seventh, the light-theme accessibility audit, passed alone in 1.2m
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -2791,6 +2793,55 @@ exactly this state without asserting anything about it. The browser's `dashboard
 `accessibility` specs (21 tests) confirm the populated path is untouched.
 
 Suites: web 171 -> 172; browser 71 (unchanged).
+
+### The suite had no way to test the transport, so nothing about it was tested
+
+Chasing the empty state above led to a larger hole. The browser suite had one server, and it sets
+`VITE_STATIC_DEMO`, so the bundle used the in-memory demo API and **never touched the network**.
+Measured: **0** API requests on load — the only URLs containing `/api/` were Vite serving
+`src/api/*.ts` modules.
+
+That made `service-outage.spec.ts` unable to test what it described. It intercepted the API and
+aborted it to kill the service; the app never made the request, so nothing about the transport was
+ever exercised — not an outage, not a rejected poll, not a recovery, and not the state the app
+*starts* in when no service is running, which is the first screen of every launch.
+
+The suite now runs two servers and two projects:
+
+    demo      4174  VITE_STATIC_DEMO=true    everything that wants deterministic data
+    live-api  4175  the variable unset       service-outage, and a new no-service spec
+
+`service-outage.spec.ts` is rewritten for the live server. While the service is "up" its requests are
+answered from `createStaticDemoApi()` — the app's own demo source, so the two cannot drift — and the
+outage is a real `connectionrefused` on a real request. It also asserts the **reconnect** now: the
+section reports 实时同步 again and the sessions come back, which is the difference between recovering
+and merely not crashing.
+
+`no-service.spec.ts` is new, and it is the browser half of the empty state above: with no service at
+all, the shell works, the process section explains itself, the table is not drawn, every settings
+section renders, and there are no page errors. That state could not be reached before.
+
+**Two traps, both of which made a version of these specs test the wrong thing.**
+
+1. The app's own modules live under `/src/api/`, so a `**`+`/api/`+`**` route glob matches
+   `/src/api/client.ts` too — answering it with JSON replaces the bundle and the page never renders.
+   The rewritten spec failed exactly this way before it matched on the URL's pathname instead.
+2. The dev server proxies `/api` to the port the real watchdog listens on, so "no service" would
+   have depended on whether the host happened to be running one: on a machine where it is, the app
+   would connect and `no-service` would fail for the wrong reason. It refuses the connection
+   explicitly now, so the state is identical everywhere.
+
+Both specs wait for the observable state (等待连接, then 实时同步) rather than sleeping a fixed
+interval: a fixed six-second sleep passed here and timed out elsewhere on the same tree, which is a
+property of the machine rather than of the app. They also take a longer per-test budget, because they
+wait on real poll cycles across two state changes.
+
+**One environment event worth recording.** Mid-round, `node_modules` was emptied outside this
+session's commands (451 packages had to be reinstalled) and the tree was re-verified afterwards: web
+172, desktop 142, `tsc --noEmit`, and the specs above all pass on the repaired install. The full
+suite's own result stayed load-dependent — see the table below.
+
+Suites: web 172; browser 71 -> 73.
 
 ## Not verified
 
