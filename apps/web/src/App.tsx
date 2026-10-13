@@ -172,6 +172,18 @@ interface DesktopShellBridge {
   /** +1 zooms in, -1 zooms out, 0 returns to 100%. */
   zoom(delta: number): void;
   quit(): void;
+  /**
+   * The 编辑 commands, which the shell performs on the window's web contents.
+   *
+   * Optional because an older shell build may not expose them: the items then render disabled, which is what a
+   * plain browser sees as well, rather than offering a click that cannot do anything.
+   */
+  undo?(): void;
+  redo?(): void;
+  cut?(): void;
+  copy?(): void;
+  paste?(): void;
+  selectAll?(): void;
   openExternal(url: string): Promise<void>;
   /**
    * Repaint the native window-button strip.
@@ -1904,13 +1916,17 @@ const MENU_ITEMS: Record<MenuLabel, readonly (MenuEntry | 'separator')[]> = {
     { label: '隐藏到托盘', action: 'hide', needsBridge: true },
   ],
   编辑: [
-    { label: '撤销', shortcut: 'Ctrl+Z' },
-    { label: '重做', shortcut: 'Ctrl+Y' },
+    // The desktop shell performs these on the window's web contents. A plain browser has the OS's own
+    // shortcuts for them and no way to reach a window's editing surface, so each item is disabled there with
+    // the same reason the view items use — the alternative was six items that responded to a click by doing
+    // nothing at all, which is what they did in the desktop app too.
+    { label: '撤销', action: 'undo', needsBridge: true, shortcut: 'Ctrl+Z' },
+    { label: '重做', action: 'redo', needsBridge: true, shortcut: 'Ctrl+Y' },
     'separator',
-    { label: '剪切', shortcut: 'Ctrl+X' },
-    { label: '复制', shortcut: 'Ctrl+C' },
-    { label: '粘贴', shortcut: 'Ctrl+V' },
-    { label: '全选', shortcut: 'Ctrl+A' },
+    { label: '剪切', action: 'cut', needsBridge: true, shortcut: 'Ctrl+X' },
+    { label: '复制', action: 'copy', needsBridge: true, shortcut: 'Ctrl+C' },
+    { label: '粘贴', action: 'paste', needsBridge: true, shortcut: 'Ctrl+V' },
+    { label: '全选', action: 'selectAll', needsBridge: true, shortcut: 'Ctrl+A' },
   ],
   视图: [
     { label: '重新加载', action: 'reload', needsBridge: true, shortcut: 'Ctrl+R' },
@@ -2441,6 +2457,13 @@ export default function App({ api: suppliedApi }: AppProps) {
     if (entry.action === 'reload') shell?.reload?.();
     if (entry.action === 'toggleFullScreen') shell?.toggleFullScreen?.();
     if (entry.action === 'quit') shell?.quit?.();
+    if (
+      entry.action === 'undo' || entry.action === 'redo' || entry.action === 'cut'
+      || entry.action === 'copy' || entry.action === 'paste' || entry.action === 'selectAll'
+    ) {
+      // The 编辑 commands edit the window's own contents, which only the shell can reach.
+      shell?.[entry.action]?.();
+    }
   };
 
   /**

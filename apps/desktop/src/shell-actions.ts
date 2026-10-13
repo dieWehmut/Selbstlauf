@@ -31,6 +31,19 @@ export const SHELL_ACTIONS = Object.freeze([
   'windowPreview',
   /** Type a line into a session window. Takes the foreground briefly; the user chose that trade. */
   'windowType',
+  /**
+   * The 编辑 menu's six commands.
+   *
+   * The native menu template already carries them as Electron roles, which is what keeps their
+   * accelerators alive (see `menu.ts`), but the renderer's own 编辑 row had no behaviour at all: its items
+   * were clickable and did nothing. Electron puts these on the web contents, so the renderer asks here.
+   */
+  'undo',
+  'redo',
+  'cut',
+  'copy',
+  'paste',
+  'selectAll',
 ] as const);
 
 export type ShellAction = (typeof SHELL_ACTIONS)[number];
@@ -81,8 +94,29 @@ export interface ShellActionTarget {
   toggleFullScreen?(): void;
   setZoomLevel?(level: number): void;
   getZoomLevel?(): number;
+  /**
+   * The editing commands, which Electron puts on the web contents rather than the window.
+   *
+   * Declared here as well so a caller may hand in one object that is both (some tests do), and optional
+   * everywhere because an Electron version that lacks one should skip it rather than throw.
+   */
+  undo?(): void;
+  redo?(): void;
+  cut?(): void;
+  copy?(): void;
+  paste?(): void;
+  selectAll?(): void;
   /** The window's own webContents, when the target is a window. */
-  readonly webContents?: { setZoomLevel?(level: number): void; getZoomLevel?(): number };
+  readonly webContents?: {
+    setZoomLevel?(level: number): void;
+    getZoomLevel?(): number;
+    undo?(): void;
+    redo?(): void;
+    cut?(): void;
+    copy?(): void;
+    paste?(): void;
+    selectAll?(): void;
+  };
 }
 
 export interface ShellActionContext {
@@ -177,6 +211,14 @@ function zoomTarget(window: ShellActionTarget): { setZoomLevel?(level: number): 
   return window.webContents ?? window;
 }
 
+/** The editing commands, which live on whichever of the two objects Electron puts them on. */
+type EditingSurface = Pick<ShellActionTarget, 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll'>;
+
+/** The editing surface: Electron's BrowserWindow has no edit methods, its web contents does. */
+function editingTarget(window: ShellActionTarget): EditingSurface {
+  return window.webContents ?? window;
+}
+
 export function applyShellAction(context: ShellActionContext, request: ShellActionRequest): void {
   const { window } = context;
   switch (request.action) {
@@ -198,6 +240,16 @@ export function applyShellAction(context: ShellActionContext, request: ShellActi
     }
     case 'quit':
       context.quit();
+      return;
+    case 'undo':
+    case 'redo':
+    case 'cut':
+    case 'copy':
+    case 'paste':
+    case 'selectAll':
+      // The 编辑 commands, on whichever object carries them: a BrowserWindow delegates to its web
+      // contents, and a test may hand in one object that has both.
+      editingTarget(window)[request.action]?.();
       return;
     case 'openExternal': {
       const url = request.url;

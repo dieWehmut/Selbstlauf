@@ -22,6 +22,8 @@ interface Harness {
   readonly opened: string[];
   readonly quits: number;
   readonly overlays: Array<{ color: string; symbolColor?: string }>;
+  /** The editing commands that reached the web contents, in order. */
+  readonly edits: string[];
   zoomLevel(): number;
 }
 
@@ -29,6 +31,7 @@ function harness(options: { zoomable?: boolean } = {}): Harness {
   const state = { reloads: 0, fullScreens: 0, opened: [] as string[], quits: 0, current: 0 };
   const levels: number[] = [];
   const overlays: Array<{ color: string; symbolColor?: string }> = [];
+  const edits: string[] = [];
   const zoomable = options.zoomable ?? true;
   const context: ShellActionContext = {
     window: {
@@ -38,17 +41,23 @@ function harness(options: { zoomable?: boolean } = {}): Harness {
       toggleFullScreen: () => {
         state.fullScreens += 1;
       },
-      ...(zoomable
-        ? {
-            webContents: {
+      webContents: {
+        ...(zoomable
+          ? {
               getZoomLevel: () => state.current,
               setZoomLevel: (level: number) => {
                 state.current = level;
                 levels.push(level);
               },
-            },
-          }
-        : {}),
+            }
+          : {}),
+        undo: () => void edits.push('undo'),
+        redo: () => void edits.push('redo'),
+        cut: () => void edits.push('cut'),
+        copy: () => void edits.push('copy'),
+        paste: () => void edits.push('paste'),
+        selectAll: () => void edits.push('selectAll'),
+      },
     },
     quit: () => {
       state.quits += 1;
@@ -75,6 +84,7 @@ function harness(options: { zoomable?: boolean } = {}): Harness {
     get quits() {
       return state.quits;
     },
+    edits,
     levels,
     zoomLevel: () => state.current,
   };
@@ -90,6 +100,38 @@ test('maps each action name to its Electron call', () => {
 
   applyShellAction(spy.context, { action: 'quit' });
   assert.equal(spy.quits, 1);
+});
+
+test('performs the 编辑 commands on the web contents', () => {
+  /**
+   * These are the renderer's own 编辑 items. The native menu template carries the same commands as Electron
+   * roles — which is what keeps their accelerators alive — but the renderer's row had no behaviour at all:
+   * clicking 复制 or 粘贴 did nothing, in the desktop app included.
+   */
+  const spy = harness();
+  for (const action of ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'] as const) {
+    applyShellAction(spy.context, { action });
+  }
+  assert.deepEqual(spy.edits, ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll']);
+});
+
+test('skips an editing command the target does not implement', () => {
+  // A window surface without one of them is skipped rather than throwing, so an older Electron cannot break the
+  // menu — the same tolerance the zoom action has.
+  const context: ShellActionContext = {
+    window: { reload: () => undefined },
+    quit: () => undefined,
+    openExternal: () => undefined,
+  };
+  assert.doesNotThrow(() => applyShellAction(context, { action: 'paste' }));
+});
+
+test('accepts the editing commands from the renderer, and nothing else', () => {
+  for (const action of ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'] as const) {
+    assert.equal(isShellAction(action), true, `${action} is refused by the preload's own allow-list`);
+    assert.equal(parseShellRequest({ action }).action, action);
+  }
+  assert.equal(isShellAction('delete-everything'), false);
 });
 
 test('walks the zoom ladder additively and resets to zero', () => {
@@ -138,9 +180,15 @@ test('rejects unknown actions and malformed payloads', () => {
   // `windowType` is a deliberate addition: the user asked for the ability to drive a window's contents, and chose
   // to accept that it takes the foreground briefly. It goes through the same session-id indirection as
   // `windowPreview`, so the renderer still never names a window.
+  //
+  // The six 编辑 commands are a deliberate addition too: the renderer's own 编辑 row offered 撤销/重做/剪切/复制/
+  // 粘贴/全选 with no behaviour behind them, so each is named here and performed on the web contents.
   assert.deepEqual(
     [...SHELL_ACTIONS],
-    ['reload', 'toggleFullScreen', 'zoom', 'quit', 'openExternal', 'setTitleBarOverlay', 'windowPreview', 'windowType'],
+    [
+      'reload', 'toggleFullScreen', 'zoom', 'quit', 'openExternal', 'setTitleBarOverlay', 'windowPreview', 'windowType',
+      'undo', 'redo', 'cut', 'copy', 'paste', 'selectAll',
+    ],
   );
   assert.equal(isShellAction('reload'), true);
   assert.equal(isShellAction('eval'), false);

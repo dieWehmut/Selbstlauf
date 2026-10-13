@@ -1520,9 +1520,29 @@ describe('window title bar', () => {
     expect(() => fireEvent.click(within(menu).getByRole('menuitem', { name: /重新加载/u }))).not.toThrow();
   });
 
+  /**
+   * The 编辑 items were clickable and did nothing.
+   *
+   * They carried no action, no URL and no handler, so 撤销/重做/剪切/复制/粘贴/全选 were menu items that responded
+   * to a click by doing nothing at all — in the desktop app as well as here. They go through the bridge now, and
+   * a browser is told so rather than being offered six dead items.
+   */
+  it('disables the bridge-backed 编辑 items in a plain browser', async () => {
+    render(<App api={api()} />);
+    fireEvent.click(within(titlebar()).getByRole('button', { name: '编辑' }));
+    const menu = screen.getByRole('menu', { name: '编辑' });
+
+    for (const label of ['撤销', '重做', '剪切', '复制', '粘贴', '全选']) {
+      const item = within(menu).getByRole('menuitem', { name: new RegExp(label) });
+      expect(item, `${label} offers a click that cannot do anything`).toBeDisabled();
+      expect(item).toHaveAttribute('title', '仅在桌面应用中可用');
+    }
+  });
+
   it('exercises the desktop bridge when one is installed', async () => {
     const shell = {
       reload: vi.fn(), toggleFullScreen: vi.fn(), zoom: vi.fn(), quit: vi.fn(),
+      undo: vi.fn(), redo: vi.fn(), cut: vi.fn(), copy: vi.fn(), paste: vi.fn(), selectAll: vi.fn(),
       openExternal: vi.fn(async () => undefined),
     };
     let deliver: ((payload: { command?: string; section?: string }) => void) | undefined;
@@ -1555,6 +1575,16 @@ describe('window title bar', () => {
       fireEvent.click(within(titlebar()).getByRole('button', { name: '视图' }));
       fireEvent.click(within(screen.getByRole('menu', { name: '视图' })).getByRole('menuitem', { name: /切换全屏/u }));
       await waitFor(() => expect(shell.toggleFullScreen).toHaveBeenCalled());
+
+      // 编辑: each item performs its own command, so none of them is a click that does nothing.
+      const edits = [
+        ['撤销', 'undo'], ['重做', 'redo'], ['剪切', 'cut'], ['复制', 'copy'], ['粘贴', 'paste'], ['全选', 'selectAll'],
+      ] as const;
+      for (const [label, method] of edits) {
+        fireEvent.click(within(titlebar()).getByRole('button', { name: '编辑' }));
+        fireEvent.click(within(screen.getByRole('menu', { name: '编辑' })).getByRole('menuitem', { name: new RegExp(label) }));
+        await waitFor(() => expect(shell[method], `${label} did not reach the bridge`).toHaveBeenCalled());
+      }
 
       // 帮助 -> 项目主页 goes out through the shell rather than navigating away.
       fireEvent.click(within(titlebar()).getByRole('button', { name: '帮助' }));

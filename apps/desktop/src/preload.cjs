@@ -37,6 +37,14 @@ contextBridge.exposeInMainWorld('selbstlaufDesktop', {
     toggleFullScreen: () => void invoke({ action: 'toggleFullScreen' }),
     zoom: (delta) => void invoke({ action: 'zoom', delta }),
     quit: () => void invoke({ action: 'quit' }),
+    // The renderer's own 编辑 row drives these; the native menu's roles keep the accelerators alive, but a
+    // click on the row's own items has to reach the same commands.
+    undo: () => void invoke({ action: 'undo' }),
+    redo: () => void invoke({ action: 'redo' }),
+    cut: () => void invoke({ action: 'cut' }),
+    copy: () => void invoke({ action: 'copy' }),
+    paste: () => void invoke({ action: 'paste' }),
+    selectAll: () => void invoke({ action: 'selectAll' }),
     openExternal: (url) => invoke({ action: 'openExternal', url }),
     // The renderer paints the theme-aware title bar, so it reports the colour it
     // actually used and the native window-button strip is repainted to match.
