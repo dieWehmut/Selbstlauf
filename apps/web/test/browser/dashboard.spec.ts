@@ -2,6 +2,29 @@ import { SETTINGS_SECTION_IDS } from '../../src/settings/SettingsRail';
 import { expect, test } from '@playwright/test';
 
 test.describe('Selbstlauf watchdog workbench', () => {
+  /**
+   * One state, three surfaces, one way of saying it.
+   *
+   * The static demo has no service at all: the overview's list chip, the account bar's button and the popup's
+   * connection fact each describe that single fact, and they said it two ways — 样例数据 above the table and
+   * 离线预览 below it — while all three are on screen together.
+   */
+  test('describes the offline preview the same way everywhere it appears', async ({ page }) => {
+    await page.goto('/');
+
+    await expect(page.locator('.section-meta')).toContainText('离线预览');
+    // The chip's own light has to agree with the words beside it.
+    await expect(page.locator('.section-meta .status-light')).not.toHaveClass(/is-online/u);
+
+    const bar = page.locator('.account-bar__button');
+    await expect(bar).toContainText('离线预览');
+
+    await bar.click();
+    const popup = page.getByRole('region', { name: '账户与状态' });
+    await expect(popup).toBeVisible();
+    await expect(popup.locator('.account-popup__fact').filter({ hasText: '连接状态' })).toContainText('离线预览');
+  });
+
   test('renders the desktop process table without horizontal overflow', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');

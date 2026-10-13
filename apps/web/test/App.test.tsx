@@ -824,7 +824,17 @@ describe('watchdog dashboard', () => {
     try {
       expect(screen.getByText('4 个进程')).toBeInTheDocument();
       expect(screen.getAllByText('PID 336756').length).toBeGreaterThan(0);
-      expect(screen.getByText('样例数据')).toBeInTheDocument();
+      /**
+       * And it says it is a preview, on every surface that reports the connection.
+       *
+       * With the demo's own api supplied, `refresh()` succeeds and the app reported a live console (实时同步,
+       * 服务在线, a green online light) for a page with no service behind it — which left these `staticDemo`
+       * words as unreachable branches in the one build that needed them.
+       */
+      expect(screen.getAllByText('离线预览').length, 'the demo does not say it is a preview').toBeGreaterThanOrEqual(2);
+      expect(screen.queryByText('样例数据'), 'the same state is described two ways').toBeNull();
+      expect(screen.queryByText('实时同步'), 'the demo claims a live connection').toBeNull();
+      expect(document.querySelector('.status-light')).not.toHaveClass('is-online');
     } finally {
       view.unmount();
       vi.unstubAllEnvs();

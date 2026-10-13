@@ -39,7 +39,14 @@ const PAINTED: readonly { readonly selector: string; readonly label: string; rea
   { selector: '.state-chip--ready', label: 'a ready state chip', kind: 'text' },
   { selector: '.capability--ready', label: 'a ready capability chip', kind: 'text' },
   { selector: '.button--stop', label: 'the emergency stop button', kind: 'text' },
-  { selector: '.status-light.is-online', label: 'the online indicator', kind: 'non-text' },
+  /**
+   * A green mark rather than text.
+   *
+   * This was `.status-light.is-online`, which the static demo no longer paints: it says 离线预览 now, because a
+   * page with no service behind it should not report a live connection. The sidebar's writable dot is the same
+   * `--green` in the same non-text role, so the matrix still covers a filled indicator.
+   */
+  { selector: '.sidebar-row .process-dot--writable', label: 'a writable process dot', kind: 'non-text' },
 ];
 
 async function openTheme(theme: 'dark' | 'light', page: Page, palette?: Record<string, unknown>): Promise<void> {

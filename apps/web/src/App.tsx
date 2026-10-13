@@ -2204,6 +2204,15 @@ export default function App({ api: suppliedApi }: AppProps) {
   const [sessions, setSessions] = useState<SessionView[]>(staticDemo ? fallbackSessions : []);
   const [events, setEvents] = useState<AuditEvent[]>(staticDemo ? fallbackEvents : []);
   const [connected, setConnected] = useState(false);
+  /**
+   * Whether the console is connected to a service this build can talk to.
+   *
+   * The static demo answers from memory, so its `refresh()` always succeeds and `connected` becomes true — which
+   * made every surface report a live console (实时同步, 服务在线, a green online light) for a page with no service
+   * at all, and left the app's own `staticDemo` wording as unreachable branches in the one build that needs it.
+   * The demo shows sample data on purpose; saying it is connected is not part of that.
+   */
+  const live = connected && !staticDemo;
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   /**
@@ -3081,10 +3090,10 @@ export default function App({ api: suppliedApi }: AppProps) {
 
                 <div className="account-popup__facts">
                   <div className="account-popup__fact">
-                    <span className={`process-dot process-dot--${connected ? 'writable' : 'error'}`} aria-hidden="true" />
+                    <span className={`process-dot process-dot--${live ? 'writable' : 'error'}`} aria-hidden="true" />
                     <span>连接状态</span>
-                    <strong className={connected ? 'text-ready' : 'text-warn'}>
-                      {connected ? '在线' : staticDemo ? '离线预览' : '未连接'}
+                    <strong className={live ? 'text-ready' : 'text-warn'}>
+                      {live ? '在线' : staticDemo ? '离线预览' : '未连接'}
                     </strong>
                   </div>
                   <div className="account-popup__fact">
@@ -3137,7 +3146,7 @@ export default function App({ api: suppliedApi }: AppProps) {
             >
               <span className="brand__mark" aria-hidden="true"><img src={brandIcon} alt="" width={34} height={34} /></span>
               <div>
-                <strong>{connected ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong>
+                <strong>{live ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong>
                 {/* The count is its own text node so it reads on its own. */}
                 <span>{`${sessions.length} 个进程`}</span>
               </div>
@@ -3157,8 +3166,8 @@ export default function App({ api: suppliedApi }: AppProps) {
           && <div className="notice" role="status"><span>{notice.text}</span><button className="icon-button" type="button" aria-label="关闭通知" onClick={() => setNotice(null)}><X size={15} /></button></div>}
 
         {page === 'overview' && <div className="page-content">
-          <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{liveSessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>Watchdog</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : connected ? '已停止' : '离线'}</strong></div></section>
-          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${connected ? 'is-online' : ''}`} />{connected ? '实时同步' : staticDemo ? '样例数据' : '等待连接'}</span></div><ProcessTable sessions={liveSessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
+          <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{liveSessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>Watchdog</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : live ? '已停止' : '离线'}</strong></div></section>
+          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${live ? 'is-online' : ''}`} />{live ? '实时同步' : staticDemo ? '离线预览' : '等待连接'}</span></div><ProcessTable sessions={liveSessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
           <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => navigate('timeline')}>查看全部</button></div><Timeline events={visibleEvents.slice(0, 5)} /></section>
         </div>}
 
@@ -3192,7 +3201,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} connected={live} /></div>}
       </main>
 
       {/* The desktop pet, in the shell rather than in the section that configures it, so it is on
