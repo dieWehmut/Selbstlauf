@@ -2670,6 +2670,7 @@ evidence for calling it environmental rather than a defect:
     --last-failed      3.5m        6 of 7 green; the seventh, the light-theme accessibility audit, passed alone in 1.2m
     2 workers (85)     2.6m        85 passed          <- the clean run on the round-13 tree
     2 workers (85)     —           83 passed, 2 timeouts (theme-surfaces, theme-status-colours); --last-failed 2/2 green
+    2 workers (89)     —           4 timeouts (pet, theme-surfaces, two dashboard cases); --last-failed 4/4 green
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3257,6 +3258,49 @@ The test types `0`, `-5` and `1.5` into the fields, asserts what the controls no
 保存 actually sends — a clamped field that still sent the unclamped draft would pass the first half alone.
 
 Suites: web 200 -> 201; browser 88 (unchanged).
+
+### A console with forty sessions, in which every count agrees
+
+The demo project always serves the same four quiet sessions, so nothing about a *full* console had ever been
+rendered: not a sidebar list long enough to scroll on its own, not a table with dozens of rows, and not the
+counts the metric strip promises once they have to add up. The live-API project can serve forty sessions
+across four hosts, which is what `scale.spec.ts` does.
+
+**The counts are checked against other surfaces, not against arithmetic in the test** — a number that agrees
+with the code that produced it but not with what is painted is the defect being looked for:
+
+    metric strip   发现进程 40   可写入 32   Codex Goal 10   服务状态 运行中
+    table          40 rows, 32 with a 可写入 badge, 10 whose conversation cell starts with "Goal"
+    sidebar        40 rows, 32 writable dots and 8 monitor dots
+    account bar    "40 个进程"
+    groups         Tabby(10)  Windows Terminal(10)  Visual Studio Code(10)  Microsoft Edge(10)
+
+Everything agrees: 发现进程 against the rows and the account bar, 可写入 against both the table's badges and
+the sidebar's dots (the same single owner, `writeEligibility`, feeds all three), Codex Goal against the
+conversation cells, and each group against the sessions served for that host. The shell holds too — the page
+does not scroll sideways, the table fits, the sidebar list scrolls inside itself, and filtering forty rows
+still finds the one that matches.
+
+**Nothing was wrong.** Recorded as a sweep that found nothing rather than dressed up as a fix: the first row
+appears about 1.6s after navigation, the same order as with four sessions, so scale is not costing anything
+either. What the round does add is the invariant — four surfaces that must keep agreeing as the console fills
+up.
+
+Suites: web 201 (unchanged); browser 88 -> 89.
+
+### The jsdom tests were running on a budget their own measurements overran
+
+Three times this session a `App.test.tsx` case failed with `Test timed out in 5000ms` and passed when run
+alone. The last one makes the cause unambiguous: run by itself, with nothing else on the machine, it takes
+**4.9s** — 98% of Vitest's default budget — because it renders the whole application, holds an environment
+scan pending, and then exercises several controls across the resulting updates. Survivability was a coin
+toss, and the slower file-level runs (78s under load against ~12s idle) decided it.
+
+`vitest.config.ts` now sets `testTimeout: 20_000`, with that measurement in the comment. Twenty seconds is
+four times the slowest honest test here, so a genuine hang still fails; what stops failing is a loaded
+machine's honest test.
+
+Suites: web 201 (unchanged); browser 89 (unchanged).
 
 ## Not verified
 
