@@ -471,6 +471,45 @@ const fallbackHookStatus: ClaudeHookStatusView = {
   manualReviewRequired: false,
 };
 
+/**
+ * A config with every field the app reads, whatever the service sent.
+ *
+ * The client casts the config response rather than validating it, and the app reads that response field by field:
+ * the prompt column's `config.tools[tool].normalPrompt` and `tools.codex.goalStatuses`, the process filters, and nine
+ * paths across the settings editor. A response missing one of them threw *while rendering* — measured with a
+ * hostile-response sweep: `Cannot read properties of undefined (reading 'normalPrompt')`, `(reading 'goalStatuses')`
+ * and `(reading 'include')` — and with no error boundary above it, React unmounts the tree and the console blanks.
+ *
+ * The service validates its own config before storing it (`apps/cli/src/domain/config.ts`), so an incomplete one
+ * means version skew rather than a normal state. Filling the gaps from this app's own defaults keeps the console
+ * usable, and it leaves the settings editor able to write a complete config back — which is the way out of the skew.
+ */
+function mergeConfig(raw: WatchdogConfig): WatchdogConfig {
+  const tools = raw.tools ?? ({} as Partial<WatchdogConfig['tools']>);
+  const claude = tools.claude ?? ({} as Partial<WatchdogConfig['tools']['claude']>);
+  const codex = tools.codex ?? ({} as Partial<WatchdogConfig['tools']['codex']>);
+  const dsh = tools.dsh ?? ({} as Partial<WatchdogConfig['tools']['dsh']>);
+  return {
+    ...fallbackConfig,
+    ...raw,
+    processFilters: { ...fallbackConfig.processFilters, ...raw.processFilters },
+    tools: {
+      claude: {
+        ...fallbackConfig.tools.claude,
+        ...claude,
+        stopHook: { ...fallbackConfig.tools.claude.stopHook, ...claude.stopHook },
+      },
+      codex: {
+        ...fallbackConfig.tools.codex,
+        ...codex,
+        // A list the service did not send (or sent as something else) would throw at `.includes` on the first render.
+        goalStatuses: Array.isArray(codex.goalStatuses) ? codex.goalStatuses : fallbackConfig.tools.codex.goalStatuses,
+      },
+      dsh: { ...fallbackConfig.tools.dsh, ...dsh },
+    },
+  };
+}
+
 const now = Date.now();
 const fallbackSessions: SessionView[] = [
   {
@@ -2652,7 +2691,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         api.codexProfiles(),
       ]);
       setHealth(nextHealth);
-      setConfig(nextConfig);
+      setConfig(mergeConfig(nextConfig));
       setSessions(nextSessions);
       setStartupInstalled(nextStartup.installed);
       setHookStatus(nextHookStatus);
@@ -2858,7 +2897,7 @@ export default function App({ api: suppliedApi }: AppProps) {
     setSaving(true); setNotice(null);
     try {
       const saved = await api.updateConfig(nextConfig);
-      setConfig(saved);
+      setConfig(mergeConfig(saved));
       setHookStatus((current) => ({ ...current, enabled: saved.tools.claude.stopHook.enabled }));
       setNotice('配置已保存');
     }
