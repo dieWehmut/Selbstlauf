@@ -571,7 +571,10 @@ function transportLabel(transport: SessionView['transport']): string {
     'cannot-inject': '不可写入',
     unknown: '待识别',
   };
-  return labels[transport];
+  // The Record is closed but the response is not validated, so a transport this build has never heard of reaches
+  // here as an undefined lookup — and a badge whose only text is `undefined` renders as an empty pill beside its
+  // dot. Printing the transport's own name is what `toolLabel` does with the same problem.
+  return labels[transport] ?? transport;
 }
 
 /**

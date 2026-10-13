@@ -48,6 +48,23 @@ describe('writeEligibility', () => {
     }
   });
 
+  /**
+   * A transport this build has never heard of is refused, not assumed writable.
+   *
+   * The rule used to name the transports it could *not* write to and treat everything else as writable, so a newer
+   * service reporting a transport this build does not know made the row promise 可写入 and offer 立即续写 for a write
+   * the service would then refuse — the exact contradiction this module exists to prevent, and the client casts the
+   * sessions response without validating it, so such a value can arrive. Fail closed instead: the writable transports
+   * are named, and anything else is 只能监控.
+   */
+  it('refuses a transport it does not know rather than assuming it can be written to', () => {
+    for (const transport of ['exec-pty', 'some-new-transport', '']) {
+      const result = writeEligibility(session({ transport: transport as SessionView['transport'] }));
+      expect(result.writable, `${transport || '(empty)'} must not be promised as writable`).toBe(false);
+      expect(result.reason).toContain('只能监控');
+    }
+  });
+
   it("prefers the service's own reason, which is more precise than the transport name", () => {
     // `no-cwd-match` says *why* the transport could not be established, which the transport name cannot.
     const result = writeEligibility(session({ transport: 'monitor-only', transportError: 'no-cwd-match' }));

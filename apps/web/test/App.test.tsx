@@ -804,6 +804,31 @@ describe('watchdog dashboard', () => {
   });
 
   /**
+   * A transport this build does not know is refused, and named.
+   *
+   * The write rule named the transports it could *not* write to and treated everything else as writable, so an
+   * unknown one made the row promise 可写入 and offer 立即续写 for a write the service would refuse — the
+   * contradiction the rule exists to prevent. The badge's text came from a closed Record, so the same transport
+   * rendered as an empty pill beside the dot.
+   */
+  it('refuses and names a transport it has never heard of', async () => {
+    const fake = api();
+    const [template] = await fake.sessions();
+    fake.sessions = vi.fn(async () => [{ ...template!, id: 'unknown-transport', transport: 'exec-pty' as SessionView['transport'] }]);
+    render(<App api={fake} />);
+
+    // Named, rather than an empty chip. Both the table and the mobile card show it.
+    expect((await screen.findAllByText('exec-pty')).length, 'the badge is an empty chip').toBeGreaterThan(0);
+    expect(document.querySelector('.capability')?.className, 'an unknown transport is offered as writable').toContain('capability--limited');
+    // And the one-click write is not offered for it, in either rendering.
+    const injects = await screen.findAllByRole('button', { name: /立即续写 PID/u });
+    expect(injects.length).toBeGreaterThan(0);
+    for (const button of injects) {
+      expect(button, 'an unknown transport offers a write the service would refuse').toBeDisabled();
+    }
+  });
+
+  /**
    * Two surfaces labelled 服务状态 answered different questions.
    *
    * The overview strip's 服务状态 meant "is the watchdog running" (运行中 / 已停止 / 离线) and the account popup's

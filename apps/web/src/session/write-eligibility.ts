@@ -19,8 +19,22 @@ import type { SessionView } from '../api/client';
  * every row claim "会话无法写入" while the write would have worked.
  */
 
-/** Transport kinds that can only be watched: there is nowhere to put the text. */
-const MONITOR_ONLY_TRANSPORTS: readonly string[] = ['monitor-only', 'cannot-inject', 'unknown'];
+/**
+ * Transport kinds that can carry text, named rather than excluded.
+ *
+ * This started as a list of the transports that *cannot* be written to, with everything else treated as writable —
+ * which fail-opens on a transport this build has never heard of. The web client casts the sessions response without
+ * validating it (see `client.ts`), so a newer service can report one, and the row then promised 可写入 and offered
+ * 立即续写 for a write the service refuses: the exact contradiction this module exists to prevent. An allow-list
+ * fails closed instead, and the refusal is stated in the same words as any other unwritable transport.
+ */
+const WRITABLE_TRANSPORTS: readonly string[] = [
+  'classic-console',
+  'pty',
+  'codex-app-server',
+  'claude-stop-hook',
+  'dsh-web',
+];
 
 export interface WriteEligibility {
   readonly writable: boolean;
@@ -38,7 +52,7 @@ export interface WriteEligibility {
 export function writeEligibility(session: SessionView): WriteEligibility {
   if (!session.alive) return { writable: false, reason: '该会话已停止' };
   if (session.paused) return { writable: false, reason: '该会话已被暂停，恢复后才能写入' };
-  if (MONITOR_ONLY_TRANSPORTS.includes(session.transport)) {
+  if (!WRITABLE_TRANSPORTS.includes(session.transport)) {
     return {
       writable: false,
       reason: session.transportError !== undefined && session.transportError.length > 0
