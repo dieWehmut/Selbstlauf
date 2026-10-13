@@ -3643,6 +3643,21 @@ shell's own `MAX_TYPED_LENGTH` (4096) — two constants in two packages that agr
 
 Suites: web 228 -> 229; browser 90 (unchanged).
 
+### A one-way entry where a toggle belonged
+
+The bottom bar's 窗口 menu offered 收起侧栏, wired to `setSidebarCompact(true)` whatever the state was. Once the
+sidebar was compact the entry repeated an action that had already happened, said 收起侧栏 about a sidebar that was
+already collapsed, and offered no way back from that menu — while the title bar's own control, two centimetres
+above, toggles properly and changes its label to 展开侧栏.
+
+The entry is a toggle now, with the same two words and the same two icons as the title bar's control, so both
+surfaces say the same thing about the same state.
+
+The test opens the menu, collapses, reopens it, and asserts the entry now reads 展开侧栏 before expanding again. It
+failed first with `the entry repeats an action that already happened: expected '收起侧栏' to be '展开侧栏'`.
+
+Suites: web 229 -> 230; browser 90 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
