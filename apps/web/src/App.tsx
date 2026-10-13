@@ -105,8 +105,14 @@ import {
   type ProfilePref,
 } from './settings/desktop-prefs';
 
-/** Shown by the account section and the sidebar; tracks the package version. */
-const APP_VERSION = '0.9.5';
+/**
+ * The version the 关于 section shows.
+ *
+ * Shown only there — this comment used to say "and the sidebar", which never displayed it. `app-version.test.ts`
+ * compares it with `apps/web/package.json`, so a release that bumps the manifest and forgets this line fails a test
+ * rather than displaying a number that is not the build's.
+ */
+export const APP_VERSION = '0.9.5';
 
 /** 电脑操控's single switch. */
 function isRevealPref(value: unknown): value is { allowReveal: boolean } {
