@@ -3813,6 +3813,27 @@ reports its version, 关于 is where it should appear, next to the app's.
 
 Suites: web 235 -> 236 (a new 18th test file); browser 91 (unchanged).
 
+### The empty state inside the tablist
+
+Searching the settings rail for something that matches nothing emptied the rail and then rendered its message
+**inside** `role="tablist"`:
+
+    <div role="tablist" aria-label="设置分区">
+      ...
+      <p class="settings-rail__empty">无匹配设置</p>
+    </div>
+
+A tablist may contain only tabs, and this one held a paragraph and no tabs — the same shape as the menu that held
+non-menu-items, which this record fixed in the sidebar's early rounds. The practical effect is the opposite of what
+the message is for: a screen reader enumerates a tablist's *tabs*, so the one sentence explaining the empty rail sat
+where it was least likely to be read.
+
+The message is now a sibling of the tablist rather than a child, and a `role="status"` region, so it is announced
+when the filter empties the rail. `rail-aria.spec.ts` — the spec that already holds the rail to the tabs pattern —
+gained the case, which failed first with `the empty state is a child of the tablist, which may only contain tabs`.
+
+Suites: web 236 (unchanged); browser 91 -> 92.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
