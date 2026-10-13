@@ -607,6 +607,40 @@ describe('watchdog dashboard', () => {
   });
 
   /**
+   * The poll-age chip in the topbar.
+   *
+   * Before the first successful poll it rendered "轮询 -- 前" — a sentence with a hole in it, where the value
+   * was simply absent — and it carried `aria-label="Last watchdog poll"`, so the one thing a screen reader said
+   * about it was the only English phrase in the shell.
+   */
+  it('says it has not polled yet instead of leaving a hole in the sentence', async () => {
+    const fake = api();
+    const pendingHealth = deferred<HealthView>();
+    fake.health = vi.fn(() => pendingHealth.promise);
+    render(<App api={fake} />);
+
+    // The chip is icon + text, so read the element rather than matching its mixed content by text.
+    const chip = await waitFor(() => {
+      const found = document.querySelector('.poll-age');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(chip.textContent?.trim()).toBe('尚未轮询');
+    expect(screen.queryByText(/轮询 -- 前/u), 'the empty value reads as a sentence').toBeNull();
+    expect(screen.queryByLabelText('Last watchdog poll'), 'the accessible name is English').toBeNull();
+  });
+
+  it('names the poll age in the words it shows', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+
+    // The default fixture polls two seconds ago, so the chip reads as a duration — and its accessible name is
+    // that same text, not a separate English label. (`duration` writes its units tersely: 2s, 3m 24s.)
+    await waitFor(() => expect(document.querySelector('.poll-age')?.textContent ?? '').toMatch(/轮询 \d+s 前/u));
+    expect(document.querySelector('.poll-age')?.getAttribute('aria-label')).toBeNull();
+  });
+
+  /**
    * The timeline said the engine's words, not the user's.
    *
    * Each event line was `Object.values(details).join(' · ')`: values only, no keys, nothing translated — so a
@@ -827,7 +861,9 @@ describe('watchdog dashboard', () => {
 
   it('shows the age of the most recent watchdog poll', async () => {
     render(<App api={api()} />);
-    expect(await screen.findByLabelText('Last watchdog poll')).toHaveTextContent('2s');
+    // Read the chip's own text: it is its accessible name now, rather than an English aria-label laid over
+    // Chinese text — which is also what this test used to query by.
+    await waitFor(() => expect(document.querySelector('.poll-age')?.textContent ?? '').toMatch(/轮询 \d+s 前/u));
   });
 
   it('renders a continuable DeepSeek Harness session with its workspace and live step', async () => {
