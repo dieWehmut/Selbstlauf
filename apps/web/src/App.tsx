@@ -63,6 +63,7 @@ import { isLight, mix, paletteSurfaces, readableText } from './theme/palette';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
+import { describeAuditDetails } from './timeline/audit-details';
 import {
   AccountSection,
   BrowserSection,
@@ -653,6 +654,19 @@ function transportReason(error: string | undefined): string | null {
   return reasons[error] ?? error;
 }
 
+/**
+ * How the timeline says an audit payload.
+ *
+ * Each vocabulary comes from the owner that already has it: this app's time format, the status chip's decision
+ * labels, and the capability badge's transport reasons — so a reason reads the same wherever it appears. The
+ * payload's shape and its own vocabularies live in `./timeline/audit-details`.
+ */
+const AUDIT_DETAIL_LABELS = {
+  time,
+  decision: (decision: string) => decisionLabel(decision).label,
+  reason: (reason: string) => transportReason(reason) ?? reason,
+} as const;
+
 function nextPrompt(session: SessionView, config: WatchdogConfig): string {
   if (session.pendingPrompt) return session.pendingPrompt;
   if (session.tool === 'codex' && session.goal && config.tools.codex.goalStatuses.includes(session.goal.status)) {
@@ -988,12 +1002,15 @@ function Timeline({ events }: { events: AuditEvent[] }) {
   return (
     <div className="timeline">
       {events.length === 0 && <div className="empty-state">暂无事件</div>}
-      {events.map((event) => (
-        <div className="timeline__item" key={event.id}>
-          <span className={`timeline__icon timeline__icon--${event.type}`}><Activity size={15} /></span>
-          <div><div className="timeline__title"><DecisionChip decision={event.type} /><span>{time(event.timestampMs)}</span></div><p>{event.sessionId ?? 'watchdog'}{event.details ? ` · ${Object.values(event.details).join(' · ')}` : ''}</p></div>
-        </div>
-      ))}
+      {events.map((event) => {
+        const details = describeAuditDetails(event.details, AUDIT_DETAIL_LABELS);
+        return (
+          <div className="timeline__item" key={event.id}>
+            <span className={`timeline__icon timeline__icon--${event.type}`}><Activity size={15} /></span>
+            <div><div className="timeline__title"><DecisionChip decision={event.type} /><span>{time(event.timestampMs)}</span></div><p>{event.sessionId ?? 'watchdog'}{details.length > 0 ? ` · ${details}` : ''}</p></div>
+          </div>
+        );
+      })}
     </div>
   );
 }

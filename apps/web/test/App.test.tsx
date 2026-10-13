@@ -570,6 +570,44 @@ describe('watchdog dashboard', () => {
     expect(screen.queryByText('样例数据')).not.toBeInTheDocument();
   });
 
+  /**
+   * The timeline said the engine's words, not the user's.
+   *
+   * Each event line was `Object.values(details).join(' · ')`: values only, no keys, nothing translated — so a
+   * decision event printed "awaiting-quiet-period" and a decision's own timestamp printed as an epoch number,
+   * under a chip that did translate the event's type.
+   */
+  it('describes an audit payload in words rather than the engine\'s own', async () => {
+    const fake = api();
+    let emit: ((event: WatchdogEvent) => void) | null = null;
+    fake.subscribe = vi.fn((listener: (event: WatchdogEvent) => void) => {
+      emit = listener;
+      return () => undefined;
+    });
+    render(<App api={fake} />);
+    await waitFor(() => expect(emit).not.toBeNull());
+
+    act(() => {
+      emit!({
+        kind: 'audit',
+        event: {
+          id: 'audit-1',
+          timestampMs: Date.now(),
+          type: 'decision',
+          sessionId: 'codex:336756',
+          tool: 'codex',
+          details: { decision: 'awaiting-quiet-period', atMs: 1_789_000_000_000 },
+        },
+      });
+    });
+    fireEvent.click(screen.getByRole('button', { name: '事件' }));
+
+    const line = await screen.findByText(/等待静默/u);
+    expect(line.textContent, 'the decision is not named').toContain('决策：等待静默');
+    expect(line.textContent, 'the timestamp is not written as a time').toMatch(/时间：\d{2}:\d{2}:\d{2}/u);
+    expect(screen.queryByText(/awaiting-quiet-period/u), 'the engine identifier is shown to the user').toBeNull();
+  });
+
   it('explains an empty process list instead of showing a table with no rows', async () => {
     /**
      * The connecting state above is also the state of a machine where nothing has been discovered:
