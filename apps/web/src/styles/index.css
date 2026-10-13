@@ -898,7 +898,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .process-dot--writable { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 15%, transparent); }
 .process-dot--monitor { background: var(--amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 15%, transparent); }
 .process-dot--idle { background: var(--faint); }
-.process-dot--error { background: var(--red, #e5735f); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red, #e5735f) 15%, transparent); }
+/* The failure colour, as a mark and as text. These four reads used to carry `var(--red, #e5735f)`: that fallback is
+   a red the dark theme stopped using when the status colours were solved against the palette, so it was a stale
+   literal that could never apply — `--red` is defined in both theme blocks and solved at runtime. The amber defect
+   was this same pattern with the token *missing*, which is what made it unmeasurable; here it was merely dead. */
+.process-dot--error { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 15%, transparent); }
 
 /* ---------- The process detail page ---------- */
 .process-detail { display: flex; flex-direction: column; gap: 18px; }
@@ -910,7 +914,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .process-detail__grid dd { margin: 5px 0 0; color: var(--text); font-size: 13px; overflow-wrap: anywhere; }
 .process-detail__wide { grid-column: 1 / -1; }
 .process-detail__wide dd code { display: block; padding: 8px 10px; border: 1px solid var(--line-whisper); border-radius: var(--radius-xs); background: var(--bg); font: 12px var(--mono); overflow-wrap: anywhere; }
-.process-detail__error { color: var(--red, #e5735f); }
+.process-detail__error { color: var(--red); }
 .process-detail__actions { display: flex; justify-content: flex-end; }
 .process-detail__siblings { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line-whisper); }
 .process-detail__sibling { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius-xs); color: var(--muted); background: var(--panel); font-size: 12px; }
@@ -1089,7 +1093,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .prompt-composer__hint strong { color: var(--text); font: 12px var(--mono); }
 .prompt-composer__blocked { display: inline-flex; align-items: center; gap: 6px; color: var(--amber); }
 /* A refusal or a failure is stated in words rather than only by a colour change. */
-.prompt-composer__problem { margin: 0; color: var(--red, #e5735f); font-size: 12px; }
+.prompt-composer__problem { margin: 0; color: var(--red); font-size: 12px; }
 .prompt-composer__sent { margin: 0; color: var(--green); font-size: 12px; }
 .prompt-composer__sent code { padding: 1px 5px; border-radius: var(--radius-xs); background: var(--bg); font: 11px var(--mono); overflow-wrap: anywhere; }
 .prompt-composer__spinner { display: inline-grid; place-items: center; animation: prompt-composer-spin .8s linear infinite; }
@@ -1129,5 +1133,5 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .window-type__field input[aria-invalid='true'] { border-color: color-mix(in srgb, var(--red) 55%, transparent); }
 .window-type__hint { margin: 0; color: var(--muted); font-size: 12px; }
 .window-type__hint strong { color: var(--text); font: 12px var(--mono); }
-.window-type__problem { margin: 0; color: var(--red, #e5735f); font-size: 12px; }
+.window-type__problem { margin: 0; color: var(--red); font-size: 12px; }
 .window-type__done { margin: 0; color: var(--green); font-size: 12px; }

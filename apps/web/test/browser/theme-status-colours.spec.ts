@@ -31,7 +31,7 @@ const TEXT_RATIO = 4.5;
 const NON_TEXT_RATIO = 3;
 
 /** The status colours are read as tokens so the matrix does not depend on the demo's states. */
-const STATUS_TOKENS = ['--green', '--red', '--blue'] as const;
+const STATUS_TOKENS = ['--green', '--red', '--blue', '--amber'] as const;
 const SURFACE_TOKENS = ['--bg', '--panel', '--panel-soft', '--panel-raised'] as const;
 
 /** Elements the demo paints with a status colour, and whether the colour is text or the mark. */
@@ -52,6 +52,18 @@ const PAINTED: readonly { readonly selector: string; readonly label: string; rea
    * literal fallback rather than a token (`var(--amber, #e6b65b)`), so nothing had ever measured it.
    */
   { selector: '.sidebar-row .process-dot--monitor', label: 'a monitor process dot', kind: 'non-text' },
+  /**
+   * The metric strip's own status word, which is the largest text the app paints in a status colour and had never
+   * been measured: 18px green (or, with the watchdog stopped, the solved accent).
+   */
+  { selector: '.metric-strip .text-ready', label: 'the watchdog state word', kind: 'text' },
+  /**
+   * The connection dot in the account popup — the failure colour as a mark rather than as text.
+   *
+   * The popup only exists once it is opened, so `measure` opens it before reading; it is the one place the demo
+   * paints `--red` as a dot.
+   */
+  { selector: '.account-popup__fact .process-dot--error', label: 'the connection dot', kind: 'non-text' },
 ];
 
 async function openTheme(theme: 'dark' | 'light', page: Page, palette?: Record<string, unknown>): Promise<void> {
@@ -64,6 +76,10 @@ async function openTheme(theme: 'dark' | 'light', page: Page, palette?: Record<s
   await page.setViewportSize({ width: 1249, height: 704 });
   await page.goto('/');
   await expect(page.locator('.sidebar-row__open').first()).toBeVisible();
+  // The account popup is the only place the demo paints the failure colour as a mark, so it is opened before
+  // anything is measured. Opened rather than asserted: this spec measures paint, and other specs cover the popup.
+  await page.getByRole('button', { name: /个进程/u }).click();
+  await expect(page.getByRole('region', { name: '账户与状态' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe(theme);
   // `sidebar-row-in` eases opacity from 0; a row read mid-animation reports a blended background.
   await expect
