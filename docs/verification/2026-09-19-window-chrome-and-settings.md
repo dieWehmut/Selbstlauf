@@ -2935,6 +2935,27 @@ authoritative number is what Playwright itself reports: `--list` gives **80 test
 this tree. Kept rather than quietly corrected, because an arithmetic slip in a record that is relied
 on for exactly this kind of claim is worth seeing.
 
+### The browser's own chrome stayed dark
+
+`theme-color` tints a tab strip or an address bar. It shipped as a static `#000000` in `index.html`
+and nothing ever moved it, so a light-theme user's browser chrome stayed dark however long the app
+ran — and a custom background never reached it at all. Measured before the fix:
+
+    light theme, once the bundle has run     meta content #000000   (the page is rgb(238, 242, 241))
+    saved light palette, before the bundle   meta content #000000   (the page is #fdf6e3)
+
+The fix has two halves, because there are two moments, and each covers what the other cannot:
+
+  - `theme-boot.js` sets it from a saved palette's background before the bundle runs, next to `--bg` —
+    the same case the first frame gets wrong.
+  - the palette effect sets it from the resolved background on every palette and theme change, which
+    covers the built-in light page (`#eef2f1`), a live switch in the appearance section, and a custom
+    palette.
+
+The tests were written first: both halves failed, naming the light page and the saved palette.
+
+Suites: web 183 (unchanged); browser 80 -> 81.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
