@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { contrastRatio, isLight, mix, readableText, relativeLuminance } from '../src/theme/palette';
+import { contrastRatio, isLight, mix, paletteSurfaces, readableText, relativeLuminance } from '../src/theme/palette';
 
 /**
  * The palette's own direction, which the palette effect needs and the theme name cannot answer.
@@ -106,5 +106,40 @@ describe('readable text colours', () => {
     expect(mix('#000000', '#ffffff', 0.5)).toBe('#808080');
     expect(mix('#eef2f1', '#1c262b', 0)).toBe('#eef2f1');
     expect(mix('#eef2f1', '#1c262b', 1)).toBe('#1c262b');
+  });
+});
+
+/**
+ * The surfaces, derived in one place.
+ *
+ * The palette effect and the appearance previews both call this. They used to have a formula each:
+ * the effect mixed toward white with `weight + contrast / 1400`, and the preview card mixed toward
+ * the *foreground* at fixed 0.1/0.16 without reading `contrast` — so the swatch a user chose a theme
+ * by was not the theme they got, and the slider on the same panel moved the app and not the swatch.
+ */
+describe('palette surfaces', () => {
+  it('resolves the built-in palettes to the colours the stylesheet ships', () => {
+    expect(paletteSurfaces({ background: '#000000', foreground: '#e9eef0', contrast: 68 }))
+      .toEqual({ rail: '#0d0d0d', panel: '#0f0f0f', raised: '#121212' });
+    expect(paletteSurfaces({ background: '#eef2f1', foreground: '#1c262b', contrast: 68 }))
+      .toEqual({ rail: '#e3e7e7', panel: '#eff3f2', raised: '#eff3f2' });
+  });
+
+  it('moves every surface with the contrast slider', () => {
+    const low = paletteSurfaces({ background: '#000000', foreground: '#e9eef0', contrast: 0 });
+    const high = paletteSurfaces({ background: '#000000', foreground: '#e9eef0', contrast: 100 });
+    for (const surface of ['rail', 'panel', 'raised'] as const) {
+      expect(relativeLuminance(high[surface]), `${surface} did not move with the slider`)
+        .toBeGreaterThan(relativeLuminance(low[surface]));
+    }
+  });
+
+  it('takes its direction from the palette rather than from a theme', () => {
+    // A light page — including one chosen on the dark theme — has its rail step darker into it.
+    const light = paletteSurfaces({ background: '#eef2f1', foreground: '#1c262b', contrast: 68 });
+    expect(relativeLuminance(light.rail)).toBeLessThan(relativeLuminance('#eef2f1'));
+    // A dark page steps lighter, which is also toward its near-white text colour.
+    const dark = paletteSurfaces({ background: '#000000', foreground: '#e9eef0', contrast: 68 });
+    expect(relativeLuminance(dark.rail)).toBeGreaterThan(relativeLuminance('#000000'));
   });
 });

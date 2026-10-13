@@ -59,7 +59,7 @@ import { SessionWindowPreview } from './process/SessionWindowPreview';
 import { WindowTypePanel } from './process/WindowTypePanel';
 import { ToolIcon } from './sidebar/ToolIcon';
 import { canWriteSession, writeEligibility } from './session/write-eligibility';
-import { isLight, readableText } from './theme/palette';
+import { isLight, mix, paletteSurfaces, readableText } from './theme/palette';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
@@ -360,15 +360,7 @@ function loadPaletteOverrides(): Partial<Record<Theme, ThemePalette>> {
   }
 }
 
-/** Mix a #rrggbb colour toward another; derives the readable accent shade. */
-function mixColor(from: string, to: string, amount: number): string {
-  const channel = (offset: number) => {
-    const a = Number.parseInt(from.slice(offset, offset + 2), 16);
-    const b = Number.parseInt(to.slice(offset, offset + 2), 16);
-    return Math.round(a + (b - a) * amount).toString(16).padStart(2, '0');
-  };
-  return `#${channel(1)}${channel(3)}${channel(5)}`;
-}
+
 
 const fallbackConfig: WatchdogConfig = {
   enabled: true,
@@ -1217,18 +1209,29 @@ function ThemePreviewCard(props: {
 }) {
   // A system card shows both schemes at once, split down the middle.
   const [left, right] = props.systems ?? [props.palette, props.palette];
-  const card = (scheme: Theme, palette: ThemePalette) => (
-    <span className="theme-preview__half" data-scheme={scheme} style={{ background: palette.background }}>
-      <span className="theme-preview__shell">
-        <span className="theme-preview__rail" style={{ background: mixColor(palette.background, palette.foreground, scheme === 'dark' ? 0.1 : 0.05) }} />
-        <span className="theme-preview__sheet" style={{ background: mixColor(palette.background, palette.foreground, scheme === 'dark' ? 0.16 : 0.04) }}>
-          <span className="theme-preview__bar" style={{ background: palette.accent }} />
-          <span className="theme-preview__line" style={{ background: palette.foreground, opacity: .5 }} />
-          <span className="theme-preview__line theme-preview__line--short" style={{ background: palette.foreground, opacity: .3 }} />
+  /**
+   * The swatch is the palette the effect would paint, through the effect's own derivation.
+   *
+   * This used to mix toward the *foreground* at fixed 0.1/0.16 for the dark scheme and never read
+   * `contrast`, so the dark card's rail showed `rgb(23, 24, 24)` where the app painted `#0d0d0d`, its
+   * sheet `rgb(37, 38, 38)` where the app painted `#0f0f0f`, and moving the contrast slider moved the
+   * app while the swatches sat still.
+   */
+  const card = (scheme: Theme, palette: ThemePalette) => {
+    const swatch = paletteSurfaces(palette);
+    return (
+      <span className="theme-preview__half" data-scheme={scheme} style={{ background: palette.background }}>
+        <span className="theme-preview__shell">
+          <span className="theme-preview__rail" style={{ background: swatch.rail }} />
+          <span className="theme-preview__sheet" style={{ background: swatch.panel }}>
+            <span className="theme-preview__bar" style={{ background: palette.accent }} />
+            <span className="theme-preview__line" style={{ background: palette.foreground, opacity: .5 }} />
+            <span className="theme-preview__line theme-preview__line--short" style={{ background: palette.foreground, opacity: .3 }} />
+          </span>
         </span>
       </span>
-    </span>
-  );
+    );
+  };
   return (
     <button
       className={props.selected ? 'theme-preview is-active' : 'theme-preview'}
@@ -2290,41 +2293,21 @@ export default function App({ api: suppliedApi }: AppProps) {
      */
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', palette.background);
 
-    // The slider drives how far surfaces and borders sit from the background.
-    // Surfaces always lift toward white, which is the direction both schemes
-    // use: a dark page gains a lighter card, a light page gains a white one.
-    const lift = (weight: number) => mixColor(palette.background, '#ffffff', weight + palette.contrast / 1400);
-    root.style.setProperty('--panel', lift(0.012));
-    root.style.setProperty('--panel-raised', lift(0.022));
-
     /**
-     * The recessed surfaces — the rail, its search field and the title bar — step
-     * *into* the page instead, toward the text colour.
+     * The surfaces, derived once and shared with the appearance previews.
      *
-     * Lifting them toward white leaves a light page with nowhere to go: white is 13
-     * levels above `#eef2f1`, and `0.004 + 68/1400` of that is one level, so all three
-     * surfaces resolved to the same `#eff3f2`. Measured in the browser before this
-     * change: the light rail was `rgb(239, 243, 242)` against a `rgb(238, 242, 241)`
-     * page — 1.007:1, i.e. invisible — and a selected row's fill was identical to the
-     * rail it sat on, so hover and selection changed nothing but the inset ring.
-     *
-     * Toward the text colour the step has room in both schemes: `#e3e7e7` for the
-     * built-in light palette, and `#0d0d0d` for the dark one — unchanged, because a
-     * dark page's text colour is near-white and the two directions agree there.
-     *
-     * **The question is the palette's, not the theme's.** This used to branch on
-     * `theme === 'dark'`, which is only equivalent while the two built-in palettes are the
-     * only ones in use. The appearance section lets anyone choose any background: with
-     * `#eef2f1` on the dark theme, measured, every surface collapsed back to `#eff3f2`
-     * (rail against page 1.007:1, and a selected row identical to the rail) — the exact
-     * defect this block documents, reintroduced through the custom-palette door. The
-     * direction now follows the background's own luminance, so the built-in palettes are
-     * unchanged and a light background is treated as a light page wherever it is chosen.
+     * The slider drives how far they sit from the background, and the direction is the palette's
+     * rather than the theme's (`paletteSurfaces` in src/theme/palette.ts documents both, including
+     * the collapse that a theme-keyed branch caused for a light background chosen on the dark theme).
+     * The previews call the same function, so a swatch cannot show a colour the app does not paint:
+     * before they were shared, the card's own formula put its rail at `rgb(23, 24, 24)` against a
+     * painted `#0d0d0d`, its sheet at `rgb(37, 38, 38)` against `#0f0f0f`, and moving the contrast
+     * slider did not move the swatches at all.
      */
-    const recessed = isLight(palette.background)
-      ? mixColor(palette.background, palette.foreground, 0.004 + palette.contrast / 1400)
-      : lift(0.004);
-    root.style.setProperty('--panel-soft', recessed);
+    const painted = paletteSurfaces(palette);
+    root.style.setProperty('--panel', painted.panel);
+    root.style.setProperty('--panel-soft', painted.rail);
+    root.style.setProperty('--panel-raised', painted.raised);
 
     /**
      * The text colours, solved against the surfaces above rather than trusted as literals.
@@ -2341,8 +2324,8 @@ export default function App({ api: suppliedApi }: AppProps) {
      * because a chip paints itself with a 9% wash of the colour it writes, which costs about 0.07:1
      * against a light surface.
      */
-    const surfaces = [palette.background, lift(0.012), recessed, lift(0.022)];
-    const accentStrong = mixColor(palette.accent, isLight(palette.background) ? '#000000' : '#ffffff', 0.28);
+    const surfaces = [palette.background, painted.panel, painted.rail, painted.raised];
+    const accentStrong = mix(palette.accent, isLight(palette.background) ? '#000000' : '#ffffff', 0.28);
     root.style.setProperty('--accent-strong', readableText(accentStrong, surfaces));
     for (const [name, colour] of Object.entries(STATUS_COLOURS[theme])) {
       root.style.setProperty(`--${name}`, readableText(colour, surfaces, 4.8));
@@ -2366,8 +2349,8 @@ export default function App({ api: suppliedApi }: AppProps) {
      *     light  #bac9c4 -> #a6acad   hover border 1.53:1 -> 2.06:1, thumb 1.25:1 -> 1.51:1
      */
     const line = 0.1 + palette.contrast / 420;
-    root.style.setProperty('--line', mixColor(palette.background, palette.foreground, line));
-    root.style.setProperty('--line-strong', mixColor(palette.background, palette.foreground, line + 0.08));
+    root.style.setProperty('--line', mix(palette.background, palette.foreground, line));
+    root.style.setProperty('--line-strong', mix(palette.background, palette.foreground, line + 0.08));
 
     const uiType = fontStack(palette.uiType.family);
     const content = palette.contentType.sameAsUi ? uiType : fontStack(palette.contentType.family);

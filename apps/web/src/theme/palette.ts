@@ -46,6 +46,43 @@ export function isLight(colour: string): boolean {
   return relativeLuminance(colour) > 0.5;
 }
 
+/** The three surfaces the palette effect derives, in the order the app paints them. */
+export interface PaletteSurfaces {
+  /** `--panel-soft`: the rail, its search field and the title bar. */
+  readonly rail: string;
+  /** `--panel`: cards, tables and the reading surfaces. */
+  readonly panel: string;
+  /** `--panel-raised`: a selected row or a hovered control. */
+  readonly raised: string;
+}
+
+/**
+ * The surfaces a palette resolves to — the one implementation of the derivation.
+ *
+ * Both the palette effect and the appearance previews call this. They used to each have their own:
+ * the effect mixed toward white with `weight + contrast / 1400`, while the preview card mixed toward
+ * the *foreground* at fixed 0.1/0.16 and ignored the contrast slider. Measured on the built-in dark
+ * palette, the preview's rail was `rgb(23, 24, 24)` against a painted `#0d0d0d` and its sheet
+ * `rgb(37, 38, 38)` against `#0f0f0f` — and moving the contrast slider to 100 moved the app's
+ * surfaces to `#131313`/`#151515` while the preview sat still. A swatch that does not show the theme
+ * it is chosen by is worse than no swatch.
+ *
+ * No theme parameter, deliberately: the direction comes from the palette's own background (round 7),
+ * which is what lets a preview of the *other* theme be correct while the current one is on screen.
+ */
+export function paletteSurfaces(palette: { readonly background: string; readonly foreground: string; readonly contrast: number }): PaletteSurfaces {
+  const lift = (weight: number) => mix(palette.background, '#ffffff', weight + palette.contrast / 1400);
+  return {
+    // A recessed surface steps *into* the page, toward the text colour; on a dark page that is also
+    // toward white, which is why the two directions agree for the built-in dark palette.
+    rail: isLight(palette.background)
+      ? mix(palette.background, palette.foreground, 0.004 + palette.contrast / 1400)
+      : lift(0.004),
+    panel: lift(0.012),
+    raised: lift(0.022),
+  };
+}
+
 /** Blend `from` toward `to` by `amount`, the same arithmetic the palette effect uses. */
 export function mix(from: string, to: string, amount: number): string {
   const a = channels(from);
