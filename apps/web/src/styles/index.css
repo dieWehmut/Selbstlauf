@@ -122,7 +122,7 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); li
 
 /* Chrome (navigation, badges, controls) follows the interface type; reading
    surfaces follow the content type, so the two can be set independently. */
-button, input, select, .nav-button, .brand, .eyebrow, .state-chip, .capability, .mode-badge, .section-meta { font-family: var(--ui-font, inherit); }
+button, input, select, .nav-button, .eyebrow, .state-chip, .capability, .mode-badge, .section-meta { font-family: var(--ui-font, inherit); }
 .settings-section, .process-table-wrap, .timeline, .about-card, .tool-card, .manual-commands__toggle, .hook-settings, .codex-endpoints { font-family: var(--ui-font, inherit); font-weight: var(--ui-weight, 400); }
 button, input { font: inherit; }
 button { cursor: pointer; }
@@ -175,12 +175,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
    rule sets `display: inline-grid` and comes later in the file: two single-class selectors
    of equal specificity would let the later one win and show this button everywhere. */
 .sidebar > .sidebar-close.icon-button { display: none; align-self: flex-end; margin-bottom: -8px; }
-.brand { display: flex; align-items: center; gap: 11px; padding: 2px 8px; min-width: 0; }
 .brand__mark { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 34px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
 .brand__mark img { width: 100%; height: 100%; object-fit: cover; }
-.brand strong, .brand span, .service-mini strong, .service-mini span { display: block; }
-.brand strong { font-size: 14px; letter-spacing: 0; white-space: nowrap; }
-.brand > div > span { margin-top: 2px; color: var(--faint); font: 11px var(--mono); white-space: nowrap; }
 .sidebar-close { display: none; margin-left: auto; }
 .sidebar nav { display: grid; gap: 3px; }
 /* Motion: the label slides very slightly toward the row it is about to open, and the whole
@@ -195,12 +191,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
    The negative margins cancel the sidebar's own padding, so the bar reaches the left, right and
    bottom edges with no gap; the height comes down so it reads as a status strip rather than a panel. */
 .sidebar__footer { display: grid; gap: 10px; margin: auto -12px -14px; }
-.service-mini { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow-soft); }
-.service-mini strong { font-size: 12px; }
-.service-mini span:not(.status-light) { color: var(--faint); font: 10px var(--mono); margin-top: 3px; }
 .status-light { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 13%, transparent); }
 .status-light.is-online { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 15%, transparent); }
-.compact-toggle { justify-self: end; }
 
 /* A soft ambient wash instead of a ruled grid: the page keeps depth without
    drawing a hard line every 32 pixels. */
@@ -453,7 +445,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .timeline__title > span:last-child { color: var(--faint); font: 10px var(--mono); }
 .timeline p { margin: 5px 0 0; color: var(--muted); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty-state { padding: 36px; border-radius: var(--radius-lg); color: var(--muted); text-align: center; font-size: 13px; }
-.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 30px; }
 .settings-section { padding: 22px; border: 1px solid var(--line-whisper); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow-soft); }
 .settings-section--wide { grid-column: 1 / -1; }
 .section-title { justify-content: space-between; color: var(--muted); }
@@ -534,7 +525,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   .session-card__prompt { grid-column: 1 / -1; }
   .session-card__host { grid-column: 1 / -1; }
   .session-card code { max-width: 100%; }
-  .settings-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 18px; }
   .settings-actions { grid-column: auto; align-items: stretch; flex-direction: column; }
   .settings-actions .button--primary { margin-right: 0; }
   .settings-actions .button { width: 100%; }
@@ -641,11 +631,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
    one surface instead of two stacked panels. */
 :root[data-sidebar='translucent'] .sidebar { background: color-mix(in srgb, var(--panel) 62%, transparent); backdrop-filter: blur(14px); }
 
-/* ---------- Settings tabs and segmented controls ---------- */
-.settings-tabs { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px; padding: 5px; border: 1px solid var(--line-whisper); border-radius: var(--radius); background: var(--panel); }
-.settings-tab { flex: 1 1 96px; padding: 10px 14px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--muted); font-size: 13px; transition: background .15s ease, border-color .15s ease, color .15s ease; }
-.settings-tab:hover { color: var(--text); background: var(--panel-raised); }
-.settings-tab.is-active { border-color: color-mix(in srgb, var(--accent) 38%, transparent); color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 13%, var(--panel)); }
+/* ---------- Segmented controls ---------- */
 .section-hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .segmented { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px; padding: 4px; border: 1px solid var(--line-whisper); border-radius: var(--radius-sm); background: var(--panel-soft); }
 .segmented__option { display: flex; align-items: center; gap: 7px; padding: 9px 18px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; transition: background .15s ease, border-color .15s ease, color .15s ease; }
@@ -781,14 +767,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 @media (max-width: 700px) {
   .settings-content { grid-template-columns: 1fr; gap: 12px; }
-  .settings-tab { flex: 1 1 60px; padding: 9px 8px; font-size: 12px; }
   .segmented__option { flex: 1 1 100%; justify-content: center; }
 }
 @media (max-width: 700px) {
   .theme-previews { grid-template-columns: 1fr; }
   .theme-diff { grid-template-columns: 1fr; }
-  .theme-diff__arrow { display: none; }
-  .appearance-actions { flex-direction: column; align-items: flex-start; }
 }
 
 /* ---------- Sidebar: the discovered processes ---------- */

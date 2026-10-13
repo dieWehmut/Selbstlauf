@@ -77,13 +77,6 @@
   white-space: normal;
 }
 
-.pref-pin-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  margin-top: 18px;
-}
-
 .pref-rows {
   display: grid;
   margin-top: 18px;
@@ -109,44 +102,6 @@
   font: 12px var(--mono);
   overflow-wrap: anywhere;
   text-align: right;
-}
-
-.pref-swatches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.pref-swatch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 13px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-pill);
-  color: var(--text);
-  background: var(--panel-soft);
-  font-size: 12px;
-  transition: border-color .15s ease, color .15s ease, background .15s ease;
-}
-
-.pref-swatch:hover {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  color: var(--accent-strong);
-}
-
-.pref-swatch.is-active {
-  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
-  color: var(--accent-strong);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
-.pref-swatch__dot {
-  width: 11px;
-  height: 11px;
-  border: 1px solid var(--line-soft);
-  border-radius: 50%;
 }
 
 .pref-list {
@@ -266,7 +221,6 @@
 }
 
 @media (max-width: 700px) {
-  .pref-pin-fields { grid-template-columns: 1fr; }
   .pref-actions .button { flex: 1 1 100%; }
   .workspace-pet { right: 14px; bottom: 14px; }
 }
