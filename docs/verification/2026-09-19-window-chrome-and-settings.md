@@ -3605,6 +3605,24 @@ strings — the second one showing the raw English in the rendered output.
 
 Suites: web 222 -> 227 (a new 16th test file); browser 90 (unchanged).
 
+### A shortcut hint beside the wrong item
+
+The account menu's 显示宠物 row showed **Ctrl+3**. That key is bound — `Ctrl+3` switches to 设置, and the 键盘快捷键
+section documents it exactly that way — but it lands on the settings page's first section, not on the pet. So the
+hint was attached to the wrong item rather than describing a binding that does not exist: the same shape as the
+`Ctrl+,` hint that was once advertised beside 设置 without ever being bound.
+
+The hint is gone from 显示宠物, and 设置 keeps `Ctrl+,` (which is really bound to it). Binding `Ctrl+3` to the pet
+instead would have contradicted the shortcuts list the app publishes, and the list is the thing a person can read
+before pressing anything.
+
+The test opens the menu and asserts the pet item carries no key while the settings item keeps its own, and it
+failed first with `the pet item advertises a key that opens the settings page instead: expected <kbd></kbd> to be
+null`. One existing case pinned the menu's text as `显示宠物Ctrl+3`; it now expects `显示宠物`, with the reason
+recorded in the assertion.
+
+Suites: web 227 -> 228; browser 90 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
