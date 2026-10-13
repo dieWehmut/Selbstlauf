@@ -3133,14 +3133,36 @@ regression in a spec this change never touched.
 
 Suites: web 187 -> 191; browser 85 (unchanged).
 
-**Found while checking the rest of the preferences, and queued:** the same sweep turned up a
-*personalization* preference that is unreachable rather than inert — `PersonalizationPref.density` has a
-default, a validator and `PERSONALIZATION_DEFAULTS`, `manual-commands`-style CSS exists for it
-(`:root[data-density='compact']` overrides in `sections.css`), and **nothing anywhere sets
-`data-density`**: there is no control, and the two imports in `sections.tsx` are unused. No user is
-being told something untrue, so this is dead code rather than a defect of the kind above; it is either
-worth a density control (the styles are already written) or worth deleting. Recorded here so the next
-round starts from the finding instead of rediscovering it.
+**Found while checking the rest of the preferences:** the same sweep turned up a *personalization*
+preference that was unreachable rather than inert — `PersonalizationPref.density` had a default, a
+validator and `PERSONALIZATION_DEFAULTS`, `sections.css` carried `:root[data-density='compact']`
+overrides, and **nothing anywhere set `data-density`**: no control, and the two imports in
+`sections.tsx` were unused. No user was being told anything untrue, so it was dead code rather than a
+defect of the kind above — and it is now wired, in the next section.
+
+### The density preference was wired rather than deleted
+
+Three compact rules had been written and could never match, because nothing set the attribute they key
+off. They name three surfaces, and the appearance section now offers 界面密度 (舒适 / 紧凑) with a hint
+that lists exactly those — the alternative was deleting a preference whose styles were already
+designed:
+
+    comfortable   settings section 22px   appearance row 15px   process-table cell 16px
+    compact       settings section 15/16px  appearance row 10px  process-table cell 10px
+
+The app owns the value: an effect puts it on the document root, the section pushes changes up, and it is
+stored under the preference's own key, so it survives a reload and is independent of the theme (a
+palette change does not reset it). `theme-boot.js` applies a saved density before the bundle as well —
+the same argument as the saved theme, since a user who chose compact should not watch comfortable
+spacing correct itself.
+
+Measured in the browser rather than asserted from the class name: the test reads the computed padding of
+all three surfaces in both states, checks the choice survives a reload, and the boot spec holds the
+bundle back to check the pre-bundle attribute. The `sections.tsx` imports that existed only for the
+unused pref are gone.
+
+Suites: web 191 -> 193; browser 85 -> 87 (a density case in each of the appearance and boot specs;
+    `--list` reports 87 tests in 33 files, and the full run is green in 2.2m).
 
 ## Not verified
 
