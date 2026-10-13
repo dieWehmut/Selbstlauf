@@ -3135,9 +3135,12 @@ export default function App({ api: suppliedApi }: AppProps) {
                 {/* The last entry is set apart, as the reference sets its final entry apart:
                     it changes the window rather than navigating anywhere. */}
                 <div className="account-menu account-menu--separated" role="menu" aria-label="窗口">
-                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setSidebarCompact(true); setAccountMenuOpen(false); }}>
-                    <PanelLeftClose size={17} />
-                    <span>收起侧栏</span>
+                  {/* A toggle, naming the direction it will take — like the title bar's own control. It used to
+                      read 收起侧栏 and call setSidebarCompact(true) whatever the state was, so the entry repeated
+                      an action that had already happened and offered no way back. */}
+                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setSidebarCompact((current) => !current); setAccountMenuOpen(false); }}>
+                    {sidebarCompact ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+                    <span>{sidebarCompact ? '展开侧栏' : '收起侧栏'}</span>
                   </button>
                 </div>
               </div>

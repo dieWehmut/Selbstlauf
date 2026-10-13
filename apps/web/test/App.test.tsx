@@ -834,6 +834,32 @@ describe('watchdog dashboard', () => {
     expect(screen.getByRole('menuitem', { name: /^设置/u }).querySelector('kbd')?.textContent).toBe('Ctrl+,');
   });
 
+  /**
+   * The bottom bar's sidebar entry has to be a toggle, not a one-way action.
+   *
+   * It read 收起侧栏 and called `setSidebarCompact(true)` whatever the state was, so once the sidebar was compact
+   * the entry repeated an action that had already happened and offered no way back — while the title bar's own
+   * control toggles, and names the direction it will take.
+   */
+  it('toggles the sidebar from the bottom bar, and says which way it will go', async () => {
+    render(<App api={api()} />);
+    const openMenu = async () => {
+      fireEvent.click(screen.getByRole('button', { name: /个进程/u }));
+      return screen.findByRole('region', { name: '账户与状态' });
+    };
+    const entry = () => screen.getByRole('menuitem', { name: /侧栏/u });
+
+    await openMenu();
+    expect(entry().textContent).toBe('收起侧栏');
+    fireEvent.click(entry());
+    expect(document.querySelector('.app-shell')).toHaveClass('app-shell--compact');
+
+    await openMenu();
+    expect(entry().textContent, 'the entry repeats an action that already happened').toBe('展开侧栏');
+    fireEvent.click(entry());
+    expect(document.querySelector('.app-shell')).not.toHaveClass('app-shell--compact');
+  });
+
   it('explains an empty process list instead of showing a table with no rows', async () => {
     /**
      * The connecting state above is also the state of a machine where nothing has been discovered:
