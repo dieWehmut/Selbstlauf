@@ -3026,6 +3026,43 @@ pane has no `background:` row at all.
 
 Suites: web 186 (unchanged); browser 83 -> 84.
 
+### Absurd session values: two silent clips and a table that grew without bound
+
+The live-API project can serve arbitrary session data, which nothing had ever done: the demo project's
+in-memory API always has the same four quiet sessions. One session was given a 120-character id, a
+200-character conversation id, a 300-character workspace path, an absurdly long window title and host
+label, and a 260-character prompt.
+
+Measured before the fixes, against a **baseline** pass of the same build with the demo's own values:
+
+    process table     baseline 939px, fitting its wrapper   ->  extreme 2525px, 1586px of scroll
+    detail 运行位置   host cell [286 < 520] — wider than its box, and the workspace's own
+                      `overflow-x: hidden` cut it off mid-word with no ellipsis
+    narrow cards      card header [608 < 2019], the same silent clip inside `.session-card { overflow: hidden }`
+
+Three changes:
+
+  - **`.host-badge` is capped and ellipsised**, with the full label in a `title`. It was
+    `display: inline-flex` with `nowrap` and no cap, so a long host name made its pill 520px wide in a
+    286px cell. It is `inline-block` now, because `text-overflow` applies to the box rather than to a
+    flex item.
+  - **`.process-id span` and the new `.conversation-id` wrap anywhere.** They wrap rather than
+    ellipsise, and the first attempt got that wrong in an instructive way: a `max-width` with
+    `white-space: nowrap` made the table *wider for the demo's own values* — the baseline went from
+    939px (fits) to 1225px with 286px of scroll — because content that used to wrap was forced onto one
+    line. `overflow-wrap: anywhere` bounds the absurd case and hides nothing.
+
+    after     baseline 939px, fitting   ->  extreme 985px, 46px of scroll
+
+**The spec compares against a baseline, not a fixed width.** Absolute widths depend on the window and
+on the data, and this table is deliberately allowed to scroll (`overflow-x: auto` with bounded columns
+elsewhere). What a change can be held to is the *increase* caused by absurd content, so the same build
+is measured twice — with the demo's own sessions and with the absurd one — over the same real HTTP
+server, and the growth is what is asserted. Run against the previous CSS the test fails on exactly that:
+1586px of growth.
+
+Suites: web 186 (unchanged); browser 84 -> 85.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
