@@ -134,6 +134,38 @@ describe('stylesheet reachability', () => {
     ).toEqual([]);
   });
 
+  /**
+   * The custom properties, in both directions.
+   *
+   * `--shadow` and `--mesh-line` were defined in both theme blocks and read by nothing (the rules use
+   * `--shadow-soft` / `--shadow-lift`), and a variable read with no definition anywhere computes to nothing
+   * unless the read carries a fallback.
+   *
+   * The amber defect in the same family was found by the colour matrix rather than here, and the reason is worth
+   * recording: its three reads *did* carry a fallback (`var(--amber, #e6b65b)`), which is exactly what let an
+   * unreadable literal look deliberate to every other check.
+   */
+  it('reads only custom properties it defines, and defines only ones it reads', () => {
+    const defined = new Set<string>();
+    for (const match of css.matchAll(/(--[\w-]+)\s*:/gu)) defined.add(match[1]);
+    // The palette effect sets the solved colours at runtime, so those are definitions as well.
+    for (const match of source.matchAll(/setProperty\(\s*['"](--[\w-]+)['"]/gu)) defined.add(match[1]);
+
+    const reads = new Map<string, { readonly fallback: boolean }>();
+    for (const file of [...STYLESHEETS, ...sourceFiles()]) {
+      const text = readFileSync(file, 'utf8');
+      for (const match of text.matchAll(/var\(\s*(--[\w-]+)\s*(,)?/gu)) {
+        const previous = reads.get(match[1]);
+        reads.set(match[1], { fallback: (previous?.fallback ?? false) || match[2] === ',' });
+      }
+    }
+
+    const undefinedReads = [...reads].filter(([name, info]) => !info.fallback && !defined.has(name)).map(([name]) => name);
+    const unreadDefinitions = [...defined].filter((name) => !reads.has(name));
+    expect(undefinedReads, 'these variables are read without a fallback and defined nowhere').toEqual([]);
+    expect(unreadDefinitions, 'these variables are defined and read by nothing').toEqual([]);
+  });
+
   it('finds the rules it is meant to be checking', () => {
     // A guard that silently checks nothing is worse than no guard: if the stylesheets stop being found, or the
     // selector extraction stops matching, this fails instead of passing.

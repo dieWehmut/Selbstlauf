@@ -47,6 +47,11 @@ const PAINTED: readonly { readonly selector: string; readonly label: string; rea
    * `--green` in the same non-text role, so the matrix still covers a filled indicator.
    */
   { selector: '.sidebar-row .process-dot--writable', label: 'a writable process dot', kind: 'non-text' },
+  /**
+   * The monitor dot, which is the app's third status colour — and the only one whose value is written as a
+   * literal fallback rather than a token (`var(--amber, #e6b65b)`), so nothing had ever measured it.
+   */
+  { selector: '.sidebar-row .process-dot--monitor', label: 'a monitor process dot', kind: 'non-text' },
 ];
 
 async function openTheme(theme: 'dark' | 'light', page: Page, palette?: Record<string, unknown>): Promise<void> {

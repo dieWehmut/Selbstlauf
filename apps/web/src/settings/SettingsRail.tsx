@@ -67,7 +67,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = Object.freeze([
     entries: Object.freeze([
       Object.freeze({ id: 'startup', label: '启动与托盘', icon: Power }),
       Object.freeze({ id: 'config', label: '续写与进程', icon: Wrench }),
-      Object.freeze({ id: 'import', label: '导入历史', icon: Download }),
+      Object.freeze({ id: 'import', label: '导入', icon: Download }),
       Object.freeze({ id: 'computer-control', label: '电脑操控', icon: MonitorCog }),
       Object.freeze({ id: 'plugins', label: '插件', icon: Plug }),
       Object.freeze({ id: 'browser', label: '浏览器', icon: Globe }),

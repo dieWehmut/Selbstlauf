@@ -330,15 +330,20 @@ const FONT_CHOICES: readonly FontChoice[] = ['system', 'mono', 'serif'];
 
 /**
  * The semantic colours each theme starts from: green is "writable" or "online", red is a failure,
- * blue is an editor window. They are the app's own colours rather than the user's, so they are not
- * part of the palette — but they are *solved against* it, because the appearance section accepts any
- * background and a status word that cannot be read is worse than a wrong hue. The values here are
- * the ones the stylesheet ships as first-paint literals, unchanged; the effect only moves them when
- * the chosen palette leaves them below AA (see `readableText`).
+ * blue is an editor window, amber is a session that can be watched but not written to. They are the app's
+ * own colours rather than the user's, so they are not part of the palette — but they are *solved against*
+ * it, because the appearance section accepts any background and a status word that cannot be read is worse
+ * than a wrong hue. The values here are the ones the stylesheet ships as first-paint literals, unchanged; the
+ * effect only moves them when the chosen palette leaves them below AA (see `readableText`).
+ *
+ * Amber joined this list late, and the reason is the defect this list prevents: it was written at its three
+ * use sites as `var(--amber, #e6b65b)` and defined nowhere, so no palette could move it. Measured on the
+ * light theme, that literal left the monitor dot at **1.50:1** against the sidebar — very nearly invisible —
+ * and with a near-white custom palette on the dark theme it did the same.
  */
-const STATUS_COLOURS: Record<Theme, { readonly green: string; readonly red: string; readonly blue: string }> = {
-  dark: { green: '#74c69d', red: '#e98b81', blue: '#83b9d4' },
-  light: { green: '#206f50', red: '#a74339', blue: '#2b6983' },
+const STATUS_COLOURS: Record<Theme, { readonly green: string; readonly red: string; readonly blue: string; readonly amber: string }> = {
+  dark: { green: '#74c69d', red: '#e98b81', blue: '#83b9d4', amber: '#e6b65b' },
+  light: { green: '#206f50', red: '#a74339', blue: '#2b6983', amber: '#8a5a00' },
 };
 
 function normalizeType(value: unknown, fallback: TypeSetting): TypeSetting {

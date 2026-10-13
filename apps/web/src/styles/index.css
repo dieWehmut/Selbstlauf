@@ -52,6 +52,10 @@
   --green: #74c69d;
   --red: #e98b81;
   --blue: #83b9d4;
+  /* The third status colour, for a session the app can watch but not write to. Fixed rather than derived from
+     the accent, for the same reason as the others: a status colour means something, so a user's accent must not
+     move it. This is the value the three `var(--amber, #e6b65b)` sites carried as a literal. */
+  --amber: #e6b65b;
   --radius-xs: 9px;
   --radius-sm: 13px;
   --radius: 17px;
@@ -59,9 +63,7 @@
   --radius-pill: 999px;
   --shadow-soft: 0 1px 2px rgba(0, 0, 0, .12), 0 12px 30px rgba(0, 0, 0, .1);
   --shadow-lift: 0 2px 6px rgba(0, 0, 0, .14), 0 22px 52px rgba(0, 0, 0, .16);
-  --shadow: 0 20px 48px rgba(0, 0, 0, .14);
   --mono: 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
-  --mesh-line: color-mix(in srgb, var(--line) 32%, transparent);
   /* The window title bar row. One token, because three separate 40px literals
      (this row, the sidebar's sticky offset and its height) is how the row and the
      native window-button overlay drifted apart from the reference. The value must
@@ -102,6 +104,12 @@
   --green: #206f50;
   --red: #a74339;
   --blue: #2b6983;
+  /* Darkened for this theme like the other two, and measured rather than assumed: the value the three
+     `var(--amber, …)` sites carried — #e6b65b — was **1.50:1** against this theme's sidebar and 1.87:1 on
+     white, so the monitor dot was very nearly invisible and the two amber texts were unreadable. This value is
+     4.76:1 on the sidebar and 5.93:1 on white, which clears the mark's 3:1 and the text's 4.5:1 on the lightest
+     surface either can sit on. */
+  --amber: #8a5a00;
   /* These three are literals, not derived — a status colour means something, so a user's background
      must not move it — which makes their contrast a function of the surface behind them. They were
      solved against the card, and then the rail became *darker* than the card (`--panel-soft`
@@ -113,8 +121,6 @@
      `theme-status-colours.spec.ts` checks the whole matrix, so it cannot regress quietly. */
   --shadow-soft: 0 1px 2px rgba(31, 57, 48, .04), 0 12px 30px rgba(31, 57, 48, .06);
   --shadow-lift: 0 2px 6px rgba(31, 57, 48, .05), 0 20px 46px rgba(31, 57, 48, .08);
-  --shadow: 0 16px 38px rgba(31, 57, 48, .07);
-  --mesh-line: color-mix(in srgb, var(--line) 42%, transparent);
 }
 
 * { box-sizing: border-box; }
@@ -890,7 +896,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
    the same in both places. */
 .process-dot { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 13%, transparent); }
 .process-dot--writable { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 15%, transparent); }
-.process-dot--monitor { background: var(--amber, #e6b65b); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber, #e6b65b) 15%, transparent); }
+.process-dot--monitor { background: var(--amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 15%, transparent); }
 .process-dot--idle { background: var(--faint); }
 .process-dot--error { background: var(--red, #e5735f); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red, #e5735f) 15%, transparent); }
 
@@ -1081,7 +1087,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .prompt-composer__field input[aria-invalid='true'] { border-color: color-mix(in srgb, var(--red) 55%, transparent); }
 .prompt-composer__hint { margin: 0; color: var(--muted); font-size: 12px; }
 .prompt-composer__hint strong { color: var(--text); font: 12px var(--mono); }
-.prompt-composer__blocked { display: inline-flex; align-items: center; gap: 6px; color: var(--amber, #e6b65b); }
+.prompt-composer__blocked { display: inline-flex; align-items: center; gap: 6px; color: var(--amber); }
 /* A refusal or a failure is stated in words rather than only by a colour change. */
 .prompt-composer__problem { margin: 0; color: var(--red, #e5735f); font-size: 12px; }
 .prompt-composer__sent { margin: 0; color: var(--green); font-size: 12px; }
@@ -1113,7 +1119,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .window-type__body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line-whisper); }
 .window-type__body[hidden] { display: none; }
 .window-type__title { margin: 0; font-size: 13px; color: var(--muted); }
-.window-type__cost { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--amber, #e6b65b); font-size: 12px; }
+.window-type__cost { display: flex; align-items: flex-start; gap: 6px; margin: 0; color: var(--amber); font-size: 12px; }
 .window-type__cost > svg { flex: 0 0 auto; margin-top: 2px; }
 .window-type__form { display: flex; align-items: center; gap: 10px; }
 .window-type__field { flex: 1 1 auto; min-width: 0; display: block; }

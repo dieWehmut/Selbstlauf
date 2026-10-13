@@ -127,7 +127,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     const rail = await screen.findByRole('tablist', { name: '设置分区' });
     const expected = [
       '常规', '外观', '通知', '键盘快捷键', '个人资料', '宠物',
-      '启动与托盘', '续写与进程', '导入历史', '电脑操控', '插件', '浏览器', '关于',
+      '启动与托盘', '续写与进程', '导入', '电脑操控', '插件', '浏览器', '关于',
     ];
     const labels = within(rail).getAllByRole('tab').map((tab) => tab.textContent);
     expect(labels).toEqual(expected);
@@ -515,6 +515,25 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.click(await screen.findByRole('button', { name: '升级 Claude Code' }));
     await waitFor(() => expect(fake.upgradeTool).toHaveBeenCalledWith('claude'));
     expect((await screen.findByText(/升级完成/u)).textContent, 'the notice names the package id').toBe('Claude Code 升级完成');
+  });
+
+  /**
+   * The rail entry for the import section names what the section does.
+   *
+   * It read 导入历史 — an import *history* — while the section reads a theme or a config out of the clipboard and
+   * applies it, and the app keeps no history of imports anywhere. The label arrived with the rail rebuild, so it
+   * was never a feature that had been removed; it was a promise that had never been kept.
+   */
+  it('labels the import section for what it does', async () => {
+    render(<App api={api()} />);
+    openSettings();
+    const rail = await screen.findByRole('tablist', { name: '设置分区' });
+    const tab = within(rail).getByRole('tab', { name: /导入/u });
+
+    fireEvent.click(tab);
+    // The section's own heading is 导入, and its hint says where its input comes from.
+    expect(await screen.findByRole('heading', { name: '导入' })).toBeInTheDocument();
+    expect(tab.textContent, 'the rail promises an import history the app does not keep').toBe('导入');
   });
 
   it('still reports errors when only the success switch is off', async () => {
