@@ -766,6 +766,35 @@ describe('watchdog dashboard', () => {
     expect(table.textContent, 'the table calls an unknown tool Claude').toBe(sidebar?.textContent);
   });
 
+  /**
+   * Two surfaces labelled 服务状态 answered different questions.
+   *
+   * The overview strip's 服务状态 meant "is the watchdog running" (运行中 / 已停止 / 离线) and the account popup's
+   * 服务状态 meant "can this page reach the service" (在线 / 未连接). With a reachable service whose watchdog is
+   * stopped they disagreed on screen under the same words — 已停止 beside 在线 — and a screen reader heard the
+   * same label twice.
+   */
+  it('names the watchdog state and the connection state differently', async () => {
+    const fake = api();
+    fake.health = vi.fn(async () => ({ ok: true, running: false, dryRun: true, lastPollAtMs: Date.now() - 2_000 }));
+    render(<App api={fake} />);
+    await waitFor(() => expect(document.querySelector('.metric-strip')).not.toBeNull());
+
+    const cell = (label: string) => [...document.querySelectorAll('.metric-strip > div')]
+      .find((entry) => entry.querySelector('span')?.textContent === label);
+    const fact = (label: string) => [...document.querySelectorAll('.account-popup__fact')]
+      .find((entry) => entry.querySelector('span:nth-child(2)')?.textContent === label);
+
+    // The strip answers "is the watchdog running".
+    expect(cell('Watchdog')?.textContent ?? '(no Watchdog cell)', 'the strip does not name the watchdog').toContain('已停止');
+    // The popup answers "can this page reach the service" — and it can.
+    fireEvent.click(screen.getByRole('button', { name: /个进程/u }));
+    expect(await screen.findByRole('region', { name: '账户与状态' })).toBeInTheDocument();
+    expect(fact('连接状态')?.textContent ?? '(no 连接状态 row)', 'the popup does not name the connection').toContain('在线');
+    // And no surface uses the old shared words for either question.
+    expect(screen.queryByText('服务状态'), 'one label still answers both questions').toBeNull();
+  });
+
   it('explains an empty process list instead of showing a table with no rows', async () => {
     /**
      * The connecting state above is also the state of a machine where nothing has been discovered:
