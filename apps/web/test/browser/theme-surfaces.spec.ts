@@ -60,7 +60,11 @@ function literals(selector: string): Record<string, string> {
   return declared;
 }
 
-async function openTheme(theme: 'dark' | 'light', page: Page): Promise<void> {
+async function openTheme(theme: 'dark' | 'light', page: Page, palette?: Record<string, unknown>): Promise<void> {
+  if (palette !== undefined) {
+    // How a saved custom palette arrives: before the bundle runs.
+    await page.addInitScript((value) => localStorage.setItem('watchdog-palette', JSON.stringify(value)), palette);
+  }
   if (theme === 'light') {
     // Set before the bundle runs, which is how a saved preference arrives.
     await page.addInitScript(() => localStorage.setItem('watchdog-theme', 'light'));
@@ -76,8 +80,8 @@ function step(from: string, to: string): number {
   return levels(parseColour(from), parseColour(to));
 }
 
-async function measure(theme: 'dark' | 'light', page: Page): Promise<void> {
-  await openTheme(theme, page);
+async function measure(theme: 'dark' | 'light', page: Page, palette?: Record<string, unknown>): Promise<void> {
+  await openTheme(theme, page, palette);
 
   const below = await page.evaluate(() => {
     const paint = (selector: string) => {
@@ -133,6 +137,23 @@ test('the dark theme paints the page, its rail and a selected row apart', async 
 
 test('the light theme paints the page, its rail and a selected row apart', async ({ page }) => {
   await measure('light', page);
+});
+
+test('a light background chosen on the dark theme is treated as a light page', async ({ page }) => {
+  /**
+   * The surfaces' direction is the palette's, not the theme's.
+   *
+   * This used to branch on `theme === 'dark'`, which is only equivalent while the two built-in
+   * palettes are the only ones in use. The appearance section accepts any background, so with
+   * `#eef2f1` chosen on the dark theme every surface collapsed back to `#eff3f2` — measured rail
+   * against page 1.007:1, and a selected row identical to the rail it sits on — which is the defect
+   * round 1 fixed, re-entered through the custom-palette door.
+   */
+  const LIGHT_ON_DARK = {
+    dark: { accent: '#e6b65b', background: '#eef2f1', foreground: '#1c262b', contrast: 68 },
+  } as const;
+
+  await measure('dark', page, LIGHT_ON_DARK);
 });
 
 /** The colour every token resolves to on the document root, i.e. what the renderer paints with. */

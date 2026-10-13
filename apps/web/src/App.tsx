@@ -59,6 +59,7 @@ import { SessionWindowPreview } from './process/SessionWindowPreview';
 import { WindowTypePanel } from './process/WindowTypePanel';
 import { ToolIcon } from './sidebar/ToolIcon';
 import { canWriteSession, writeEligibility } from './session/write-eligibility';
+import { isLight } from './theme/palette';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
@@ -2263,7 +2264,15 @@ export default function App({ api: suppliedApi }: AppProps) {
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--accent', palette.accent);
-    root.style.setProperty('--accent-strong', mixColor(palette.accent, theme === 'dark' ? '#ffffff' : '#000000', 0.28));
+    /**
+     * The accent as text: pushed away from the page so it reads as a stronger colour.
+     *
+     * The direction is the palette's, like the recessed surfaces above — toward white on a
+     * dark page and toward black on a light one. Branching on the theme instead left a light
+     * custom background with `#edca89` on `#eff3f2`: 1.36:1, and that token is used for text
+     * (the active rail entry, the prompt chips).
+     */
+    root.style.setProperty('--accent-strong', mixColor(palette.accent, isLight(palette.background) ? '#000000' : '#ffffff', 0.28));
     root.style.setProperty('--bg', palette.background);
     root.style.setProperty('--text', palette.foreground);
 
@@ -2288,10 +2297,19 @@ export default function App({ api: suppliedApi }: AppProps) {
      * Toward the text colour the step has room in both schemes: `#e3e7e7` for the
      * built-in light palette, and `#0d0d0d` for the dark one — unchanged, because a
      * dark page's text colour is near-white and the two directions agree there.
+     *
+     * **The question is the palette's, not the theme's.** This used to branch on
+     * `theme === 'dark'`, which is only equivalent while the two built-in palettes are the
+     * only ones in use. The appearance section lets anyone choose any background: with
+     * `#eef2f1` on the dark theme, measured, every surface collapsed back to `#eff3f2`
+     * (rail against page 1.007:1, and a selected row identical to the rail) — the exact
+     * defect this block documents, reintroduced through the custom-palette door. The
+     * direction now follows the background's own luminance, so the built-in palettes are
+     * unchanged and a light background is treated as a light page wherever it is chosen.
      */
-    const recessed = theme === 'dark'
-      ? lift(0.004)
-      : mixColor(palette.background, palette.foreground, 0.004 + palette.contrast / 1400);
+    const recessed = isLight(palette.background)
+      ? mixColor(palette.background, palette.foreground, 0.004 + palette.contrast / 1400)
+      : lift(0.004);
     root.style.setProperty('--panel-soft', recessed);
 
     /**
