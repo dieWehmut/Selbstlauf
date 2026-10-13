@@ -3237,6 +3237,27 @@ passed alone and failed in the full file, because the timing fell either side of
 
 Suites: web 197 -> 200; browser 87 -> 88.
 
+### The config numbers were held to ranges nothing enforced
+
+检测节奏 offers four number fields and the Harness and Stop Hook rows three more. Every one declares a `min`
+— 1 second, 250 ms, 1 attempt — and **nothing enforced it**, so a field could hold `0`, a negative, or a
+fraction. The service refuses exactly those values (`requirePositiveNumber` and `requirePositiveInteger` in
+`apps/cli/src/domain/config.ts`), so the only way to find out was to press 保存 and read the service's
+rejection — after leaving the field and its declared range.
+
+Two controls in the same panel already clamped their value (the notifications list limit and the Harness
+activity window), which is what made the rest look like an oversight rather than a decision.
+
+`clampNumber(raw, min, max?)` now enforces each field's own declared floor and truncates, because every one
+of these settings is a whole count of milliseconds or seconds — 每轮最大尝试 accepted `1.5` in the field and
+was refused by the service as a non-integer. `Number('')` is `0`, so clearing a field yields its minimum
+rather than a save that fails.
+
+The test types `0`, `-5` and `1.5` into the fields, asserts what the controls now show, and then asserts what
+保存 actually sends — a clamped field that still sent the unclamped draft would pass the first half alone.
+
+Suites: web 200 -> 201; browser 88 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
