@@ -3334,6 +3334,45 @@ the strings in place.
 
 Suites: web 201 -> 203; browser 89 (unchanged).
 
+### The timeline said the engine's words
+
+Each audit line was `Object.values(event.details).join(' · ')` — **values only, no keys, nothing translated** —
+so the demo timeline read:
+
+    codex:336756 · awaiting-quiet-period
+    codex:333616 · monitor-only
+    dsh:session-4f21c0a8 · dsh-session
+
+under a chip that *did* translate the event's type (决策/跳过/活动). A reader could not tell which field a value
+belonged to, and a decision event's `atMs` printed as `1789000000000` — an epoch number where every other
+timestamp in the app is a time.
+
+`timeline/audit-details.ts` owns the payload's shape: key labels (`action` → 操作, `reason` → 原因, …), the
+vocabularies that live there (eighteen action codes taken from the call sites that write them, three activity
+sources, three tools), booleans as 是/否 with `ok` as 成功/失败 because it is a verdict rather than a flag, and
+`atMs` through this app's own `time()`. Two vocabularies are **passed in rather than copied** — the engine's
+decisions (the status chip's labels) and its transport reasons (the capability badge's) — so a reason reads the
+same wherever it appears, and no import cycle is created to reach them. Anything unmapped is printed under its own
+key: a payload this build has never seen stays legible instead of disappearing. A `null` value says nothing at
+all, because the engine writes nulls for "no reason" and 原因：null would be words spent on an absence.
+
+The same values now read:
+
+    决策：等待静默 · 时间：14:32:05        (was: 1789000000000 · awaiting-quiet-period)
+    原因：仅监控模式                      (was: monitor-only)
+    来源：Harness 会话                    (was: dsh-session)
+
+Eight module tests cover the shape, the vocabularies, the delegation, the timestamp, the unknown key, the null
+and the free-form `process-discovery: …` reason (passed through whole, since translating its tail would leave a
+half-English line). The app-level test emits a real audit event through the subscription and asserts the line —
+and was run against the old rendering first, where it failed with `Unable to find an element with the text:
+/等待静默/`.
+
+The longer lines were the risk, so `timeline.spec.ts` was run too: rows still fit a 390px viewport, which jsdom
+could never have told us.
+
+Suites: web 203 -> 212 (a new 15th test file); browser 89 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
