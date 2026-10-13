@@ -804,6 +804,31 @@ describe('watchdog dashboard', () => {
   });
 
   /**
+   * A session whose tool the config does not describe must not take the app down with it.
+   *
+   * `nextPrompt` reads `config.tools[session.tool].normalPrompt`, and `config.tools` has exactly claude, codex and
+   * dsh. The web client casts the sessions response without validating it, so a service reporting another tool —
+   * with no pending prompt to answer first, which is what `opencode` is in the fixture — reaches that lookup with no
+   * entry and throws *while the table renders*. There is no error boundary above it, so React unmounts the tree and
+   * the whole console goes blank.
+   */
+  it('renders a session whose tool the config does not describe', async () => {
+    const fake = api();
+    const [template] = await fake.sessions();
+    fake.sessions = vi.fn(async () => [{
+      ...template!,
+      id: 'unknown-tool-no-prompt',
+      tool: 'opencode' as SessionView['tool'],
+      pendingPrompt: null,
+    }]);
+    render(<App api={fake} />);
+
+    // The row is there, named, with a stated absence where its next input would be.
+    expect((await screen.findAllByText('opencode')).length, 'the table did not survive the unknown tool').toBeGreaterThan(0);
+    expect(document.querySelector('.process-table tbody tr td:nth-child(6)')?.textContent, 'the prompt cell says nothing at all').toBe('—');
+  });
+
+  /**
    * A transport this build does not know is refused, and named.
    *
    * The write rule named the transports it could *not* write to and treated everything else as writable, so an

@@ -685,7 +685,13 @@ function nextPrompt(session: SessionView, config: WatchdogConfig): string {
   if (session.tool === 'codex' && session.goal && config.tools.codex.goalStatuses.includes(session.goal.status)) {
     return config.tools.codex.goalPrompt;
   }
-  return config.tools[session.tool].normalPrompt;
+  /*
+    `config.tools` describes claude, codex and dsh, and the sessions response is not validated (the client casts it),
+    so a tool outside that set reaches this lookup with no entry. Measured, that threw `Cannot read properties of
+    undefined (reading 'normalPrompt')` *while the table rendered* — and with no error boundary above it, React
+    unmounts the tree and the whole console goes blank. A stated absence is what the column shows instead.
+  */
+  return config.tools[session.tool]?.normalPrompt ?? '—';
 }
 
 function parseFilterList(value: string): string[] {
