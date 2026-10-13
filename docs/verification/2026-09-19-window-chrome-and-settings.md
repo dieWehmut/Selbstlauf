@@ -2673,6 +2673,8 @@ evidence for calling it environmental rather than a defect:
     2 workers (89)     —           4 timeouts (pet, theme-surfaces, two dashboard cases); --last-failed 4/4 green
     2 workers (89)     —           5 goto timeouts; --last-failed 4/5 green, the fifth (titlebar-keyboard) 40s alone
     2 workers (89)     4.2m        88 passed, 1 click timeout (sidebar-processes); --last-failed 1/1 green in 12s
+    2 workers (89)     3.2m        89 passed          <- clean run on the round-22 tree
+    2 workers (89)     5.2m        87 passed, 2 timeouts (breakpoint-sweep, dashboard table scroll); --last-failed 2/2 green in 3.4m
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3372,6 +3374,24 @@ The longer lines were the risk, so `timeline.spec.ts` was run too: rows still fi
 could never have told us.
 
 Suites: web 203 -> 212 (a new 15th test file); browser 89 (unchanged).
+
+### The timeline kept a hundred events however many you asked for
+
+保留最近事件条数 accepts up to **1000** and the events page counts what it shows, but the arrival path — the one
+subscription that receives audit events — kept the newest **100** whatever the setting said. Two surfaces
+disagreed about one number and the setting lost: a value of 300 showed "100 条", and the shortfall was not merely
+hidden, those events had already been dropped.
+
+`TIMELINE_LIMIT_MAX` now owns the ceiling and both sides read it: the field clamps to it, and the subscription
+keeps to it. The subscription's closure is created once and cannot read the *current* setting, so keeping the
+ceiling the setting may ask for is what makes the setting honest; `visibleEvents` still slices down to whatever it
+currently says. (The alternative — reading the live setting in the closure — would mean re-subscribing on every
+change, which would drop the stream and the events already held.)
+
+The test sets 300, delivers 150 events through the subscription, and asserts the page counts 150. Against the old
+code it failed with `Unable to find an element with the text: 150 条`.
+
+Suites: web 212 -> 213; browser 89 (unchanged).
 
 ## Not verified
 
