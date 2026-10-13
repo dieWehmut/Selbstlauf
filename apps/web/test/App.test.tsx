@@ -795,6 +795,27 @@ describe('watchdog dashboard', () => {
     expect(screen.queryByText('服务状态'), 'one label still answers both questions').toBeNull();
   });
 
+  /**
+   * A hint beside a menu item has to be the key that does *that*.
+   *
+   * 显示宠物 carried Ctrl+3, which is bound to 切换到设置 — pressing it lands on the settings page's first
+   * section, not on the pet. The shortcuts section documents Ctrl+3 as 切换到设置, so the hint was on the wrong
+   * item rather than the binding being wrong: this is the same shape as the Ctrl+, hint that was once shown
+   * without being bound at all.
+   */
+  it('keeps a shortcut hint on the item the key actually opens', async () => {
+    render(<App api={api()} />);
+    fireEvent.click(screen.getByRole('button', { name: /个进程/u }));
+    expect(await screen.findByRole('region', { name: '账户与状态' })).toBeInTheDocument();
+
+    expect(
+      screen.getByRole('menuitem', { name: /显示宠物/u }).querySelector('kbd'),
+      'the pet item advertises a key that opens the settings page instead',
+    ).toBeNull();
+    // The one that is really bound to settings keeps its hint.
+    expect(screen.getByRole('menuitem', { name: /^设置/u }).querySelector('kbd')?.textContent).toBe('Ctrl+,');
+  });
+
   it('explains an empty process list instead of showing a table with no rows', async () => {
     /**
      * The connecting state above is also the state of a machine where nothing has been discovered:
@@ -1544,7 +1565,8 @@ describe('window title bar', () => {
     const labels = within(menu).getAllByRole('menuitem').map((item) => item.textContent);
     expect(labels).toHaveLength(3);
     expect(labels[0]).toMatch(/^切换到(亮色|暗色)主题$/u);
-    expect(labels[1]).toBe('显示宠物Ctrl+3');
+    // No key beside the pet: Ctrl+3 is bound to 切换到设置 and lands on the settings page, not on the pet.
+    expect(labels[1]).toBe('显示宠物');
     expect(labels[2]).toBe('设置Ctrl+,');
     // The final group stands apart: it changes the window rather than navigating.
     const separated = screen.getByRole('menu', { name: '窗口' });

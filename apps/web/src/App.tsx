@@ -3114,11 +3114,12 @@ export default function App({ api: suppliedApi }: AppProps) {
                     <span>切换到{theme === 'dark' ? '亮色' : '暗色'}主题</span>
                   </button>
                   {/* The pet has its own settings section, so this is a real destination
-                      rather than a decoration, and it is reachable from here. */}
+                      rather than a decoration, and it is reachable from here. No key is shown beside it: Ctrl+3
+                      is bound to 切换到设置 and lands on the settings page's first section, not on the pet, and
+                      the 键盘快捷键 section documents it that way. */}
                   <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setSettingsSection('pet'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
                     <PawPrint size={17} />
                     <span>显示宠物</span>
-                    <kbd>Ctrl+3</kbd>
                   </button>
                   <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
                     <Settings2 size={17} />
