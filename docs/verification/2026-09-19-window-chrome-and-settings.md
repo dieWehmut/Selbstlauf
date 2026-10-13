@@ -3528,6 +3528,27 @@ table and the sidebar agree. It failed first with `the table calls an unknown to
 
 Suites: web 220 -> 221; browser 89 (unchanged).
 
+### Two cells labelled 服务状态, answering different questions
+
+The next thing the "how many places describe this one thing" lens turned up was a label doing double duty:
+
+    overview strip   服务状态   运行中 / 已停止 / 离线     "is the watchdog running"
+    account popup    服务状态   在线 / 未连接              "can this page reach the service"
+
+With a reachable service whose watchdog is stopped, both are on screen at once and they read **已停止** beside
+**在线** — under the same two words, in opposite colours, and a screen reader heard the same label twice. Both
+values were true; the *label* was the defect, because it named two questions at once.
+
+The strip's cell now says **Watchdog** — the word the app's own buttons use (启动 Watchdog / 停止 Watchdog) — and
+the popup's fact says **连接状态**. The account bar's button keeps 服务在线 / 服务未连接, which is a sentence about
+the connection rather than a competing label.
+
+The test serves a reachable service with the watchdog stopped and asserts the strip names the watchdog, the popup
+names the connection, and no surface still uses the old shared words. It failed first with
+`the strip does not name the watchdog: expected '(no Watchdog cell)' to contain '已停止'`.
+
+Suites: web 221 -> 222; browser 89 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
