@@ -2676,6 +2676,8 @@ evidence for calling it environmental rather than a defect:
     2 workers (89)     3.2m        89 passed          <- clean run on the round-22 tree
     2 workers (89)     5.2m        87 passed, 2 timeouts (breakpoint-sweep, dashboard table scroll); --last-failed 2/2 green in 3.4m
     2 workers (89)     4.9m        88 passed, 1 timeout (breakpoint-sweep); --last-failed 1/1 green in 1.6m
+    2 workers (89)     4.4m        87 passed, 2 goto timeouts (theme-chrome, theme-status-colours); --last-failed re-run green
+                                 (the second invocation printed "No tests found", which is how a green re-run shows)
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3419,6 +3421,33 @@ the existing age test, whose query moved from `findByLabelText('Last watchdog po
 same assertion of intent, made through what a person actually sees.
 
 Suites: web 213 -> 215; browser 89 (unchanged).
+
+### Six menu items that responded to a click by doing nothing
+
+The renderer draws its own `文件 编辑 视图 帮助` row inside the custom title bar. `menu.ts` records why the native
+template is still installed — it keeps the standard accelerators alive — and its 编辑 submenu carries the six
+commands as Electron roles with `CmdOrCtrl` accelerators. The **renderer's own 编辑 items** carried no `action`, no
+`url` and no handler: clicking 复制 or 粘贴 did nothing at all, in the desktop app as well as in a browser. Six of
+that row's seventeen items were dead.
+
+They go through the bridge now, which is how the row's 视图 items already worked:
+
+    renderer    each 编辑 item carries an action and needsBridge; runMenuAction calls shell.<command>()
+    preload     undo / redo / cut / copy / paste / selectAll, each a named action, never a free-form channel
+    main        SHELL_ACTIONS gains the six; applyShellAction performs them on the window's **web contents**
+                (Electron puts the editing commands there, not on the BrowserWindow), and skips one an older
+                surface does not implement rather than throwing
+
+In a plain browser they are disabled with the same 仅在桌面应用中可用 reason the view items use: the browser has its
+own shortcuts for these, and the app cannot reach a window's editing surface.
+
+Tests: desktop — each command reaches the web contents, a surface without one is skipped, and the allow-list grew
+deliberately — that last case failed first, because an existing test pins the catalogue exactly. Web — the
+plain-browser case asserts all six are disabled with the reason, and the bridge case clicks each one and asserts its
+own method was called. The plain-browser case was run against the old menu first, where it failed: the items were
+enabled and inert.
+
+Suites: web 215 -> 216; desktop 142 -> 145; browser 89 (unchanged).
 
 ## Not verified
 
