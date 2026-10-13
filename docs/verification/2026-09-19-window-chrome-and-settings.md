@@ -2992,6 +2992,40 @@ frozen swatch.
 
 Suites: web 183 -> 186; browser 81 -> 83.
 
+### The diff pane described choices the user had not made
+
+`ThemeDiffPreview` sits under the three theme cards and says in its own words that it shows "what the
+theme ships with against what the current choices resolve to". It shipped with three rows: `surface`
+(a token *name*), `accent` and `contrast` — while the appearance list directly above it offers colour
+pickers for 背景 and 前景. Measured in the browser:
+
+    set 背景 to #fdf6e3    app --bg #fdf6e3      diff byte-identical
+    set 前景 to #2b2b2b    app --text #2b2b2b    diff byte-identical
+    set contrast to 100    app repaints          diff: contrast: 100
+
+So the pane presented a diff of a palette whose two colour choices it did not mention. **The first
+version of this measurement was itself wrong**, and it is worth recording: the probe set the colour
+input's `value` directly, React's value tracker swallowed the event, and neither the app nor the diff
+changed — which would have "shown" a diff that tracked nothing. The second measurement went through
+the prototype setter, and `--bg #fdf6e3` is what made the claim about the diff meaningful.
+
+Fixed by listing every field the palette holds, in the order the list offers them — `surface`,
+`background`, `foreground`, `accent`, `contrast` — rendered from `THEME_DIFF_FIELDS` with the line
+numbers computed rather than written out. `surface` stays a name because the palette really does hold
+a *toggle* (`translucentSidebar`), not a surface colour.
+
+Measured after:
+
+    set 背景 #fdf6e3, 前景 #2b2b2b, contrast 100
+      after pane:  surface: "sidebar", background: "#fdf6e3", foreground: "#2b2b2b", accent: "#e6b65b", contrast: 100
+      stock pane:  surface: "sidebar", background: "#000000", foreground: "#e9eef0", accent: "#e6b65b", contrast: 68
+
+The new browser case asserts all three changes, plus that the stock pane does not follow the user —
+which is what makes it a diff. Against the previous `App.tsx` it fails at the first assertion: the old
+pane has no `background:` row at all.
+
+Suites: web 186 (unchanged); browser 83 -> 84.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
