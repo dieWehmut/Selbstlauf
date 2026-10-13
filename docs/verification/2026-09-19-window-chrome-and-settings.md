@@ -3792,6 +3792,27 @@ thing from the console's window title and stays as it is.)
 
 Suites: web 235 (unchanged); browser 90 -> 91 (a new 36th test file).
 
+### The version the app shows, and the one it was built from
+
+关于 shows `版本 {APP_VERSION}` in a chip, where `APP_VERSION` is a hand-written constant while
+`apps/web/package.json` is bumped by whatever cuts a release. They agree today at 0.9.5 — and nothing made them keep
+agreeing. A wrong version is the kind of defect a user reports a bug against, so `app-version.test.ts` compares the
+two, reading the manifest rather than restating the number. Bumping the package is enough; bumping only the package
+fails the test. Demonstrated rather than assumed: with the constant set to `9.9.9`, it failed with `the 关于 chip
+would show a version the build does not have: expected '9.9.9' to be '0.9.5'`.
+
+The constant's docstring also said it was "shown by the account section **and the sidebar**". It is shown only in
+关于 — the sidebar has no version, and neither does the account popup — so the comment was corrected with the guard
+that makes its value trustworthy.
+
+**Queued, found while checking this:** the client parses an optional `version` from `/api/health`
+(`HealthView.version`) and **nothing reads it**, because nothing sends it — the service's health payload has no such
+field and `apps/cli/package.json` has no `version` at all (the web and desktop manifests are the only ones that
+carry 0.9.5). The field is forward-compatible tolerance rather than dead code, so it stays; if the service ever
+reports its version, 关于 is where it should appear, next to the app's.
+
+Suites: web 235 -> 236 (a new 18th test file); browser 91 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
