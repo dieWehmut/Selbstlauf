@@ -3189,17 +3189,28 @@ means wiring it first.
 
 Suites: web 193 -> 194; browser 87 (unchanged).
 
-**Found in the same sweep, and queued — a hint that describes a behaviour nothing implements.** 续写插件
-(`PluginsSection`) tells the user that "这些提示词会依次拼接，作为手动续写时使用的提示": that the stored
-prompts are joined in order and used as the prompt for a manual continuation. Measured, the preference is
-read by nothing but the section itself — `PREF_KEYS.plugins`, `isPluginsPref` and `PLUGINS_DEFAULTS` appear
-only in `desktop-prefs.ts` and `sections.tsx` — and neither write path consults it: the one-click 立即续写
-calls `mutateSession(session, 'inject')` with no prompt, and the composer sends only what was typed.
+**Found in the same sweep, now wired:** 续写插件 told the user that "这些提示词会依次拼接，作为手动续写时使用的提示". Measured, the preference was read by nothing but the section — `PREF_KEYS.plugins`, `isPluginsPref` and `PLUGINS_DEFAULTS` appeared only in `desktop-prefs.ts` and `sections.tsx` — and neither write path consulted it: the one-click 立即续写 called `mutateSession(session, 'inject')` with no prompt, and the composer sends only what was typed, so a stored list was a notebook.
 
-Unlike the two fields above, this is not merely unreachable: the section *states* the behaviour. The next
-round should either join the prompts into the single line the service accepts — it refuses anything else
-(`prompt must be a non-empty single line of at most 4096 characters`, `http-server.ts`) — and send them on
-the one-click write, or change the hint to describe what the list really is.
+### The plugin prompts now reach the continuation they promised
+
+The section states a behaviour, so it was wired rather than deleted:
+
+    one-click 立即续写   sends the stored prompts joined with a space
+    a typed line        still wins, because that path always supplies one
+    a join over the cap refused, not truncated
+
+The cap is not a guess: the service accepts only `a non-empty single line of at most 4096 characters`
+(`http-server.ts`), so a longer join is reported — 续写插件提示词拼接后共 N 字符，超过 4096 字符上限，未发送 —
+and **nothing is sent**. Truncating would silently drop the end of a prompt, which is worse than saying it
+was not delivered. The hint now says exactly that, including the join and the limit.
+
+Three tests pin it: the joined send, the empty-list contrast case (the call keeps its old
+single-argument shape, so no existing caller changes), and the refusal, which also asserts the request was
+not made at all. Notes on the mechanics: the prompts are read at click time rather than held in state, so a
+list edited in the settings section is used by the next click without a reload; and the typed path is
+protected structurally, by `prompt ?? pluginPromptLine()`.
+
+Suites: web 194 -> 197; browser 87 (unchanged).
 
 ## Not verified
 
