@@ -3212,6 +3212,31 @@ protected structurally, by `prompt ?? pluginPromptLine()`.
 
 Suites: web 194 -> 197; browser 87 (unchanged).
 
+### The desktop pet only existed on its own settings page
+
+宠物 promises "在窗口右下角显示一个小小的状态装饰", and its stylesheet is `position: fixed; right: 22px;
+bottom: 22px` — the window's corner. The ornament was rendered *by the settings section*, so it existed only
+while that section was open: invisible while actually using the app, and its pulse ("会话数量变化时轻轻跳动
+一下") could only fire if the session count happened to change during the visit. The shell draws it now and
+the section is controls only, so it is on screen on every page.
+
+Measured in the browser, on two pages, with a settle-then-measure routine:
+
+    overview      46px square, 22px from the right and bottom
+    events page   46px square, 22px from the right and bottom
+
+**The first run of that test failed, and the failure was informative rather than a flake**: it measured 52px
+at 19px, then 46px at 16px. The pet arrives with a CSS transition, so the box was caught mid-flight — the
+same discipline the status-colour spec needed for the sidebar row's entry animation.
+
+**Placing the ornament in the shell exposed a wrinkle the section had hidden.** Mounted before the first
+poll, the session count goes 0 → N when the data arrives, which is a change — so the pet bounced once on
+every launch, before anyone had looked at it. A count that arrives from nothing is the app loading, not a
+signal; only a change from a count the user was already watching bounces now. This showed up as a test that
+passed alone and failed in the full file, because the timing fell either side of the first load.
+
+Suites: web 197 -> 200; browser 87 -> 88.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
