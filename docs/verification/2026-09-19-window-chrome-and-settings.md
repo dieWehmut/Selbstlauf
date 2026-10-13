@@ -3834,6 +3834,26 @@ gained the case, which failed first with `the empty state is a child of the tabl
 
 Suites: web 236 (unchanged); browser 91 -> 92.
 
+### The audit only ever saw the state a page opens in
+
+The rail's empty state sat inside the tablist, and axe has a rule for exactly that
+(`aria-required-children`) — so why did the accessibility sweep pass? Because it visits pages in the state they
+*open* in, and the rail is full when it opens. The violation existed only after typing a filter, which no audit
+ever did.
+
+`accessibility.spec.ts` now audits the states a person has to reach as well: the account popup opened, a title-bar
+menu open, the rail filtered down to nothing, and a notice showing. All clean — and the extension's worth was
+**demonstrated rather than asserted**: putting the empty state back inside the tablist (temporarily) makes it fail
+with
+
+    critical aria-required-children: 设置(无匹配): Certain ARIA roles must contain particular children
+      at .settings-rail__list
+
+pointing at the exact markup, while the default-state audit still passes. That is the difference between a sweep
+that would catch the class and one that merely happened to be green.
+
+Suites: web 236 (unchanged); browser 92 -> 93.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
