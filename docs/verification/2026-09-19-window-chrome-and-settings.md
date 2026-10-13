@@ -2681,6 +2681,8 @@ evidence for calling it environmental rather than a defect:
     2 workers (89)     4.3m        88 passed, 1 goto timeout (tool-icons); --last-failed 1/1 green in 12.6s
     2 workers (93)     5.7m        92 passed, 1 timeout (the accessibility popup audit); --last-failed 1/1 green in 22.1s
     2 workers (93)     4.9m        92 passed, 1 timeout (the narrow-viewport environment cards); --last-failed 1/1 green in 14.6s
+    2 workers (93)     10.7m       87 passed, 6 timeouts (a keyboard.press among them); --last-failed 5/6 green in 1.9m,
+                                 the sixth (focus-appearance) green alone in 16s - the machine was heavily loaded
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3907,6 +3909,39 @@ in `apps/cli/src/domain/config.ts`), the desktop app ships the bundle and the se
 its own config — so a malformed one means a version skew rather than a newer vocabulary. Recorded rather than fixed.
 
 Suites: web 238 -> 239; browser 93 (unchanged).
+
+### A sweep for the family the last three rounds kept finding one at a time
+
+The tool label, the transport and `nextPrompt` were three instances of one pair: a closed type union in the web
+client, and a response that is **cast rather than validated**. Each was found by accident while fixing the previous
+one, so this round sweeps for the family instead — `hostile-response.test.tsx` replaces every field of a session, of
+the config and of an audit event with something the union does not admit, and requires that the app keeps rendering
+and keeps listing the session.
+
+The session fields were already safe (the previous three rounds' fixes hold, including an empty conversation id, a
+goal status nothing knows and a host category nothing knows). The **config** was not:
+
+    tools missing a whole tool       Cannot read properties of undefined (reading 'normalPrompt')
+    goalStatuses that is not a list  Cannot read properties of null (reading 'includes')
+    no tools at all                  Cannot read properties of undefined (reading 'goalStatuses')
+    no process filters               Cannot read properties of undefined (reading 'include')
+
+All four blank the console — three of them on the *overview*, before the settings page is even opened — because
+there is no error boundary. This is the exposure the previous round queued as "lower risk": the risk is low (the
+service validates its own config before storing it, so an incomplete one means version skew) but the consequence is
+the same total blank.
+
+It is fixed at one boundary: `mergeConfig` fills any missing field from this app's own `fallbackConfig` as the
+response enters state (on poll and after a save), so the prompt column, the process filters and the settings
+editor's nine paths all read a complete object. Filling from the app's defaults also leaves the editor able to write
+a *complete* config back, which is the way out of a skew.
+
+The sweep also caught a bug in itself, which is worth keeping in the record: its first config fixture used
+`includeFilters`/`excludeFilters` (the real field is `processFilters: { sameUserOnly, include, exclude }`), so all
+five config cases failed with `reading 'include'` before any real finding could be seen — an audit is only as good
+as the data it feeds in, and a red run is not the same as a *correct* red run.
+
+Suites: web 239 -> 254 (a new 19th test file, 15 cases); browser 93 (unchanged).
 
 ## Not verified
 
