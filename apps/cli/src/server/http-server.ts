@@ -537,6 +537,8 @@ export class WatchdogHttpServer {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('x-frame-options', 'DENY');
     response.setHeader('referrer-policy', 'no-referrer');
+    // Deliberately no 'unsafe-inline' for scripts: the one script that has to run before the bundle
+    // (painting the saved theme) is a same-origin file instead — see apps/web/public/theme-boot.js.
     response.setHeader('content-security-policy', "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'");
   }
 

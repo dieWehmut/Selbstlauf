@@ -1,7 +1,11 @@
 :root {
   font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
   color: #e9eef0;
-  background: #000000;
+  /* Through the token rather than a literal, so the first frame follows a saved palette as well:
+     `theme-boot.js` sets `--bg` in the head, before the bundle, and this is the element that paints
+     the very first pixel. The two were the same colour as a literal, and drifted as soon as a
+     custom background existed. */
+  background: var(--bg);
   /* Tells the browser which way its own chrome should be drawn. Without it the native
      scrollbars, form controls and focus rings stay light on the dark theme, which is
      the bright bar that showed down the settings rail. The light theme below overrides
@@ -68,7 +72,8 @@
 
 :root[data-theme='light'] {
   color: #1c262b;
-  background: #eef2f1;
+  /* Through the token, as in the dark block above: this element paints the first frame. */
+  background: var(--bg);
   /* The light theme must opt back in, or it would inherit the dark scrollbars. */
   color-scheme: light;
   --bg: #eef2f1;

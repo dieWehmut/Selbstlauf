@@ -8,6 +8,12 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <title>Continuation Watchdog</title>
+    <!--
+      Sets the saved theme (and the saved palette's background) before the bundle runs, so the window
+      does not open in the dark colours and then correct itself. A file rather than an inline block
+      because the service sends `script-src 'self'`; see apps/web/public/theme-boot.js.
+    -->
+    <script src="/theme-boot.js"></script>
   </head>
   <body>
     <div id="root"></div>
