@@ -2680,6 +2680,7 @@ evidence for calling it environmental rather than a defect:
                                  (the second invocation printed "No tests found", which is how a green re-run shows)
     2 workers (89)     4.3m        88 passed, 1 goto timeout (tool-icons); --last-failed 1/1 green in 12.6s
     2 workers (93)     5.7m        92 passed, 1 timeout (the accessibility popup audit); --last-failed 1/1 green in 22.1s
+    2 workers (93)     4.9m        92 passed, 1 timeout (the narrow-viewport environment cards); --last-failed 1/1 green in 14.6s
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3882,6 +3883,30 @@ an app-level case that asserts the chip is `capability--limited`, that it names 
 立即续写 button for it is disabled.
 
 Suites: web 236 -> 238; browser 93 (unchanged).
+
+### An unknown tool took the whole console down
+
+`nextPrompt` read `config.tools[session.tool].normalPrompt`, and `config.tools` describes exactly claude, codex and
+dsh. `pendingPrompt` usually answers first — which is why every fixture hid it — but a session with no pending prompt
+and a tool outside that set reached the lookup with no entry and **threw while the table rendered**:
+
+    Uncaught [TypeError: Cannot read properties of undefined (reading 'normalPrompt')]
+
+There is no error boundary above it, so React unmounts the tree: one unrecognised tool in one session blanks the
+entire console, not just its row. The column shows the app's no-value marker (`—`) instead, and the app-level case
+covers it (the row renders, named, with a stated absence where its prompt would be).
+
+This is the third instance of the same pair — a closed type union plus an unvalidated response — after the tool label
+and the transport. What made this one worse is that it failed *loudly in the wrong place*: the first two degraded a
+single value, this one removed every surface at once.
+
+**Queued, same shape, lower risk:** the settings editor reads `draft.tools.claude.stopHook.leaseTtlMs` and eight more
+paths like it, so a *config* missing one of those fields would throw while the settings page renders. That is a
+different exposure: the service validates its own config before storing it (`requireBoolean`, `requirePositiveNumber`
+in `apps/cli/src/domain/config.ts`), the desktop app ships the bundle and the service together, and the demo serves
+its own config — so a malformed one means a version skew rather than a newer vocabulary. Recorded rather than fixed.
+
+Suites: web 238 -> 239; browser 93 (unchanged).
 
 ## Not verified
 
