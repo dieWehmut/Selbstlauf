@@ -3658,6 +3658,42 @@ failed first with `the entry repeats an action that already happened: expected '
 
 Suites: web 229 -> 230; browser 90 (unchanged).
 
+### A guard for the stylesheets, and twelve rules it found
+
+Round 15's density defect was a stylesheet rule nothing could reach — `:root[data-density='compact']` with an
+attribute no line of the app ever set — and it was found by hand. That is a shape worth mechanising, so this round
+added `css-reachability.test.ts`: every class the stylesheets style has to be named by the source, and every
+attribute they select on has to be set. Both facts are derived rather than listed, because the source composes
+them: a modifier inside a template literal (`theme-card--${theme}`) is reached by its prefix, and a `data-`
+attribute written through `dataset` (`dataset.density`) maps back to `data-density`.
+
+It ran for the first time and found **twelve** unreachable classes:
+
+    appearance-actions   the appearance section's actions use .settings-actions
+    brand                only .brand__mark survives in the markup; .brand was also in a shared font rule
+    compact-toggle       replaced by the title bar's own button
+    pref-pin-fields      an old PIN field grid
+    pref-swatch(es)      preset swatches, with __dot and the hover/active states
+    service-mini         the sidebar service card, replaced by the account bar
+    settings-grid        the settings layout before the rail
+    settings-tab(s)      the tabs before the rail
+    theme-diff__arrow    the diff's panes are told apart by their gutters now
+
+All twelve are leftovers from interfaces that no longer exist — the stylesheet described a UI that was not there,
+which is the same stale-description failure as the settings sections this record removed for changing nothing —
+so they are gone. The built stylesheet went from **56.05 kB to 53.56 kB**.
+
+Two details from making the guard honest, both of which changed its verdict. A whole-word search of the source was
+the first attempt and let `.brand` through, because `import brandIcon from './assets/brand.png'` contains the word;
+the check now reads only class-name contexts (class literals, the fixed pieces of templates, and quoted strings),
+which is what a class actually has to appear in. And prose in a block comment ("the sidebar brand block") hid the
+same rule a second time, so comments are stripped before matching.
+
+The guard also proves it is checking something — if the stylesheets stop being found, or the extraction stops
+matching, one case fails on `classes.size > 200` rather than passing quietly.
+
+Suites: web 230 -> 233 (a new 17th test file); browser 90 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
