@@ -3736,6 +3736,37 @@ rather than a leftover. It reads **导入** now, matching the section's own head
 
 Suites: web 235 (unchanged); browser 90 (unchanged).
 
+### What the colour matrix still did not cover
+
+The amber round worked because the matrix measured a surface nobody had measured, so the next step was to ask what
+else it had left out. Three things:
+
+    --amber                     the token itself; only the mark had been measured
+    .metric-strip .text-ready   the largest status-coloured text in the app (18px)
+    the connection dot          --red as a mark, which only the account popup paints
+
+All three are measured now, in every palette case, and all three pass:
+
+    watchdog state word   9.41 (dark)   5.44 (light)   6.10 (near-white custom palette)
+    connection dot        7.56          5.36           5.43
+
+Two things are worth recording rather than presenting as a win. **Nothing was wrong** — the palette effect already
+solves green, red, blue and amber against whatever background the user chose, which is exactly why these surfaces
+pass on a palette the app did not choose. And the popup has to be *opened* before its connection dot exists, so
+`measure()` now opens it: this spec is about paint, and leaving a surface out because it sits behind a disclosure is
+how the monitor dot went unmeasured in the first place.
+
+**The literal-at-the-use-site pattern had one more instance, and this one was harmless.** Four rules read
+`var(--red, #e5735f)` while `--red` is defined in both theme blocks and solved at runtime, so the fallback could
+never apply — and `#e5735f` is a red the dark theme stopped using when the status colours were solved against the
+palette, which makes it a stale duplicate rather than a choice. The four reads are `var(--red)` now, which also puts
+them under the guard's rule that a read without a fallback must have a definition.
+
+Unlike amber, that removal is not observable: no rendering can differ and no test can tell the two versions apart.
+It is recorded as cleanup for that reason, not as a fix.
+
+Suites: web 235 (unchanged); browser 90 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
