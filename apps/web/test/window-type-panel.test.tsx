@@ -117,6 +117,26 @@ describe('WindowTypePanel', () => {
     expect(done.textContent).toContain('焦点已切回');
   });
 
+  /**
+   * A refusal reaches the panel as the shell's own code.
+   *
+   * The desktop shell reports `empty-text`, `multi-line-text`, `text-too-long`, `invalid-window-handle`,
+   * `unreadable-response` and `windowType is not wired up`, and the panel printed whichever arrived verbatim in a
+   * Chinese interface — while the same shell writes Chinese for the refusals it raises in its own main process.
+   */
+  it('explains a refusal in words rather than the shell code', async () => {
+    // `invalid-window-handle` is the realistic shell-side refusal: the window closed between listing and typing,
+    // which the panel cannot pre-empt the way it pre-empts an empty or multi-line draft.
+    const onType = vi.fn(async () => ({ ok: false as const, reason: 'invalid-window-handle' }));
+    renderOpen(<WindowTypePanel session={session()} onType={onType} />);
+    fireEvent.change(screen.getByLabelText('要写入该窗口的文字'), { target: { value: '继续' } });
+    fireEvent.click(screen.getByRole('button', { name: /写入并回车 PID 4242/u }));
+
+    const problem = await screen.findByRole('alert');
+    expect(problem.textContent).toContain('窗口句柄无效');
+    expect(problem.textContent, 'the shell code is shown to the user').not.toContain('invalid-window-handle');
+  });
+
   it('says when focus could not be restored rather than claiming success alone', async () => {
     const onType = vi.fn(async () => ({ ok: true as const, typed: 2, submitted: false, focusRestored: false }));
     renderOpen(<WindowTypePanel session={session()} onType={onType} />);

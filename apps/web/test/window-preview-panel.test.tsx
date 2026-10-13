@@ -95,6 +95,25 @@ describe('SessionWindowPreview', () => {
     expect(screen.queryByText(/临时显示后还原/u)).not.toBeInTheDocument();
   });
 
+  /**
+   * The unsupported state carries the shell's own words.
+   *
+   * They arrive as `this build cannot capture windows`, `windowPreview is not wired up`, `windowPreview needs a
+   * session id`, `that session is no longer running` and `could not list sessions: …`, and the panel printed
+   * whichever came in — English, inside a Chinese panel that exists to explain exactly this.
+   */
+  it('explains an unsupported environment in words rather than the shell reason', async () => {
+    render(
+      <SessionWindowPreview
+        session={session()}
+        requestPreview={async () => ({ state: 'unsupported', reason: 'this build cannot capture windows' })}
+      />,
+    );
+
+    const note = await screen.findByText(/这个版本不能预览窗口/u);
+    expect(note.textContent).not.toContain('this build cannot capture windows');
+  });
+
   it('explains a harness session has no window of its own', async () => {
     const dsh = session({
       id: 'dsh:1',

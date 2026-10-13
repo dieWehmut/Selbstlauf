@@ -3,6 +3,7 @@ import { ChevronDown, CornerDownLeft, Keyboard, TriangleAlert } from 'lucide-rea
 
 import type { SessionView } from '../api/client';
 import type { WindowTypeResult } from '../App';
+import { describeShellReason } from './shell-reasons';
 
 /**
  * Typing a line into the window a session runs in.
@@ -205,7 +206,7 @@ export function WindowTypePanel(props: {
       </p>
 
       {result !== null && !result.ok && (
-        <p className="window-type__problem" role="alert">未能写入：{result.reason}</p>
+        <p className="window-type__problem" role="alert">未能写入：{describeShellReason(result.reason)}</p>
       )}
       {result !== null && result.ok && (
         <p className="window-type__done" role="status">

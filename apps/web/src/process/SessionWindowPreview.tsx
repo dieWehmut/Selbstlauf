@@ -3,6 +3,7 @@ import { AppWindow, ImageOff, Loader, Minimize2, RefreshCw } from 'lucide-react'
 
 import type { SessionView } from '../api/client';
 import type { WindowPreviewResult } from '../App';
+import { describeShellReason } from './shell-reasons';
 
 /**
  * A still of the window a process runs in, with a button to bring that window to the front.
@@ -149,7 +150,7 @@ export function SessionWindowPreview(props: {
         {state === 'unsupported' && (
           <p className="window-preview__note">
             <ImageOff size={15} aria-hidden="true" />
-            {result?.state === 'unsupported' && result.reason ? result.reason : '当前环境不支持窗口预览。'}
+            {result?.state === 'unsupported' && result.reason ? describeShellReason(result.reason) : '当前环境不支持窗口预览。'}
           </p>
         )}
       </div>
