@@ -3096,6 +3096,43 @@ new test fails at its first assertion, because the label never changed.
 
 Suites: web 186 -> 187; browser 85 (unchanged).
 
+### Three notification switches that changed nothing
+
+The 通知 section offered four controls. One worked — 保留最近事件条数, read by the timeline — and the
+other three were written to localStorage, validated on read, and **consulted by nothing**:
+
+    面板内通知          "在面板内显示状态变化提示"
+    续写成功时提示      "成功写入一次续写后给出提示"
+    出现错误时提示      "写入失败或传输异常时给出提示"
+
+So a user could switch notices off and keep being shown every one. This is the defect the rail's own
+docstring records other sections being removed for ("they changed nothing a person could observe"), and
+it survived because **no test touched notices at all** — the pref key appears in no test file.
+
+The strip now carries a tone, and the three switches filter on it:
+
+    notice = { text, tone: 'info' | 'error' }        failures pass 'error'
+    shown  = notifications.inPanel
+             && (tone === 'error' ? notifications.onError : notifications.onSuccess)
+
+Two things had to change with it:
+
+  - **The app had to hear about a change.** `notifications` was re-read on every render, which only
+    worked because the app polls; the 通知 section now pushes through `onChange`, so a switch takes
+    effect immediately (there is a test for that specifically, since "it works if you wait for the next
+    poll" is not the same claim).
+  - **One label had to stop over-promising.** `续写成功时提示` gated every confirmation, not only a
+    continuation write, so it is now `操作成功时提示` with the hint `成功完成一次操作后给出提示`. The
+    alternative — gating only the write notices — would have left the other 已复制/已保存/已启动
+    confirmations unsilenceable and the switch still narrower than its neighbours imply.
+
+**A test-ordering bug the suite caught.** These tests write the preference, and localStorage outlives a
+test: the switch left off silenced a *later* test's notice (the Codex endpoint switch asserts 端点已切换).
+An `afterEach` clears the key now. Worth recording because the failure looked like an unrelated
+regression in a spec this change never touched.
+
+Suites: web 187 -> 191; browser 85 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
