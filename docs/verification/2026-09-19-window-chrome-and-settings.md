@@ -3133,6 +3133,15 @@ regression in a spec this change never touched.
 
 Suites: web 187 -> 191; browser 85 (unchanged).
 
+**Found while checking the rest of the preferences, and queued:** the same sweep turned up a
+*personalization* preference that is unreachable rather than inert — `PersonalizationPref.density` has a
+default, a validator and `PERSONALIZATION_DEFAULTS`, `manual-commands`-style CSS exists for it
+(`:root[data-density='compact']` overrides in `sections.css`), and **nothing anywhere sets
+`data-density`**: there is no control, and the two imports in `sections.tsx` are unused. No user is
+being told something untrue, so this is dead code rather than a defect of the kind above; it is either
+worth a density control (the styles are already written) or worth deleting. Recorded here so the next
+round starts from the finding instead of rediscovering it.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
