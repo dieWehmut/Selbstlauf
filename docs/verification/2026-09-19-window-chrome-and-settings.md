@@ -2671,6 +2671,8 @@ evidence for calling it environmental rather than a defect:
     2 workers (85)     2.6m        85 passed          <- the clean run on the round-13 tree
     2 workers (85)     —           83 passed, 2 timeouts (theme-surfaces, theme-status-colours); --last-failed 2/2 green
     2 workers (89)     —           4 timeouts (pet, theme-surfaces, two dashboard cases); --last-failed 4/4 green
+    2 workers (89)     —           5 goto timeouts; --last-failed 4/5 green, the fifth (titlebar-keyboard) 40s alone
+    2 workers (89)     4.2m        88 passed, 1 click timeout (sidebar-processes); --last-failed 1/1 green in 12s
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3301,6 +3303,36 @@ four times the slowest honest test here, so a genuine hang still fails; what sto
 machine's honest test.
 
 Suites: web 201 (unchanged); browser 89 (unchanged).
+
+### Two panels that printed the engine's own words
+
+Both were found by asking the same question of every panel: *is this string something a person wrote, or
+something the engine named?* In each case the same value was already translated on a neighbouring surface.
+
+  - **浏览器访问 → 当前主题** printed `light` / `dark` — the raw identifier, between 访问地址 and 在浏览器中打开,
+    in a panel that is otherwise entirely Chinese. The appearance section names the same two things 浅色 and
+    深色. The row held the right *value* (it reads the resolved theme, not the preference), so only the wording
+    was wrong.
+  - **进程详情 → 传输错误** printed the engine's reason code — `no-cwd-match` — while the capability badge a few
+    lines above it printed 未找到同目录 Codex 线程 for the very same field. `transportReason()` already held a
+    table of nineteen of those mappings; the detail row simply never called it.
+
+Both now read through the one owner each: `THEME_NAMES` in the settings sections, and `transportReason()` in the
+detail row — whose own fallback still passes an unknown engine string through rather than hiding it, so an
+unmapped reason stays legible instead of disappearing.
+
+Tests: the section asserts 深色 and 浅色 and that no raw identifier is on the page; the detail case opens the
+session whose engine error is `no-cwd-match` and asserts the row explains it, failing before the change with
+exactly `传输错误no-cwd-match`.
+
+**Found in the same sweep, queued:** the timeline's detail line renders `Object.values(event.details).join(' · ')`
+— values only, no keys, no translation — so the three demo events print `awaiting-quiet-period`, `monitor-only`
+and `dsh-session`. The chip above each line translates the event's *type*, but the payload beside it is still the
+engine's vocabulary, and dropping the keys means a reader cannot tell which field a value belongs to. The next
+round should decide that line's shape — labelled fields, with known values translated — rather than translating
+the strings in place.
+
+Suites: web 201 -> 203; browser 89 (unchanged).
 
 ## Not verified
 
