@@ -70,20 +70,20 @@ describe('NotificationsSection', () => {
 
     render(<NotificationsSection />);
     expect(screen.getByLabelText('面板内通知')).not.toBeChecked();
-    expect(screen.getByLabelText('续写成功时提示')).toBeChecked();
+    expect(screen.getByLabelText('操作成功时提示')).toBeChecked();
   });
 
   it('clamps the retained-event limit and reports it to the caller', () => {
-    const onTimelineLimitChange = vi.fn();
-    render(<NotificationsSection onTimelineLimitChange={onTimelineLimitChange} />);
+    const onChange = vi.fn();
+    render(<NotificationsSection onChange={onChange} />);
     const limit = screen.getByLabelText('保留最近事件条数');
     expect(limit).toHaveValue(100);
 
     fireEvent.change(limit, { target: { value: '5000' } });
-    expect(onTimelineLimitChange).toHaveBeenLastCalledWith(1000);
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ timelineLimit: 1000 }));
 
     fireEvent.change(limit, { target: { value: '0' } });
-    expect(onTimelineLimitChange).toHaveBeenLastCalledWith(1);
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ timelineLimit: 1 }));
   });
 });
 

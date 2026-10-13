@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Component, type ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
 import type { HealthView, SessionView, WatchdogApi, WatchdogEvent } from '../src/api/client';
 import type { EnvironmentView } from '../src/api/client';
@@ -433,6 +433,91 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
     fireEvent.click(copy);
     await waitFor(() => expect(copy.getAttribute('title')).toContain('剪贴板'));
+  });
+
+  /**
+   * The 通知 switches have to change something.
+   *
+   * All three persisted a value and nothing consulted it: 面板内通知, 续写成功时提示 and 出现错误时提示
+   * were written, validated on read, and never used, so a user could switch notices off and keep being
+   * shown every one. The whole area had no test, which is how that survived — the rail's own docstring
+   * records sections removed for exactly this ("they changed nothing a person could observe").
+   */
+  const notificationsPref = (patch: Partial<{ inPanel: boolean; onSuccess: boolean; onError: boolean }>) => {
+    localStorage.setItem('watchdog-notifications', JSON.stringify({
+      inPanel: true, onSuccess: true, onError: true, timelineLimit: 100, ...patch,
+    }));
+  };
+
+  /**
+   * These tests write that key, and it outlives them: a switch left off silenced a later test's
+   * notice (the Codex endpoint switch asserts 端点已切换), which is how this was noticed at all.
+   */
+  afterEach(() => { localStorage.removeItem('watchdog-notifications'); });
+
+  /** Refresh the environment from the 关于 section, which reports success or the error it throws. */
+  const refreshFromAbout = async () => {
+    openSettings();
+    const tabs = await screen.findByRole('tablist', { name: '设置分区' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
+    fireEvent.click(await screen.findByRole('button', { name: '刷新本地环境' }));
+  };
+
+  it('reports a failed environment refresh, and lets the error switch silence it', async () => {
+    const failing = () => {
+      const fake = api();
+      fake.refreshEnvironment = vi.fn(async () => { throw new Error('探测失败'); });
+      return fake;
+    };
+
+    // With the defaults, the failure is reported.
+    const reported = failing();
+    const first = render(<App api={reported} />);
+    await refreshFromAbout();
+    expect(await screen.findByText('探测失败')).toBeInTheDocument();
+    first.unmount();
+
+    // With 出现错误时提示 off, the same failure says nothing.
+    notificationsPref({ onError: false });
+    const silenced = failing();
+    render(<App api={silenced} />);
+    await refreshFromAbout();
+    await waitFor(() => expect(silenced.refreshEnvironment).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText('探测失败')).toBeNull());
+  });
+
+  it('silences confirmations when the success switch is off', async () => {
+    notificationsPref({ onSuccess: false });
+    const confirming = api();
+    render(<App api={confirming} />);
+    await refreshFromAbout();
+    await waitFor(() => expect(confirming.refreshEnvironment).toHaveBeenCalled());
+    expect(screen.queryByText('本地环境已刷新')).toBeNull();
+  });
+
+  it('still reports errors when only the success switch is off', async () => {
+    // The two switches are separate: silencing confirmations must not silence failures.
+    notificationsPref({ onSuccess: false });
+    const failing = api();
+    failing.refreshEnvironment = vi.fn(async () => { throw new Error('探测失败'); });
+    render(<App api={failing} />);
+    await refreshFromAbout();
+    expect(await screen.findByText('探测失败')).toBeInTheDocument();
+  });
+
+  it('turns the whole notice strip off from 面板内通知, without a reload', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    openSettings();
+    const tabs = await screen.findByRole('tablist', { name: '设置分区' });
+
+    fireEvent.click(within(tabs).getByRole('tab', { name: '通知' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '面板内通知' }));
+
+    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
+    fireEvent.click(await screen.findByRole('button', { name: '刷新本地环境' }));
+    await waitFor(() => expect(fake.refreshEnvironment).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText('本地环境已刷新')).toBeNull());
   });
 
 

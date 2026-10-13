@@ -91,6 +91,7 @@ import {
   isTrustedContactPref,
   readPref,
   writePref,
+  type NotificationsPref,
   type ProfilePref,
 } from './settings/desktop-prefs';
 
@@ -1515,6 +1516,8 @@ function SettingsPanel(props: {
   onRefreshEnvironment: () => Promise<void>;
   onUpgradeTool: (id: string) => Promise<void>;
   onUpgradeAllTools: () => Promise<void>;
+  /** Push a 通知 change up: the notice strip and the timeline filter on these preferences. */
+  onNotificationsChange: (pref: NotificationsPref) => void;
   theme: ThemePreference;
   /** The scheme the preference actually resolves to right now. */
   activeTheme: Theme;
@@ -1737,7 +1740,7 @@ function SettingsPanel(props: {
           {saveBar}
         </>
       )}
-      {activeSection === 'notifications' && <NotificationsSection />}
+      {activeSection === 'notifications' && <NotificationsSection onChange={props.onNotificationsChange} />}
       {activeSection === 'import' && (
         <ImportSection onImportTheme={props.onImportThemeText} onImportConfig={props.onImportConfigText} />
       )}
@@ -2115,7 +2118,16 @@ export default function App({ api: suppliedApi }: AppProps) {
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * The notice strip's message and its tone.
+   *
+   * The tone is what the 通知 switches filter on: without it, `面板内通知`, `操作成功时提示` and
+   * `出现错误时提示` had nothing to consult and were inert (see `setNotice`).
+   */
+  const [notice, setNoticeState] = useState<{ readonly text: string; readonly tone: 'info' | 'error' } | null>(null);
+  /** Show a notice. The default tone is a confirmation; failures pass `'error'`. */
+  const setNotice = (text: string | null, tone: 'info' | 'error' = 'info') =>
+    setNoticeState(text === null ? null : { text, tone });
 
   // Each scheme keeps its own palette, so a preview card shows that scheme's
   // colours rather than whatever scheme happens to be active.
@@ -2194,12 +2206,12 @@ export default function App({ api: suppliedApi }: AppProps) {
 
   const changeCloseToTray = (value: boolean) => {
     setCloseToTray(value);
-    void bridge?.settings?.set({ closeToTray: value }).catch(() => setNotice('关闭行为保存失败'));
+    void bridge?.settings?.set({ closeToTray: value }).catch(() => setNotice('关闭行为保存失败', 'error'));
   };
 
   const changePreferredTerminal = (value: string) => {
     setPreferredTerminal(value);
-    void bridge?.settings?.set({ preferredTerminal: value }).catch(() => setNotice('首选终端保存失败'));
+    void bridge?.settings?.set({ preferredTerminal: value }).catch(() => setNotice('首选终端保存失败', 'error'));
   };
 
   const changeAllowReveal = (allowed: boolean) => {
@@ -2262,11 +2274,14 @@ export default function App({ api: suppliedApi }: AppProps) {
   /**
    * Notification preferences.
    *
-   * Read on every render rather than held in state: the panel toggles them on a
-   * different page, and this way the timeline limit and the notice strip follow
-   * a change without the app having to be remounted.
+   * Held in state and pushed by the 通知 section, rather than re-read on every render. Re-reading only
+   * appeared to work because the app polls, so the timeline limit depended on some unrelated state
+   * change happening — and the notice strip, which the old comment here claimed followed these values,
+   * did not consult them at all.
    */
-  const notifications = readPref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref);
+  const [notifications, setNotifications] = useState(
+    () => readPref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref),
+  );
   const visibleEvents = useMemo(() => events.slice(0, notifications.timelineLimit), [events, notifications.timelineLimit]);
 
   /**
@@ -2536,7 +2551,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       await refresh();
       return outcome;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '操作失败');
+      setNotice(error instanceof Error ? error.message : '操作失败', 'error');
       // Rethrown so a caller showing its own error — the composer does — is not left believing the
       // send succeeded just because the notice was set.
       if (prompt !== undefined) throw error;
@@ -2558,7 +2573,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         ? `已打开 ${session.host?.label ?? '运行位置'}`
         : `已置顶 ${session.host?.label ?? '运行位置'}（系统未授予前台焦点）`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '无法打开运行位置');
+      setNotice(error instanceof Error ? error.message : '无法打开运行位置', 'error');
     } finally { setBusy(null); }
   };
 
@@ -2572,7 +2587,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       setEnvironment(await api.refreshEnvironment());
       setNotice('本地环境已刷新');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '刷新失败');
+      setNotice(error instanceof Error ? error.message : '刷新失败', 'error');
     } finally { setEnvironmentRefreshing(false); }
   };
   /**
@@ -2586,9 +2601,9 @@ export default function App({ api: suppliedApi }: AppProps) {
     try {
       const result = await api.upgradeTool(id);
       setEnvironment(await api.environment());
-      setNotice(result.ok ? `${id} 升级完成` : `${id} 升级失败：${result.error ?? '未知错误'}`);
+      setNotice(result.ok ? `${id} 升级完成` : `${id} 升级失败：${result.error ?? '未知错误'}`, result.ok ? 'info' : 'error');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '升级失败');
+      setNotice(error instanceof Error ? error.message : '升级失败', 'error');
     } finally { setEnvironmentUpgrading(null); }
   };
 
@@ -2600,9 +2615,9 @@ export default function App({ api: suppliedApi }: AppProps) {
       const failed = outcome.results.filter((result) => !result.ok);
       setNotice(failed.length === 0
         ? `${outcome.results.length} 个工具已升级`
-        : `${outcome.results.length - failed.length} 个成功，${failed.length} 个失败`);
+        : `${outcome.results.length - failed.length} 个成功，${failed.length} 个失败`, failed.length === 0 ? 'info' : 'error');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '全部升级失败');
+      setNotice(error instanceof Error ? error.message : '全部升级失败', 'error');
     } finally { setEnvironmentUpgrading(null); }
   };
 
@@ -2637,7 +2652,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       setPaletteOverrides((current) => ({ ...current, [theme]: imported }));
       setNotice('主题已导入');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '导入失败');
+      setNotice(error instanceof Error ? error.message : '导入失败', 'error');
     }
   };
 
@@ -2681,7 +2696,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       setHookStatus((current) => ({ ...current, enabled: saved.tools.claude.stopHook.enabled }));
       setNotice('配置已保存');
     }
-    catch (error) { setNotice(error instanceof Error ? error.message : '保存失败'); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '保存失败', 'error'); }
     finally { setSaving(false); }
   };
 
@@ -2692,7 +2707,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       setCodexProfiles(await api.codexProfiles());
       setNotice('Codex 端点已切换');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '切换失败');
+      setNotice(error instanceof Error ? error.message : '切换失败', 'error');
     } finally { setApplyingProfile(false); }
   };
 
@@ -2719,7 +2734,8 @@ export default function App({ api: suppliedApi }: AppProps) {
         }));
       }
       if (status.manualReviewRequired) {
-        setNotice(status.lastError ?? 'Stop Hook 需要人工检查');
+        // A hook that needs a person is a problem to report, not a confirmation.
+        setNotice(status.lastError ?? 'Stop Hook 需要人工检查', 'error');
       } else if (action === 'install') {
         setNotice(status.restartRequired ? 'Stop Hook 已安装；需重启 Claude' : 'Stop Hook 已安装');
       } else if (action === 'uninstall') {
@@ -2728,7 +2744,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         setNotice('Stop Hook 已停用并清空待处理 Lease');
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Stop Hook 操作失败');
+      setNotice(error instanceof Error ? error.message : 'Stop Hook 操作失败', 'error');
     } finally {
       setSaving(false);
     }
@@ -2738,7 +2754,7 @@ export default function App({ api: suppliedApi }: AppProps) {
     if (!window.confirm('停止并卸载 Continuation Watchdog？')) return;
     setSaving(true);
     try { await api.uninstall(); setHealth({ ok: false, running: false, dryRun: config.dryRun, lastPollAtMs: null }); setNotice('卸载已启动'); }
-    catch (error) { setNotice(error instanceof Error ? error.message : '卸载失败'); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '卸载失败', 'error'); }
     finally { setSaving(false); }
   };
 
@@ -2746,7 +2762,7 @@ export default function App({ api: suppliedApi }: AppProps) {
     setSaving(true);
     setNotice(null);
     try { await api.install(); setNotice('Watchdog 已安装'); }
-    catch (error) { setNotice(error instanceof Error ? error.message : '安装失败'); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '安装失败', 'error'); }
     finally { setSaving(false); }
   };
 
@@ -2763,7 +2779,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         setStartupInstalled(true);
         setNotice('启动项已安装');
       }
-    } catch (error) { setNotice(error instanceof Error ? error.message : '启动项操作失败'); }
+    } catch (error) { setNotice(error instanceof Error ? error.message : '启动项操作失败', 'error'); }
     finally { setSaving(false); }
   };
 
@@ -2774,14 +2790,14 @@ export default function App({ api: suppliedApi }: AppProps) {
   const stopWatchdog = async () => {
     setSaving(true);
     try { await api.stop(); setHealth((current) => ({ ...current, running: false })); setNotice('Watchdog 已停止'); }
-    catch (error) { setNotice(error instanceof Error ? error.message : '停止失败'); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '停止失败', 'error'); }
     finally { setSaving(false); }
   };
 
   const startWatchdog = async () => {
     setSaving(true);
     try { await api.start(); setHealth((current) => ({ ...current, ok: true, running: true })); setNotice('Watchdog 已启动'); }
-    catch (error) { setNotice(error instanceof Error ? error.message : '启动失败'); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '启动失败', 'error'); }
     finally { setSaving(false); }
   };
 
@@ -2984,7 +3000,10 @@ export default function App({ api: suppliedApi }: AppProps) {
       <main className="workspace">
         <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'process' ? '进程详情' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><span className="poll-age" aria-label="Last watchdog poll"><Activity size={14} />轮询 {health.lastPollAtMs === null ? '--' : duration(Math.max(0, Date.now() - health.lastPollAtMs))} 前</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>
 
-        {notice && <div className="notice" role="status"><span>{notice}</span><button className="icon-button" type="button" aria-label="关闭通知" onClick={() => setNotice(null)}><X size={15} /></button></div>}
+        {notice !== null
+          && notifications.inPanel
+          && (notice.tone === 'error' ? notifications.onError : notifications.onSuccess)
+          && <div className="notice" role="status"><span>{notice.text}</span><button className="icon-button" type="button" aria-label="关闭通知" onClick={() => setNotice(null)}><X size={15} /></button></div>}
 
         {page === 'overview' && <div className="page-content">
           <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{liveSessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>服务状态</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : connected ? '已停止' : '离线'}</strong></div></section>
@@ -3022,7 +3041,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
       </main>
     </div>
   );

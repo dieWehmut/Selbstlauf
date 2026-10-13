@@ -139,16 +139,20 @@ function messageOf(error: unknown): string {
 /* ------------------------------------------------------------------ */
 
 export function NotificationsSection(props: {
-  readonly onTimelineLimitChange?: (limit: number) => void;
+  /** The app holds these preferences, so a change has to reach it: the notice strip filters on them. */
+  readonly onChange?: (pref: NotificationsPref) => void;
 }) {
   const [pref, setPref] = usePref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref);
-  const patch = (next: Partial<NotificationsPref>) => setPref({ ...pref, ...next });
+  const patch = (next: Partial<NotificationsPref>) => {
+    const updated = { ...pref, ...next };
+    setPref(updated);
+    props.onChange?.(updated);
+  };
 
   const setLimit = (raw: number) => {
     if (!Number.isFinite(raw)) return;
     const limit = Math.min(1_000, Math.max(1, Math.trunc(raw)));
     patch({ timelineLimit: limit });
-    props.onTimelineLimitChange?.(limit);
   };
 
   return (
@@ -160,8 +164,8 @@ export function NotificationsSection(props: {
         onChange={(inPanel) => patch({ inPanel })}
       />
       <SwitchRow
-        label="续写成功时提示"
-        hint="成功写入一次续写后给出提示"
+        label="操作成功时提示"
+        hint="成功完成一次操作后给出提示"
         checked={pref.onSuccess}
         onChange={(onSuccess) => patch({ onSuccess })}
       />
