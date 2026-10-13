@@ -678,6 +678,44 @@ describe('watchdog dashboard', () => {
     expect(screen.queryByText(/awaiting-quiet-period/u), 'the engine identifier is shown to the user').toBeNull();
   });
 
+  /**
+   * Every surface has to agree about a session whose quiet time is unknown.
+   *
+   * The service sends `quietForMs: null` when it has no last-activity time at all. The table said nothing; the
+   * mobile card and the detail page printed "0s", and the sidebar row did too — a claim that the session had
+   * been active this very second, which is the opposite of "unknown".
+   */
+  it('agrees with itself about a session whose quiet time is unknown', async () => {
+    const fake = api();
+    const [template] = await fake.sessions();
+    fake.sessions = vi.fn(async () => [{ ...template!, id: 'unknown-quiet', quietForMs: null, lastActivityAtMs: null }]);
+    render(<App api={fake} />);
+
+    const table = await waitFor(() => {
+      const cell = document.querySelector('.process-table tbody tr td:nth-child(5) strong');
+      expect(cell).not.toBeNull();
+      return cell as HTMLElement;
+    });
+    expect(table.textContent, 'the table claims a duration for an unknown silence').toBe('--');
+    expect(document.querySelector('.sidebar-row__meta')?.textContent, 'the sidebar row claims 0s').toBe('—');
+
+    // The card and the detail page label the value with a <dt>, so one query covers both.
+    const labelled = () => [...document.querySelectorAll('dt')]
+      .filter((term) => term.textContent === '静默')
+      .map((term) => term.nextElementSibling?.textContent ?? '');
+    let values = labelled();
+    expect(values.length, 'the card is missing its 静默 row').toBeGreaterThanOrEqual(1);
+    expect(new Set(values), 'the card disagrees with the table').toEqual(new Set(['--']));
+
+    // And the detail page, reached the way a person reaches it. It replaces the overview, so this is the
+    // detail page's own row.
+    const list = screen.getByRole('group', { name: '进程列表' });
+    fireEvent.click(within(list).getByTitle(/PID/u));
+    expect(await screen.findByRole('heading', { name: '进程详情' })).toBeInTheDocument();
+    values = labelled();
+    expect(values, 'the detail page is missing its 静默 row').toEqual(['--']);
+  });
+
   it('explains an empty process list instead of showing a table with no rows', async () => {
     /**
      * The connecting state above is also the state of a machine where nothing has been discovered:

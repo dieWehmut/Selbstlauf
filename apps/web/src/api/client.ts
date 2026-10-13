@@ -36,7 +36,8 @@ export interface SessionView {
   paused: boolean;
   startedAtMs: number;
   lastActivityAtMs: number | null;
-  quietForMs?: number;
+  /** Null when the service has no last-activity time to measure from — `lastActivityAtMs === null`. */
+  quietForMs?: number | null;
   pendingPrompt?: string | null;
   lastDecision?: string;
   transportError?: string;

@@ -4,6 +4,7 @@ import {
   UNKNOWN_HOST_LABEL,
   formatSilence,
   groupSessionsByHost,
+  quietMs,
   sessionTone,
   toolLabel,
 } from '../src/sidebar/session-groups';
@@ -202,5 +203,29 @@ describe('sidebar session grouping', () => {
         `the dot says ${tone} while the write rule says ${writable ? 'writable' : 'blocked'} for ${JSON.stringify(combination)}`,
       ).toBe(writable);
     }
+  });
+});
+
+describe('how long a session has been quiet', () => {
+  /**
+   * The service sends `quietForMs: null` when it has no last-activity time at all
+   * (`lastActivityAtMs === null ? null : …` in the controller). The app's surfaces disagreed about what that
+   * meant: the table said nothing, while the sidebar row and the mobile card read it as `0` — claiming the
+   * session had been active this very second, the opposite of "unknown".
+   */
+  it('prefers the service value, falls back to the last activity, and says nothing when neither exists', () => {
+    expect(quietMs(session({ quietForMs: 42_000 }), 1_000_000)).toBe(42_000);
+    // A zero the service really computed is kept: this is "quiet for no measurable time", not "unknown".
+    expect(quietMs(session({ quietForMs: 0 }), 1_000_000)).toBe(0);
+    expect(quietMs(session({ quietForMs: null, lastActivityAtMs: 900_000 }), 1_000_000)).toBe(100_000);
+    expect(quietMs(session({ quietForMs: null, lastActivityAtMs: null }), 1_000_000)).toBeNull();
+    // A last activity in the future cannot produce a negative silence.
+    expect(quietMs(session({ quietForMs: null, lastActivityAtMs: 1_000_500 }), 1_000_000)).toBe(0);
+  });
+
+  it('writes an unknown silence as a dash rather than a duration', () => {
+    expect(formatSilence(null)).toBe('—');
+    expect(formatSilence(18_000)).toBe('18s');
+    expect(formatSilence(Number.NaN)).toBe('—');
   });
 });

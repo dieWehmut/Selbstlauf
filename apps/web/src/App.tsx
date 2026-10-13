@@ -62,7 +62,7 @@ import { canWriteSession, writeEligibility } from './session/write-eligibility';
 import { isLight, mix, paletteSurfaces, readableText } from './theme/palette';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
-import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
+import { sessionTone, sessionToneLabel, conversationLabel, quietMs, togglePinnedId } from './sidebar/session-groups';
 import { describeAuditDetails } from './timeline/audit-details';
 import {
   AccountSection,
@@ -843,7 +843,7 @@ function ProcessTable(props: {
                 <td><HostCell session={session} /></td>
                 <td><CapabilityBadge session={session} /></td>
                 <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle conversation-id">{session.conversationId ?? '未关联'}</span></td>
-                <td><strong>{duration(session.quietForMs ?? (session.lastActivityAtMs ? Date.now() - session.lastActivityAtMs : null))}</strong><DecisionChip decision={session.lastDecision} /></td>
+                <td><strong>{duration(quietMs(session))}</strong><DecisionChip decision={session.lastDecision} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
                 <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} /></td>
               </tr>
@@ -858,7 +858,7 @@ function ProcessTable(props: {
             <dl>
               <div className="session-card__host"><dt>运行位置</dt><dd><HostCell session={session} /></dd></div>
               <div><dt>对话</dt><dd>{conversationLabel(session)}</dd></div>
-              <div><dt>静默</dt><dd>{duration(session.quietForMs ?? 0)}</dd></div>
+              <div><dt>静默</dt><dd>{duration(quietMs(session))}</dd></div>
               <div className="session-card__prompt"><dt>下一输入</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
             </dl>
             <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} /></footer>
@@ -910,7 +910,7 @@ function ProcessDetail(props: {
     );
   }
 
-  const quiet = session.quietForMs ?? (session.lastActivityAtMs ? Date.now() - session.lastActivityAtMs : null);
+  const quiet = quietMs(session);
   const tone = sessionTone(session);
 
   return (
@@ -934,7 +934,7 @@ function ProcessDetail(props: {
         <div><dt>运行位置</dt><dd><HostCell session={session} /></dd></div>
         <div><dt>能力</dt><dd><CapabilityBadge session={session} /></dd></div>
         <div><dt>对话</dt><dd>{conversationLabel(session)}</dd></div>
-        <div><dt>静默</dt><dd>{duration(quiet ?? 0)}</dd></div>
+        <div><dt>静默</dt><dd>{duration(quiet)}</dd></div>
         <div><dt>状态</dt><dd><DecisionChip decision={session.lastDecision} /></dd></div>
         <div><dt>启动于</dt><dd>{time(session.startedAtMs)}</dd></div>
         {session.sessionCwd ? <div className="process-detail__wide"><dt>工作目录</dt><dd><code>{session.sessionCwd}</code></dd></div> : null}

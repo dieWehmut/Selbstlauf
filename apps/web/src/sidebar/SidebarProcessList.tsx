@@ -2,7 +2,7 @@ import { Pin, PinOff } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import type { SessionView } from '../api/client';
-import { conversationShortId, formatSilence, groupSessionsByHost, sessionTone, sessionToneLabel, toolLabel } from './session-groups';
+import { conversationShortId, formatSilence, groupSessionsByHost, quietMs, sessionTone, sessionToneLabel, toolLabel } from './session-groups';
 import { ToolIcon } from './ToolIcon';
 
 /**
@@ -129,7 +129,7 @@ export function SidebarProcessList(props: {
                         {/* The tool's own icon, so a row is identifiable at a glance rather than by reading the label. */}
                         <ToolIcon tool={session.tool} />
                         <span className="sidebar-row__label">{toolLabel(session.tool)}</span>
-                        <span className="sidebar-row__meta">{formatSilence(session.quietForMs ?? 0)}</span>
+                        <span className="sidebar-row__meta">{formatSilence(quietMs(session))}</span>
                       </span>
                       <span className="sidebar-row__conversation" title={session.conversationId ?? undefined}>
                         {line}

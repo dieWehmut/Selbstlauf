@@ -137,9 +137,30 @@ export function toolLabel(tool: string): string {
   }
 }
 
-/** A compact silence duration, e.g. `18s`, `2m 12s`, `1h 04m`. */
-export function formatSilence(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return '—';
+/**
+ * How long a session has been quiet, or null when that is not known.
+ *
+ * The service sends `quietForMs: null` when it has no last-activity time at all (`lastActivityAtMs === null ?
+ * null : …` in the watchdog controller). The app's surfaces disagreed about what that meant: the table and the
+ * detail page fell back to `lastActivityAtMs` and otherwise said nothing, while the sidebar row and the mobile
+ * card read it as `0` — claiming the session had been active this very second, which is the opposite of
+ * "unknown". One function, so they cannot drift apart again.
+ *
+ * A `0` the service really computed is kept: that is "quiet for no measurable time", not "unknown".
+ */
+export function quietMs(
+  session: Pick<SessionView, 'quietForMs' | 'lastActivityAtMs'>,
+  now = Date.now(),
+): number | null {
+  if (typeof session.quietForMs === 'number') return session.quietForMs;
+  if (session.lastActivityAtMs === null) return null;
+  // A clock that moved backwards since the last activity cannot produce a negative silence.
+  return Math.max(0, now - session.lastActivityAtMs);
+}
+
+/** A compact silence duration, e.g. `18s`, `2m 12s`, `1h 04m`; a dash when it is not known. */
+export function formatSilence(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return '—';
   const totalSeconds = Math.floor(ms / 1000);
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
