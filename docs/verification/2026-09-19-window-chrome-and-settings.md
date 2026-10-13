@@ -2678,6 +2678,7 @@ evidence for calling it environmental rather than a defect:
     2 workers (89)     4.9m        88 passed, 1 timeout (breakpoint-sweep); --last-failed 1/1 green in 1.6m
     2 workers (89)     4.4m        87 passed, 2 goto timeouts (theme-chrome, theme-status-colours); --last-failed re-run green
                                  (the second invocation printed "No tests found", which is how a green re-run shows)
+    2 workers (89)     4.3m        88 passed, 1 goto timeout (tool-icons); --last-failed 1/1 green in 12.6s
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3478,6 +3479,29 @@ cell, the sidebar row and every 静默 row on the card and the detail page. It f
 `the sidebar row claims 0s: expected '0s' to be '—'`.
 
 Suites: web 216 -> 219; browser 89 (unchanged).
+
+### Two duration formatters, side by side
+
+Having just unified four call sites into one `quietMs`, the next thing to check was whether the *formatting* had
+the same problem. It did, and more visibly: the app had two functions that both wrote a duration.
+
+    table / card / detail   `duration()`       2m 5s     unknown: --
+    sidebar row             `formatSilence()`  2m 05s    unknown: —
+
+They are shown **beside each other** for the same session — the overview table's 静默 column and the sidebar row
+that selected it — so a session quiet for two minutes and five seconds read as `2m 5s` in one and `2m 05s` in the
+other, with two different glyphs for "unknown" between them.
+
+One function now: `formatDuration` keeps the padded form and the em dash, the table, the card, the detail page,
+the sidebar row and the topbar's poll age all read through it, and the app's own `duration` is gone. Padding is
+what survived because it is what the column and the row need to line up; the em dash is the app's existing "no
+value" convention.
+
+Tests: the formatter's cases moved to the surviving name with the padding pinned (`2m 05s`), and a new
+cross-surface case serves a session quiet for 2m 05s and asserts the sidebar row and the table cell are the same
+string. It failed first with `the table writes the same duration differently: expected '2m 5s' to be '2m 05s'`.
+
+Suites: web 219 -> 220; browser 89 (unchanged).
 
 ## Not verified
 
