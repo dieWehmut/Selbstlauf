@@ -2843,6 +2843,52 @@ suite's own result stayed load-dependent — see the table below.
 
 Suites: web 172; browser 71 -> 73.
 
+### A custom palette was a way back into every defect the palette had already fixed
+
+The appearance section accepts any background and foreground. Everything below was measured with
+`#eef2f1` chosen on the **dark** theme — a light page, which is what the dark theme does not expect:
+
+    --bg #eef2f1   --panel #eff3f2   --panel-soft #eff3f2   --panel-raised #eff3f2
+    rail against page                                            1.007:1
+    a selected row                                               identical to the rail it sits on
+    --accent-strong #edca89 on #eff3f2                           1.36:1   (it is text)
+    ready chip green #74c69d on rgb(227, 231, 231)               1.63:1   (it is text)
+
+The first two lines are the defect round 1 fixed, re-entered through the custom-palette door: the
+effect branched on `theme === 'dark'`, which is only equivalent while the two built-in palettes are
+the ones in use. The other two are the same mistake in the other direction — text colours mixed
+toward white on a page that is not dark.
+
+**Fixed by asking the palette instead of the theme.** The new `src/theme/palette.ts` holds relative
+luminance, contrast ratio and `isLight`; the effect now uses the background's own lightness to decide
+which way a recessed surface steps and which way `--accent-strong` is pushed. The built-in palettes
+resolve exactly as before — black takes the dark branch, `#eef2f1` the light one — and a browser case
+pins that by measuring the rail-vs-page and selected-vs-rail steps under the custom palette as well as
+under the defaults.
+
+**And by solving the text colours rather than trusting them.** `readableText(colour, surfaces,
+target)` returns its colour unchanged when it already clears the bar, and otherwise pushes it toward
+whichever end of the scale the surfaces are not, by the smallest 5% step that works. The direction is
+chosen by asking which end *can* reach the bar, because a mid-grey page rules white out (3.95:1 at
+best there) and a near-black one rules black out. The status colours are derived now from a
+`STATUS_COLOURS` constant — the stylesheet literals stay as first-paint defaults and are equal to the
+derived values for the built-in palettes — and clamped at 4.8 rather than 4.5, since a chip paints
+itself with a 9% wash of the colour it writes.
+
+This closes, for the status and accent text, the limit the status-colour section above recorded as
+deliberately open: a literal cannot promise anything about a background it was not solved for.
+
+    custom light page on the dark theme        before -> after
+      ready chip, green on the rail             1.63:1 -> 5.48:1     #74c69d -> #3a634f
+      accent-strong on the panel                1.36:1 -> 5.12:1     (4.60:1 on the rail)
+    built-in dark and light                     every value byte-identical, asserted
+
+Nine unit tests cover the helpers — including the mid-grey page, where white cannot reach the bar at
+all and the direction therefore has to be black — and the browser case is run against the previous
+`App.tsx` to show it fails, naming the chip at 1.63:1.
+
+Suites: web 172 -> 183; browser 73 -> 76.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
