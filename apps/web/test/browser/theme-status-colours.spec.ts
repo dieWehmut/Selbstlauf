@@ -42,7 +42,10 @@ const PAINTED: readonly { readonly selector: string; readonly label: string; rea
   { selector: '.status-light.is-online', label: 'the online indicator', kind: 'non-text' },
 ];
 
-async function openTheme(theme: 'dark' | 'light', page: Page): Promise<void> {
+async function openTheme(theme: 'dark' | 'light', page: Page, palette?: Record<string, unknown>): Promise<void> {
+  if (palette !== undefined) {
+    await page.addInitScript((value) => localStorage.setItem('watchdog-palette', JSON.stringify(value)), palette);
+  }
   if (theme === 'light') {
     await page.addInitScript(() => localStorage.setItem('watchdog-theme', 'light'));
   }
@@ -147,8 +150,8 @@ function toReading(entry: RawReading): Reading {
   };
 }
 
-async function measure(theme: 'dark' | 'light', page: Page): Promise<void> {
-  await openTheme(theme, page);
+async function measure(theme: 'dark' | 'light', page: Page, palette?: Record<string, unknown>): Promise<void> {
+  await openTheme(theme, page, palette);
 
   const tokens = await page.evaluate((names) => {
     const style = getComputedStyle(document.documentElement);
@@ -195,4 +198,35 @@ test('the dark theme keeps its status colours readable on every surface', async 
 
 test('the light theme keeps its status colours readable on every surface', async ({ page }) => {
   await measure('light', page);
+});
+
+test('a custom palette cannot push the status colours or the accent text below AA', async ({ page }) => {
+  /**
+   * The colours the app owns have to survive a background it did not choose, which is why they are
+   * solved against the palette rather than trusted as literals. Measured before that: `#eef2f1`
+   * chosen on the dark theme left the dark theme's green status text at **1.81:1** on its own
+   * near-white chip and `--accent-strong` at **1.36:1** — both of them text.
+   */
+  const LIGHT_ON_DARK = {
+    dark: { accent: '#e6b65b', background: '#eef2f1', foreground: '#1c262b', contrast: 68 },
+  } as const;
+
+  await measure('dark', page, LIGHT_ON_DARK);
+
+  const accent = await page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    return {
+      strong: style.getPropertyValue('--accent-strong').trim(),
+      panel: style.getPropertyValue('--panel').trim(),
+      rail: style.getPropertyValue('--panel-soft').trim(),
+    };
+  });
+  for (const [surface, value] of [['panel', accent.panel], ['rail', accent.rail]] as const) {
+    const ratio = round2(contrast(parseColour(accent.strong), parseColour(value)));
+    console.log(`  accent-strong ${accent.strong} on the ${surface} ${value} -> ${ratio}:1`);
+    expect(
+      ratio,
+      `--accent-strong (${accent.strong}) is not readable on the ${surface} (${value})`,
+    ).toBeGreaterThanOrEqual(TEXT_RATIO);
+  }
 });

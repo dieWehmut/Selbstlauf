@@ -50,6 +50,12 @@ const APPLIED_TOKENS = [
 /** 4/255: below the 5-level step the dark theme's selected row already uses. */
 const MINIMUM_STEP = 4;
 
+/**
+ * The semantic colours. They are not derived from the palette — they mean something — but the effect
+ * does solve them against it, so they are compared with the literals separately from the tokens above.
+ */
+const STATUS_TOKENS = ['--green', '--red', '--blue'] as const;
+
 /** The custom properties a block in index.css declares. */
 function literals(selector: string): Record<string, string> {
   const start = CSS.indexOf(`${selector} {`);
@@ -156,16 +162,33 @@ test('a light background chosen on the dark theme is treated as a light page', a
   await measure('dark', page, LIGHT_ON_DARK);
 });
 
-/** The colour every token resolves to on the document root, i.e. what the renderer paints with. */
-async function readAppliedTokens(page: Page): Promise<Record<string, string>> {
+/** The colours every token resolves to on the document root, i.e. what the renderer paints with. */
+async function readAppliedTokens(page: Page, tokens: readonly string[] = APPLIED_TOKENS): Promise<Record<string, string>> {
   return page.evaluate(
-    (tokens) => {
+    (names) => {
       const style = getComputedStyle(document.documentElement);
-      return Object.fromEntries(tokens.map((token) => [token, style.getPropertyValue(token).trim().toLowerCase()]));
+      return Object.fromEntries(names.map((token) => [token, style.getPropertyValue(token).trim().toLowerCase()]));
     },
-    APPLIED_TOKENS as unknown as string[],
+    tokens as unknown as string[],
   );
 }
+
+test('the built-in palettes keep the status colours the stylesheet ships', async ({ page }) => {
+  /**
+   * The status colours are solved against the palette now, but the solving is a no-op when the colour
+   * already clears AA — which is why no built-in colour moved. Without this, a change that quietly
+   * darkened the built-in green would still pass every contrast assertion, because "legible" is all
+   * they ask for.
+   */
+  for (const theme of ['dark', 'light'] as const) {
+    await openTheme(theme, page);
+    const applied = await readAppliedTokens(page, STATUS_TOKENS);
+    const declared = literals(theme === 'dark' ? ':root' : ":root[data-theme='light']");
+    for (const token of STATUS_TOKENS) {
+      expect(applied[token], `${theme} ${token} moved off the shipped value`).toBe(declared[token]?.toLowerCase());
+    }
+  }
+});
 
 test('every first-paint literal is the colour the renderer paints, in both themes', async ({ page }) => {
   const mismatches: string[] = [];

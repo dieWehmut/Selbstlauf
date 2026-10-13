@@ -59,7 +59,7 @@ import { SessionWindowPreview } from './process/SessionWindowPreview';
 import { WindowTypePanel } from './process/WindowTypePanel';
 import { ToolIcon } from './sidebar/ToolIcon';
 import { canWriteSession, writeEligibility } from './session/write-eligibility';
-import { isLight } from './theme/palette';
+import { isLight, readableText } from './theme/palette';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, togglePinnedId } from './sidebar/session-groups';
@@ -266,6 +266,19 @@ const DEFAULT_PALETTES: Record<Theme, ThemePalette> = {
 };
 
 const FONT_CHOICES: readonly FontChoice[] = ['system', 'mono', 'serif'];
+
+/**
+ * The semantic colours each theme starts from: green is "writable" or "online", red is a failure,
+ * blue is an editor window. They are the app's own colours rather than the user's, so they are not
+ * part of the palette — but they are *solved against* it, because the appearance section accepts any
+ * background and a status word that cannot be read is worse than a wrong hue. The values here are
+ * the ones the stylesheet ships as first-paint literals, unchanged; the effect only moves them when
+ * the chosen palette leaves them below AA (see `readableText`).
+ */
+const STATUS_COLOURS: Record<Theme, { readonly green: string; readonly red: string; readonly blue: string }> = {
+  dark: { green: '#74c69d', red: '#e98b81', blue: '#83b9d4' },
+  light: { green: '#206f50', red: '#a74339', blue: '#2b6983' },
+};
 
 function normalizeType(value: unknown, fallback: TypeSetting): TypeSetting {
   if (value === null || typeof value !== 'object') return fallback;
@@ -2264,15 +2277,6 @@ export default function App({ api: suppliedApi }: AppProps) {
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--accent', palette.accent);
-    /**
-     * The accent as text: pushed away from the page so it reads as a stronger colour.
-     *
-     * The direction is the palette's, like the recessed surfaces above — toward white on a
-     * dark page and toward black on a light one. Branching on the theme instead left a light
-     * custom background with `#edca89` on `#eff3f2`: 1.36:1, and that token is used for text
-     * (the active rail entry, the prompt chips).
-     */
-    root.style.setProperty('--accent-strong', mixColor(palette.accent, isLight(palette.background) ? '#000000' : '#ffffff', 0.28));
     root.style.setProperty('--bg', palette.background);
     root.style.setProperty('--text', palette.foreground);
 
@@ -2311,6 +2315,28 @@ export default function App({ api: suppliedApi }: AppProps) {
       ? mixColor(palette.background, palette.foreground, 0.004 + palette.contrast / 1400)
       : lift(0.004);
     root.style.setProperty('--panel-soft', recessed);
+
+    /**
+     * The text colours, solved against the surfaces above rather than trusted as literals.
+     *
+     * Both are used as text: `--accent-strong` is the active rail entry and the prompt chips, and
+     * `--green`/`--red`/`--blue` are the status words ("writable", "failed", an editor window).
+     * Their values are the app's own — they are not the user's palette — but they have to be legible
+     * on whatever background the user chose, which a literal cannot promise. Measured with `#eef2f1`
+     * chosen on the dark theme: green status text at **1.81:1** on its own near-white chip and
+     * `--accent-strong` at **1.36:1**, both below AA.
+     *
+     * `readableText` returns each colour unchanged when it already clears the bar, which is the case
+     * for both built-in palettes: no built-in colour moves. The status bar is 4.8 rather than 4.5
+     * because a chip paints itself with a 9% wash of the colour it writes, which costs about 0.07:1
+     * against a light surface.
+     */
+    const surfaces = [palette.background, lift(0.012), recessed, lift(0.022)];
+    const accentStrong = mixColor(palette.accent, isLight(palette.background) ? '#000000' : '#ffffff', 0.28);
+    root.style.setProperty('--accent-strong', readableText(accentStrong, surfaces));
+    for (const [name, colour] of Object.entries(STATUS_COLOURS[theme])) {
+      root.style.setProperty(`--${name}`, readableText(colour, surfaces, 4.8));
+    }
 
     /**
      * The two line tokens.
