@@ -2668,6 +2668,8 @@ evidence for calling it environmental rather than a defect:
     --last-failed      1.5m, 2.2m  all five re-ran green
     2 workers (73)     9.6m        65 passed, 4 timeouts (dashboard, focus-appearance, navigation, theme-surfaces)
     --last-failed      3.5m        6 of 7 green; the seventh, the light-theme accessibility audit, passed alone in 1.2m
+    2 workers (85)     2.6m        85 passed          <- the clean run on the round-13 tree
+    2 workers (85)     —           83 passed, 2 timeouts (theme-surfaces, theme-status-colours); --last-failed 2/2 green
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3062,6 +3064,37 @@ server, and the growth is what is asserted. Run against the previous CSS the tes
 1586px of growth.
 
 Suites: web 186 (unchanged); browser 84 -> 85.
+
+### A copy that failed said nothing
+
+The environment panel's 复制 button copies the whole manual-install block as one script. The clipboard
+is not always available — an insecure context, a denied permission, or a browser that is not on the
+loopback address, where `navigator.clipboard` is not defined at all, which is reachable here because
+the service is served over plain HTTP — and the click had two outcomes: a confirmation, or nothing at
+all. A failure was indistinguishable from a click that never registered. The code's own comment already
+named the cause ("the clipboard is not always available … so the confirmation only appears after the
+write resolves"), so the intent was understood and only the failure half was missing.
+
+Two siblings in the same app did better: the import section throws `当前环境不支持读取剪贴板` and
+reports `导入失败：…`, and the appearance panel's copy tracks `done`/`failed` and shows 复制失败. The
+button now does the same:
+
+    复制  ->  已复制            the write resolved
+    复制  ->  复制失败          refused, or no clipboard API at all, with the reason in `title`
+
+`aria-live="polite"` was added with it, because the button's accessible name is its constant
+`aria-label`: the visible label change was invisible to a screen reader, both for the confirmation and
+for the failure.
+
+**The rest of the app was checked for the same silence.** Every other `catch` in `App.tsx` already
+reports: the three that do not are deliberate and documented — a corrupt saved palette, an older bridge
+with no settings fields, and the poll/environment retries that surface as 等待连接.
+
+Both halves are pinned now: the existing success test asserts 已复制, and the new one asserts 复制失败
+with the reason for a refused write and for a missing clipboard API. Run against the previous code the
+new test fails at its first assertion, because the label never changed.
+
+Suites: web 186 -> 187; browser 85 (unchanged).
 
 ## Not verified
 
