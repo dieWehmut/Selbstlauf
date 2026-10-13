@@ -158,8 +158,15 @@ export function quietMs(
   return Math.max(0, now - session.lastActivityAtMs);
 }
 
-/** A compact silence duration, e.g. `18s`, `2m 12s`, `1h 04m`; a dash when it is not known. */
-export function formatSilence(ms: number | null): string {
+/**
+ * The app's one duration, e.g. `18s`, `2m 05s`, `1h 04m`; a dash when the duration is not known.
+ *
+ * This was two functions: the sidebar's `formatSilence` and the overview table's own `duration`. They differed
+ * on the padding and on the unknown glyph — the table wrote `2m 5s` and `--` where the sidebar wrote `2m 05s`
+ * and `—` — while both are shown *beside each other* for the same session. The padded form and the em dash are
+ * the ones that survived, so a column and a row describing one value now describe it identically.
+ */
+export function formatDuration(ms: number | null): string {
   if (ms === null || !Number.isFinite(ms) || ms < 0) return '—';
   const totalSeconds = Math.floor(ms / 1000);
   if (totalSeconds < 60) return `${totalSeconds}s`;

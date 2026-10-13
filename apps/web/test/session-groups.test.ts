@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   UNKNOWN_HOST_LABEL,
-  formatSilence,
+  formatDuration,
   groupSessionsByHost,
   quietMs,
   sessionTone,
@@ -145,17 +145,19 @@ describe('sidebar session grouping', () => {
     expect(toolLabel('something-new')).toBe('something-new');
   });
 
-  it('formats silence compactly and never prints a wrong duration', () => {
-    expect(formatSilence(0)).toBe('0s');
-    expect(formatSilence(18000)).toBe('18s');
-    expect(formatSilence(74000)).toBe('1m 14s');
-    expect(formatSilence(132000)).toBe('2m 12s');
-    expect(formatSilence(3600000)).toBe('1h 00m');
-    expect(formatSilence(3900000)).toBe('1h 05m');
+  it('formats a duration compactly and never prints a wrong one', () => {
+    expect(formatDuration(0)).toBe('0s');
+    expect(formatDuration(18000)).toBe('18s');
+    expect(formatDuration(74000)).toBe('1m 14s');
+    expect(formatDuration(132000)).toBe('2m 12s');
+    // Seconds and minutes are padded, which is the form the table and the sidebar now share.
+    expect(formatDuration(125_000)).toBe('2m 05s');
+    expect(formatDuration(3_900_000)).toBe('1h 05m');
+    expect(formatDuration(3_600_000)).toBe('1h 00m');
     // A negative or non-finite value must not print something nonsensical.
-    expect(formatSilence(-1)).toBe('—');
-    expect(formatSilence(Number.NaN)).toBe('—');
-    expect(formatSilence(Number.POSITIVE_INFINITY)).toBe('—');
+    expect(formatDuration(-1)).toBe('—');
+    expect(formatDuration(Number.NaN)).toBe('—');
+    expect(formatDuration(Number.POSITIVE_INFINITY)).toBe('—');
   });
 
   it('gives a row the tone that matches whether the session is actionable', () => {
@@ -224,8 +226,8 @@ describe('how long a session has been quiet', () => {
   });
 
   it('writes an unknown silence as a dash rather than a duration', () => {
-    expect(formatSilence(null)).toBe('—');
-    expect(formatSilence(18_000)).toBe('18s');
-    expect(formatSilence(Number.NaN)).toBe('—');
+    expect(formatDuration(null)).toBe('—');
+    expect(formatDuration(18_000)).toBe('18s');
+    expect(formatDuration(Number.NaN)).toBe('—');
   });
 });

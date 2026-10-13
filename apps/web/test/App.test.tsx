@@ -696,7 +696,7 @@ describe('watchdog dashboard', () => {
       expect(cell).not.toBeNull();
       return cell as HTMLElement;
     });
-    expect(table.textContent, 'the table claims a duration for an unknown silence').toBe('--');
+    expect(table.textContent, 'the table claims a duration for an unknown silence').toBe('—');
     expect(document.querySelector('.sidebar-row__meta')?.textContent, 'the sidebar row claims 0s').toBe('—');
 
     // The card and the detail page label the value with a <dt>, so one query covers both.
@@ -705,7 +705,7 @@ describe('watchdog dashboard', () => {
       .map((term) => term.nextElementSibling?.textContent ?? '');
     let values = labelled();
     expect(values.length, 'the card is missing its 静默 row').toBeGreaterThanOrEqual(1);
-    expect(new Set(values), 'the card disagrees with the table').toEqual(new Set(['--']));
+    expect(new Set(values), 'the card disagrees with the table').toEqual(new Set(['—']));
 
     // And the detail page, reached the way a person reaches it. It replaces the overview, so this is the
     // detail page's own row.
@@ -713,7 +713,31 @@ describe('watchdog dashboard', () => {
     fireEvent.click(within(list).getByTitle(/PID/u));
     expect(await screen.findByRole('heading', { name: '进程详情' })).toBeInTheDocument();
     values = labelled();
-    expect(values, 'the detail page is missing its 静默 row').toEqual(['--']);
+    expect(values, 'the detail page is missing its 静默 row').toEqual(['—']);
+  });
+
+  /**
+   * One duration, written one way.
+   *
+   * The table's 静默 column and the sidebar row beside it format the same value with two different functions:
+   * the table wrote `2m 5s` where the sidebar wrote `2m 05s`, and the unknown glyph differed too (`--` against
+   * `—`). Both are correct durations; showing them together in two shapes is the defect.
+   */
+  it('writes a silence the same way in the sidebar and the table', async () => {
+    const fake = api();
+    const [template] = await fake.sessions();
+    // 2m 05s: the padding is what the two formatters disagreed about.
+    fake.sessions = vi.fn(async () => [{ ...template!, id: 'padded-quiet', quietForMs: 125_000 }]);
+    render(<App api={fake} />);
+
+    const table = await waitFor(() => {
+      const cell = document.querySelector('.process-table tbody tr td:nth-child(5) strong');
+      expect(cell).not.toBeNull();
+      return cell as HTMLElement;
+    });
+    const sidebar = document.querySelector('.sidebar-row__meta');
+    expect(sidebar?.textContent).toBe('2m 05s');
+    expect(table.textContent, 'the table writes the same duration differently').toBe(sidebar?.textContent);
   });
 
   it('explains an empty process list instead of showing a table with no rows', async () => {

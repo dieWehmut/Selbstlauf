@@ -62,7 +62,7 @@ import { canWriteSession, writeEligibility } from './session/write-eligibility';
 import { isLight, mix, paletteSurfaces, readableText } from './theme/palette';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
-import { sessionTone, sessionToneLabel, conversationLabel, quietMs, togglePinnedId } from './sidebar/session-groups';
+import { sessionTone, sessionToneLabel, conversationLabel, formatDuration, quietMs, togglePinnedId } from './sidebar/session-groups';
 import { describeAuditDetails } from './timeline/audit-details';
 import {
   AccountSection,
@@ -543,15 +543,6 @@ const fallbackEvents: AuditEvent[] = [
   { id: 'sample-4', timestampMs: now - 42_000, type: 'activity', sessionId: 'dsh:session-4f21c0a8', tool: 'dsh', details: { source: 'dsh-session' } },
 ];
 
-function duration(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined || ms < 0) return '--';
-  const seconds = Math.floor(ms / 1_000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
-
 function time(timestampMs: number): string {
   return new Intl.DateTimeFormat('zh-CN', {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
@@ -843,7 +834,7 @@ function ProcessTable(props: {
                 <td><HostCell session={session} /></td>
                 <td><CapabilityBadge session={session} /></td>
                 <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle conversation-id">{session.conversationId ?? '未关联'}</span></td>
-                <td><strong>{duration(quietMs(session))}</strong><DecisionChip decision={session.lastDecision} /></td>
+                <td><strong>{formatDuration(quietMs(session))}</strong><DecisionChip decision={session.lastDecision} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
                 <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} /></td>
               </tr>
@@ -858,7 +849,7 @@ function ProcessTable(props: {
             <dl>
               <div className="session-card__host"><dt>运行位置</dt><dd><HostCell session={session} /></dd></div>
               <div><dt>对话</dt><dd>{conversationLabel(session)}</dd></div>
-              <div><dt>静默</dt><dd>{duration(quietMs(session))}</dd></div>
+              <div><dt>静默</dt><dd>{formatDuration(quietMs(session))}</dd></div>
               <div className="session-card__prompt"><dt>下一输入</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
             </dl>
             <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} /></footer>
@@ -934,7 +925,7 @@ function ProcessDetail(props: {
         <div><dt>运行位置</dt><dd><HostCell session={session} /></dd></div>
         <div><dt>能力</dt><dd><CapabilityBadge session={session} /></dd></div>
         <div><dt>对话</dt><dd>{conversationLabel(session)}</dd></div>
-        <div><dt>静默</dt><dd>{duration(quiet)}</dd></div>
+        <div><dt>静默</dt><dd>{formatDuration(quiet)}</dd></div>
         <div><dt>状态</dt><dd><DecisionChip decision={session.lastDecision} /></dd></div>
         <div><dt>启动于</dt><dd>{time(session.startedAtMs)}</dd></div>
         {session.sessionCwd ? <div className="process-detail__wide"><dt>工作目录</dt><dd><code>{session.sessionCwd}</code></dd></div> : null}
@@ -3163,7 +3154,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       )}
 
       <main className="workspace">
-        <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'process' ? '进程详情' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><span className="poll-age"><Activity size={14} />{health.lastPollAtMs === null ? '尚未轮询' : `轮询 ${duration(Math.max(0, Date.now() - health.lastPollAtMs))} 前`}</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>
+        <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'process' ? '进程详情' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><span className="poll-age"><Activity size={14} />{health.lastPollAtMs === null ? '尚未轮询' : `轮询 ${formatDuration(Math.max(0, Date.now() - health.lastPollAtMs))} 前`}</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>
 
         {notice !== null
           && notifications.inPanel
