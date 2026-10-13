@@ -375,14 +375,26 @@ describe('PluginsSection', () => {
 });
 
 describe('BrowserSection', () => {
-  it('shows the origin and theme, and opens the origin in a new tab', () => {
-    const open = vi.fn();
-    vi.stubGlobal('open', open);
+  it('names the current theme the way the rest of the interface does', () => {
+    /**
+     * 当前主题 printed the raw identifier — `dark`, `light` — in a panel that is otherwise entirely Chinese
+     * and whose sibling rows read 访问地址 / 在浏览器中打开. The appearance section calls the same two things
+     * 深色 and 浅色, and this is the same defect as the decision chip that showed the English word
+     * "disabled" beside every session.
+     */
     render(<BrowserSection theme="dark" origin="http://127.0.0.1:4174" />);
 
     expect(screen.getByText('http://127.0.0.1:4174')).toBeInTheDocument();
-    expect(screen.getByText('dark')).toBeInTheDocument();
+    expect(screen.getByText('深色')).toBeInTheDocument();
+    expect(screen.queryByText('dark'), 'a raw theme identifier in a Chinese panel').toBeNull();
+  });
 
+  it('names the light theme too, and opens the origin in a new tab', () => {
+    const open = vi.fn();
+    vi.stubGlobal('open', open);
+    render(<BrowserSection theme="light" origin="http://127.0.0.1:4174" />);
+
+    expect(screen.getByText('浅色')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /在浏览器中打开/ }));
     expect(open).toHaveBeenCalledWith('http://127.0.0.1:4174', '_blank', 'noreferrer');
     vi.unstubAllGlobals();

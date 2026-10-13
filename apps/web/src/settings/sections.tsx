@@ -682,6 +682,15 @@ export function PluginsSection() {
 /* 15. Browser                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The resolved theme's name, worded the way the appearance section words it.
+ *
+ * This panel printed the raw identifier — `dark`, `light` — next to 访问地址 and 在浏览器中打开, so the one
+ * row that was not Chinese was also the one a person had to translate. The appearance section already names
+ * these two things 深色 and 浅色 for the same choice.
+ */
+const THEME_NAMES: Readonly<Record<'light' | 'dark', string>> = Object.freeze({ light: '浅色', dark: '深色' });
+
 export function BrowserSection(props: {
   readonly theme: 'light' | 'dark';
   readonly origin: string;
@@ -700,7 +709,7 @@ export function BrowserSection(props: {
     >
       <div className="pref-rows">
         <div className="pref-row"><span>访问地址</span><span className="pref-row__value">{props.origin}</span></div>
-        <div className="pref-row"><span>当前主题</span><span className="pref-row__value">{props.theme}</span></div>
+        <div className="pref-row"><span>当前主题</span><span className="pref-row__value">{THEME_NAMES[props.theme]}</span></div>
       </div>
       <div className="pref-actions">
         <button className="button button--secondary" type="button" disabled={props.origin.length === 0} onClick={open}>

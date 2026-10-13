@@ -912,7 +912,7 @@ function ProcessDetail(props: {
         <div><dt>启动于</dt><dd>{time(session.startedAtMs)}</dd></div>
         {session.sessionCwd ? <div className="process-detail__wide"><dt>工作目录</dt><dd><code>{session.sessionCwd}</code></dd></div> : null}
         <div className="process-detail__wide"><dt>下一输入</dt><dd><code className="prompt-code">{nextPrompt(session, props.config)}</code></dd></div>
-        {session.transportError ? <div className="process-detail__wide"><dt>传输错误</dt><dd className="process-detail__error">{session.transportError}</dd></div> : null}
+        {session.transportError ? <div className="process-detail__wide"><dt>传输错误</dt><dd className="process-detail__error">{transportReason(session.transportError) ?? session.transportError}</dd></div> : null}
       </dl>
 
       {/* The window the process runs in. Placed before the actions because it answers the

@@ -1251,6 +1251,23 @@ describe('window title bar', () => {
     expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
   });
 
+  it('explains a transport error in words, not as the engine identifier', async () => {
+    /**
+     * The engine reports `no-cwd-match`. The capability badge translates it — 未找到同目录 Codex 线程 — while
+     * the detail page's 传输错误 row printed the raw identifier: the same value, explained on one surface and
+     * not on the other. That is the class the decision chip's English "disabled" belonged to.
+     */
+    const fake = api();
+    render(<App api={fake} />);
+    const list = await screen.findByRole('group', { name: '进程列表' });
+    fireEvent.click(within(list).getByTitle(/PID 12/u));
+
+    expect(await screen.findByRole('heading', { name: '进程详情' })).toBeInTheDocument();
+    const row = (await screen.findByText('传输错误')).closest('div');
+    expect(row?.textContent, 'the row does not explain the error').toContain('未找到同目录 Codex 线程');
+    expect(screen.queryByText('no-cwd-match'), 'the engine identifier is shown to the user').toBeNull();
+  });
+
   it('filters the sidebar process list without touching the page', async () => {
     const fake = api();
     render(<App api={fake} />);
