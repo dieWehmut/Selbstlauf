@@ -77,6 +77,53 @@ test('the active theme card shows the colours the app paints', async ({ page }) 
   expect(light.sheet, 'the light swatch is not the light palette panel').toBe(toRgb('#eff3f2'));
 });
 
+test('the diff follows every choice the list above it offers', async ({ page }) => {
+  /**
+   * The pane's own docstring says it shows "what the theme ships with against what the current
+   * choices resolve to", and it shipped with rows for `surface` (a token *name*), `accent` and
+   * `contrast` only — while the list above offers colour pickers for 背景 and 前景. Measured: setting
+   * the background to `#fdf6e3` repainted the app (`--bg #fdf6e3`) and left the pane byte-identical.
+   */
+  await openAppearance(page);
+
+  const panes = () => page.evaluate(() => {
+    const text = (selector: string) => (document.querySelector(selector)?.textContent ?? '').replace(/\s+/gu, ' ').trim();
+    return { before: text('.theme-diff__pane:not(.theme-diff__pane--after)'), after: text('.theme-diff__pane--after') };
+  });
+
+  /** React tracks the last value it saw, so a colour input needs the prototype setter to look edited. */
+  const setColour = async (label: string, value: string) => {
+    await page.locator(`input[type=color][aria-label="${label}"]`).evaluate((element, next) => {
+      const input = element as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, next);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, value);
+    await page.waitForTimeout(200);
+  };
+
+  const initial = await panes();
+  // The left pane is the theme's stock palette and must not move when the user customises.
+  expect(initial.before, 'the stock pane is not the built-in dark palette').toContain('background: "#000000"');
+  expect(initial.before).toContain('foreground: "#e9eef0"');
+  expect(initial.after, 'an untouched palette should read the same in both panes').toContain('background: "#000000"');
+
+  await setColour('背景', '#fdf6e3');
+  await setColour('前景', '#2b2b2b');
+  await page.locator('.appearance-slider input[type=range]').fill('100');
+  await page.waitForTimeout(200);
+
+  const changed = await panes();
+  console.log(`after: ${changed.after.slice(0, 200)}`);
+  expect(changed.after, 'a background choice is missing from the diff').toContain('background: "#fdf6e3"');
+  expect(changed.after, 'a foreground choice is missing from the diff').toContain('foreground: "#2b2b2b"');
+  expect(changed.after, 'the contrast choice is missing from the diff').toContain('contrast: 100');
+  // And the stock pane still shows the stock values, which is what makes it a diff.
+  expect(changed.before, 'the stock pane followed the user instead of staying stock').toContain('background: "#000000"');
+  expect(changed.before).toContain('foreground: "#e9eef0"');
+  expect(changed.before).toContain('contrast: 68');
+});
+
 test('both the app and the swatches follow the contrast slider', async ({ page }) => {
   await openAppearance(page);
   const before = await readSwatches(page, '深色');

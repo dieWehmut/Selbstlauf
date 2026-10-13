@@ -1254,29 +1254,53 @@ function ThemePreviewCard(props: {
 /**
  * The side-by-side code sample.
  *
- * The left pane keeps the stock values so the comparison reads as a diff: what
- * the theme ships with against what the current choices resolve to.
+ * The left pane keeps the stock values so the comparison reads as a diff: what the theme ships with
+ * against what the current choices resolve to.
+ *
+ * `THEME_DIFF_FIELDS` lists what that comparison covers, in the order the appearance list offers
+ * them. `surface` is a name rather than a colour because the palette really does hold a *toggle*
+ * (`translucentSidebar`); everything else is a value the user can set.
  */
+const THEME_DIFF_FIELDS: readonly { readonly field: string; readonly quoted: boolean }[] = [
+  { field: 'surface', quoted: true },
+  { field: 'background', quoted: true },
+  { field: 'foreground', quoted: true },
+  { field: 'accent', quoted: true },
+  { field: 'contrast', quoted: false },
+];
+
 function ThemeDiffPreview(props: {
   readonly palette: ThemePalette;
   readonly activeTheme: Theme;
 }) {
   const before = DEFAULT_PALETTES[props.activeTheme];
   const after = props.palette;
+  /**
+   * Every field the palette holds, so the diff is the difference the user is making.
+   *
+   * It used to show `surface` (a token *name*), `accent` and `contrast` only, while the list directly
+   * above it offers colour pickers for 背景 and 前景. Measured: setting the background to `#fdf6e3`
+   * repainted the app (`--bg #fdf6e3`) and left this pane byte-identical, so it read as a diff of
+   * choices as though two of the five had not been made.
+   */
   const rows: readonly { readonly from: string; readonly to: string }[] = [
-    // A translucent sidebar is a different surface, so it shows up as a diff.
     { from: before.translucentSidebar ? 'sidebar-elevated' : 'sidebar', to: after.translucentSidebar ? 'sidebar-elevated' : 'sidebar' },
+    { from: before.background, to: after.background },
+    { from: before.foreground, to: after.foreground },
     { from: before.accent, to: after.accent },
     { from: String(before.contrast), to: String(after.contrast) },
   ];
-  const pane = (values: readonly string[], after: boolean) => (
-    <div className={after ? 'theme-diff__pane theme-diff__pane--after' : 'theme-diff__pane'}>
+  const pane = (values: readonly string[], isAfter: boolean) => (
+    <div className={isAfter ? 'theme-diff__pane theme-diff__pane--after' : 'theme-diff__pane'}>
       <span className="theme-diff__gutter" aria-hidden="true" />
       <span className="theme-diff__code">
         <span className="theme-diff__title">const themePreview: ThemeConfig = {'{'}</span>
-        <span className="theme-diff__line"><span className="theme-diff__num">2</span>surface: "{values[0]}",</span>
-        <span className="theme-diff__line"><span className="theme-diff__num">3</span>accent: "{values[1]}",</span>
-        <span className="theme-diff__line"><span className="theme-diff__num">4</span>contrast: {values[2]},</span>
+        {values.map((value, index) => (
+          <span className="theme-diff__line" key={THEME_DIFF_FIELDS[index]!.field}>
+            <span className="theme-diff__num">{index + 2}</span>
+            {THEME_DIFF_FIELDS[index]!.field}: {THEME_DIFF_FIELDS[index]!.quoted ? `"${value}"` : value},
+          </span>
+        ))}
         <span className="theme-diff__title">{'}'};</span>
       </span>
     </div>
