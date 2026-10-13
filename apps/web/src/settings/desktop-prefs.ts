@@ -92,8 +92,6 @@ export interface NotificationsPref {
 
 export interface ProfilePref {
   readonly displayName: string;
-  readonly note: string;
-  readonly avatar: 'default' | 'light' | 'dark';
 }
 
 export interface ParentalPref {
@@ -161,9 +159,9 @@ export function isNotificationsPref(value: unknown): value is NotificationsPref 
 
 export function isProfilePref(value: unknown): value is ProfilePref {
   if (!isRecord(value)) return false;
-  return typeof value.displayName === 'string'
-    && typeof value.note === 'string'
-    && (value.avatar === 'default' || value.avatar === 'light' || value.avatar === 'dark');
+  // Only the field the app shows is required; a value stored by an older build with extra keys
+  // (a note, an avatar) still validates, because extra keys are ignored rather than rejected.
+  return typeof value.displayName === 'string';
 }
 
 export function isParentalPref(value: unknown): value is ParentalPref {
@@ -219,8 +217,6 @@ export const NOTIFICATIONS_DEFAULTS: NotificationsPref = Object.freeze({
 
 export const PROFILE_DEFAULTS: ProfilePref = Object.freeze({
   displayName: '',
-  note: '',
-  avatar: 'default',
 });
 
 export const PARENTAL_DEFAULTS: ParentalPref = Object.freeze({

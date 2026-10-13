@@ -257,27 +257,20 @@ export function ProfileSection(props: {
     props.onDisplayNameChange?.(displayName);
   };
 
+  /**
+   * The profile is one field, because one field is what the app shows.
+   *
+   * 头像 (default/light/dark) and 备注 were stored, validated and rendered nowhere: no part of the app
+   * had an avatar or a note to show, so both offered a change nobody could observe. This file's own
+   * history has the precedent — sections that "changed nothing a person could observe" were removed
+   * rather than kept as placeholders — so they are gone rather than given invented behaviour. A stored
+   * value with those keys still validates, since only the fields that matter are checked.
+   */
   return (
-    <Section eyebrow="Profile" title="个人资料" hint="这些内容只保存在本机浏览器中，不会上传。" icon={<UserRound size={20} />}>
+    <Section eyebrow="Profile" title="个人资料" hint="只保存在本机浏览器中，不会上传；账户弹窗的标题显示的即是这个名称。" icon={<UserRound size={20} />}>
       <div className="field-grid">
         <Field label="显示名称">
           <input value={pref.displayName} onChange={(event) => rename(event.target.value)} />
-        </Field>
-        <Field label="头像">
-          <select
-            aria-label="头像"
-            value={pref.avatar}
-            onChange={(event) => patch({ avatar: event.target.value as ProfilePref['avatar'] })}
-          >
-            <option value="default">默认</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select>
-        </Field>
-      </div>
-      <div className="field-stack">
-        <Field label="备注">
-          <textarea rows={3} value={pref.note} onChange={(event) => patch({ note: event.target.value })} />
         </Field>
       </div>
     </Section>

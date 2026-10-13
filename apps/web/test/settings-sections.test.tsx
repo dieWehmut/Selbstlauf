@@ -17,6 +17,7 @@ import {
   NotificationsSection,
   PetSection,
   PluginsSection,
+  ProfileSection,
   ShortcutsSection,
   StartupSection,
   describeTrustedContact,
@@ -171,6 +172,23 @@ const events: readonly AuditEvent[] = [
   { id: 'e2', timestampMs: Date.now() - 60_000, type: 'decision', sessionId: 'writable', details: { decision: 'injected' } },
   { id: 'e3', timestampMs: Date.now() - 30_000, type: 'activity', sessionId: 'paused' },
 ];
+
+describe('ProfileSection', () => {
+  it('offers only the profile field that does something', () => {
+    /**
+     * 头像 (default/light/dark) and 备注 were written to the preference, validated on read, and shown
+     * nowhere: no part of the app rendered an avatar or a note, so both offered a change a person could
+     * not observe — the same defect as the notification switches, and the rail's docstring records
+     * sections removed for it. The section keeps 显示名称, which the account popup does show; the other
+     * two are gone rather than given behaviour invented for them.
+     */
+    render(<ProfileSection />);
+
+    expect(screen.getByLabelText('显示名称')).toBeInTheDocument();
+    expect(screen.queryByLabelText('头像'), 'an avatar control nothing renders').toBeNull();
+    expect(screen.queryByLabelText('备注'), 'a note field nothing renders').toBeNull();
+  });
+});
 
 describe('AccountSection', () => {
   it('links to the real project pages and renders no update strip', () => {
