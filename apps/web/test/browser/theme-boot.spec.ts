@@ -24,6 +24,8 @@ interface BootState {
   readonly accent: string;
   /** What the browser tints its own chrome with, when it has one. */
   readonly meta: string;
+  /** The compact/comfortable layout choice, which the boot script applies with the theme. */
+  readonly density: string;
 }
 
 const LIGHT_PALETTE = {
@@ -33,11 +35,12 @@ const LIGHT_PALETTE = {
 /** Loads with the bundle blocked, so what is read is exactly what paints before the app starts. */
 async function readBeforeTheBundle(
   page: Page,
-  saved: { readonly theme?: string; readonly palette?: string },
+  saved: { readonly theme?: string; readonly palette?: string; readonly personalization?: string },
 ): Promise<BootState> {
   await page.addInitScript((value) => {
     if (value.theme !== undefined) localStorage.setItem('watchdog-theme', value.theme);
     if (value.palette !== undefined) localStorage.setItem('watchdog-palette', value.palette);
+    if (value.personalization !== undefined) localStorage.setItem('watchdog-personalization', value.personalization);
   }, saved);
   await page.route('**/src/main.tsx', (route) => route.abort());
   await page.goto('/');
@@ -54,9 +57,19 @@ async function readBeforeTheBundle(
       text: style.getPropertyValue('--text').trim(),
       accent: style.getPropertyValue('--accent').trim(),
       meta: document.querySelector('meta[name="theme-color"]')?.getAttribute('content') ?? '',
+      density: document.documentElement.dataset.density ?? '',
     };
   });
 }
+
+test('a saved density is applied before the bundle runs', async ({ page }) => {
+  /**
+   * The compact rules change the settings sections and the process table, so a user who chose them
+   * should not watch comfortable spacing correct itself — the same argument as the saved theme.
+   */
+  const state = await readBeforeTheBundle(page, { personalization: JSON.stringify({ density: 'compact' }) });
+  expect(state.density).toBe('compact');
+});
 
 test('a saved light theme and palette are applied before the bundle runs', async ({ page }) => {
   const state = await readBeforeTheBundle(page, { theme: 'light', palette: JSON.stringify(LIGHT_PALETTE) });

@@ -44,6 +44,12 @@
     // stays dark until the app has run. The app keeps it in step afterwards.
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta !== null && readable(boot['--bg'])) meta.setAttribute('content', boot['--bg']);
+
+    // The saved density too: the compact rules change the settings sections and the process table, so
+    // a user who chose them should not watch comfortable spacing correct itself on the first frame.
+    const storedPersonalization = JSON.parse(localStorage.getItem('watchdog-personalization') ?? '{}');
+    const personalization = storedPersonalization !== null && typeof storedPersonalization === 'object' ? storedPersonalization : {};
+    document.documentElement.dataset.density = personalization.density === 'compact' ? 'compact' : 'comfortable';
   } catch {
     // A corrupt or unreadable preference must not stop the app from loading.
   }

@@ -124,6 +124,56 @@ test('the diff follows every choice the list above it offers', async ({ page }) 
   expect(changed.before).toContain('contrast: 68');
 });
 
+test('the density control actually tightens the surfaces it names', async ({ page }) => {
+  /**
+   * 界面密度 is the control the compact rules in `sections.css` were written for: the padding of a
+   * settings section, an appearance row and a process-table cell — which is exactly what the control's
+   * hint promises. Nothing set `data-density` before, so those rules could never match; this measures
+   * the padding rather than trusting the attribute.
+   */
+  const cellPadding = () => page.locator('.process-table td').first().evaluate((cell) => getComputedStyle(cell).paddingTop);
+  const padding = () => page.evaluate(() => {
+    const read = (selector: string) => {
+      const style = getComputedStyle(document.querySelector(selector)!);
+      return `${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft}`;
+    };
+    return { section: read('.settings-section'), row: read('.appearance-row') };
+  });
+
+  await page.setViewportSize({ width: 1249, height: 704 });
+  await page.goto('/');
+  await expect(page.locator('.process-table-wrap')).toBeVisible();
+  const comfortableCell = await cellPadding();
+
+  await openAppearance(page);
+  const comfortable = await padding();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dataset.density), { message: 'the default density is not on the document' })
+    .toBe('comfortable');
+
+  await page.getByLabel('界面密度').selectOption('compact');
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.density)).toBe('compact');
+  const compact = await padding();
+
+  await page.getByRole('button', { name: /返回应用/u }).click();
+  await expect(page.locator('.process-table-wrap')).toBeVisible();
+  const compactCell = await cellPadding();
+
+  console.log(`comfortable: section ${comfortable.section}, row ${comfortable.row}, cell ${comfortableCell}`);
+  console.log(`compact:     section ${compact.section}, row ${compact.row}, cell ${compactCell}`);
+
+  expect(compact.section, 'the settings section did not tighten').not.toBe(comfortable.section);
+  expect(compact.row, 'the appearance row did not tighten').not.toBe(comfortable.row);
+  expect(compactCell, 'the process table cell did not tighten').not.toBe(comfortableCell);
+
+  // And the choice survives a reload, since it is a preference rather than a session state. The app
+  // reopens on the overview, so the appearance section has to be opened again to read the control back.
+  await page.reload();
+  await openAppearance(page);
+  await expect(page.getByLabel('界面密度')).toHaveValue('compact');
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.density)).toBe('compact');
+});
+
 test('both the app and the swatches follow the contrast slider', async ({ page }) => {
   await openAppearance(page);
   const before = await readSwatches(page, '深色');

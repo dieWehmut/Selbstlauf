@@ -79,6 +79,7 @@ import {
 import {
   NOTIFICATIONS_DEFAULTS,
   PARENTAL_DEFAULTS,
+  PERSONALIZATION_DEFAULTS,
   PINNED_SESSIONS_DEFAULTS,
   PREF_KEYS,
   PROFILE_DEFAULTS,
@@ -86,11 +87,13 @@ import {
   hashPin,
   isNotificationsPref,
   isParentalPref,
+  isPersonalizationPref,
   isPinnedSessionsPref,
   isProfilePref,
   isTrustedContactPref,
   readPref,
   writePref,
+  type Density,
   type NotificationsPref,
   type ProfilePref,
 } from './settings/desktop-prefs';
@@ -1353,6 +1356,9 @@ function AppearancePanel(props: {
   readonly onPaletteReset: () => void;
   readonly onImport: () => Promise<void>;
   readonly onCopy: () => Promise<void>;
+  /** Comfortable or compact spacing; not part of the palette, so it survives a theme switch. */
+  readonly density: Density;
+  readonly onDensityChange: (next: Density) => void;
 }) {
   const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>('idle');
   const copy = async () => {
@@ -1482,6 +1488,17 @@ function AppearancePanel(props: {
             <span />
           </label>
         </AppearanceRow>
+        <AppearanceRow label="界面密度">
+          <select
+            aria-label="界面密度"
+            title="紧凑会收紧设置分区、外观行与进程表的行距"
+            value={props.density}
+            onChange={(event) => props.onDensityChange(event.target.value === 'compact' ? 'compact' : 'comfortable')}
+          >
+            <option value="comfortable">舒适</option>
+            <option value="compact">紧凑</option>
+          </select>
+        </AppearanceRow>
         <AppearanceRow label="对比度">
           <span className="appearance-slider">
             <input
@@ -1518,6 +1535,9 @@ function SettingsPanel(props: {
   onUpgradeAllTools: () => Promise<void>;
   /** Push a 通知 change up: the notice strip and the timeline filter on these preferences. */
   onNotificationsChange: (pref: NotificationsPref) => void;
+  /** Comfortable or compact spacing; the app owns it so a change reaches the document root. */
+  density: Density;
+  onDensityChange: (next: Density) => void;
   theme: ThemePreference;
   /** The scheme the preference actually resolves to right now. */
   activeTheme: Theme;
@@ -1619,6 +1639,8 @@ function SettingsPanel(props: {
             onPaletteReset={props.onPaletteReset}
             onImport={props.onImportTheme}
             onCopy={props.onCopyTheme}
+            density={props.density}
+            onDensityChange={props.onDensityChange}
           />
           <section className="settings-section settings-section--wide">
             <div className="section-title"><div><span className="eyebrow">Locale</span><h2>界面语言</h2></div><Settings2 size={20} /></div>
@@ -2283,6 +2305,24 @@ export default function App({ api: suppliedApi }: AppProps) {
     () => readPref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref),
   );
   const visibleEvents = useMemo(() => events.slice(0, notifications.timelineLimit), [events, notifications.timelineLimit]);
+
+  /**
+   * The layout density, which the compact rules in `sections.css` key off `data-density` on the root.
+   *
+   * The preference, its validator, its default and those three rules had all been written, and nothing
+   * ever set the attribute — so the rules could never match and there was no way to choose.
+   */
+  const [personalization, setPersonalization] = useState(
+    () => readPref(PREF_KEYS.personalization, PERSONALIZATION_DEFAULTS, isPersonalizationPref),
+  );
+  useEffect(() => {
+    document.documentElement.dataset.density = personalization.density;
+  }, [personalization.density]);
+  const changeDensity = (density: Density) => {
+    const next = { ...personalization, density };
+    setPersonalization(next);
+    writePref(PREF_KEYS.personalization, next);
+  };
 
   /**
    * Run a title bar menu item.
@@ -3041,7 +3081,7 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
       </main>
     </div>
   );

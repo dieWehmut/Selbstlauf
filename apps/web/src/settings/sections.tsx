@@ -25,7 +25,6 @@ import type { AuditEvent, EnvironmentView, SessionView } from '../api/client';
 import {
   NOTIFICATIONS_DEFAULTS,
   PARENTAL_DEFAULTS,
-  PERSONALIZATION_DEFAULTS,
   PET_DEFAULTS,
   PLUGINS_DEFAULTS,
   PREF_KEYS,
@@ -35,7 +34,6 @@ import {
   hashPin,
   isNotificationsPref,
   isParentalPref,
-  isPersonalizationPref,
   isPetPref,
   isPluginsPref,
   isProfilePref,

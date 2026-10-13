@@ -520,6 +520,36 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     await waitFor(() => expect(screen.queryByText('本地环境已刷新')).toBeNull());
   });
 
+  /**
+   * 界面密度 has to reach the document, not just the preference.
+   *
+   * The value, its validator, its default and the compact rules in `sections.css` had all been written
+   * — and nothing set `data-density`, so the rules could never match and there was no control at all.
+   */
+  afterEach(() => { localStorage.removeItem('watchdog-personalization'); });
+
+  it('applies a saved density on startup', async () => {
+    localStorage.setItem('watchdog-personalization', JSON.stringify({ density: 'compact' }));
+    render(<App api={api()} />);
+
+    await waitFor(() => expect(document.documentElement.dataset.density).toBe('compact'));
+  });
+
+  it('changes the density from the appearance section and keeps it', async () => {
+    render(<App api={api()} />);
+    openSettings();
+    const tabs = await screen.findByRole('tablist', { name: '设置分区' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: '外观' }));
+
+    // The default is comfortable, and it is on the document rather than only in the storage.
+    expect(await screen.findByLabelText('界面密度')).toHaveValue('comfortable');
+    expect(document.documentElement.dataset.density).toBe('comfortable');
+
+    fireEvent.change(screen.getByLabelText('界面密度'), { target: { value: 'compact' } });
+    await waitFor(() => expect(document.documentElement.dataset.density).toBe('compact'));
+    expect(JSON.parse(localStorage.getItem('watchdog-personalization') ?? '{}')).toEqual({ density: 'compact' });
+  });
+
 
 describe('watchdog dashboard', () => {
   it('shows no example sessions while the local service is still connecting', () => {
