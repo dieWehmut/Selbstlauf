@@ -1020,20 +1020,29 @@ function EnvironmentPanel(props: {
   onUpgradeAll: () => Promise<void>;
 }) {
   const [manualOpen, setManualOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<{ readonly status: 'idle' | 'done' | 'failed'; readonly reason: string }>({ status: 'idle', reason: '' });
   /**
    * Copy the whole block as one runnable script.
    *
-   * The clipboard is not always available (an insecure context, a denied
-   * permission), so the confirmation only appears after the write resolves.
+   * The clipboard is not always available — an insecure context, a denied permission, or a browser
+   * that is not on the loopback address, where `navigator.clipboard` is not defined at all — so the
+   * confirmation only appears after the write resolves, and a *failure* says so. It used to fall back
+   * to "not copied" with no message, which is indistinguishable from a click that never registered;
+   * the import section reports 导入失败 with the reason and the appearance panel shows 复制失败, so
+   * this one names the reason too.
    */
   const copyManualCommands = async (commands: readonly string[]) => {
+    setCopyState({ status: 'idle', reason: '' });
     try {
-      await navigator.clipboard.writeText(commands.join('\n'));
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2_000);
-    } catch {
-      setCopied(false);
+      const clipboard = navigator.clipboard;
+      if (!clipboard || typeof clipboard.writeText !== 'function') {
+        throw new Error('当前环境不支持剪贴板');
+      }
+      await clipboard.writeText(commands.join('\n'));
+      setCopyState({ status: 'done', reason: '' });
+      window.setTimeout(() => setCopyState({ status: 'idle', reason: '' }), 2_000);
+    } catch (error) {
+      setCopyState({ status: 'failed', reason: error instanceof Error ? error.message : '未知错误' });
     }
   };
   if (props.environment === null) return null;
@@ -1097,10 +1106,14 @@ function EnvironmentPanel(props: {
                   className="button button--secondary"
                   type="button"
                   aria-label="复制安装命令"
+                  /* The name stays constant, so the outcome is announced as a live region rather than
+                     relying on the accessible name — which never changes for a labelled button. */
+                  aria-live="polite"
+                  title={copyState.status === 'failed' ? `复制失败：${copyState.reason}` : undefined}
                   onClick={() => { void copyManualCommands(report.manualCommands); }}
                 >
                   <Copy size={15} />
-                  {copied ? '已复制' : '复制'}
+                  {copyState.status === 'done' ? '已复制' : copyState.status === 'failed' ? '复制失败' : '复制'}
                 </button>
               </div>
               <pre data-testid="manual-commands">{report.manualCommands.map((command) => `# ${command.split(' ').at(-1)?.replace('@latest', '') ?? ''}\n${command}`).join('\n')}</pre>

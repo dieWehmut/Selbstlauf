@@ -383,6 +383,8 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.click(screen.getByRole('button', { name: '复制安装命令' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0][0]).toContain('npm i -g @openai/codex@latest');
+    // The confirmation appears only after the write resolves, which is what the code promises.
+    expect(await screen.findByText('已复制')).toBeInTheDocument();
 
     // Every outdated card offers its own install button.
     expect(screen.getByRole('button', { name: '升级 Claude Code' })).toBeInTheDocument();
@@ -400,6 +402,37 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     // Refreshing asks the service to re-probe rather than reusing its cache.
     fireEvent.click(screen.getByRole('button', { name: '刷新本地环境' }));
     await waitFor(() => expect(fake.refreshEnvironment).toHaveBeenCalled());
+  });
+
+  it('says so when the install commands cannot be copied', async () => {
+    /**
+     * The clipboard is not always available — an insecure context, or a denied permission — and this
+     * button used to fall back to "not copied" with no message at all, which is indistinguishable from
+     * a click that never registered. The import section reports 导入失败 with the reason, and the
+     * appearance panel shows 复制失败; this one now does too.
+     */
+    const fake = api();
+    render(<App api={fake} />);
+    openSettings();
+    const tabs = await screen.findByRole('tablist', { name: '设置分区' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
+    fireEvent.click(await screen.findByRole('button', { name: /手动安装命令/ }));
+    const copy = screen.getByRole('button', { name: '复制安装命令' });
+
+    // A refused write reports the failure, with the reason, rather than staying silent.
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn(async () => { throw new Error('permission denied'); }) },
+    });
+    fireEvent.click(copy);
+    expect(await screen.findByText('复制失败')).toBeInTheDocument();
+    expect(copy.getAttribute('title'), 'the reason for the failure is not offered').toContain('permission denied');
+
+    // And so does a context with no clipboard API at all, which this app really meets: the service is
+    // reached over plain HTTP, so a browser that is not on the loopback address has no `navigator.clipboard`.
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    fireEvent.click(copy);
+    await waitFor(() => expect(copy.getAttribute('title')).toContain('剪贴板'));
   });
 
 
