@@ -3503,6 +3503,31 @@ string. It failed first with `the table writes the same duration differently: ex
 
 Suites: web 219 -> 220; browser 89 (unchanged).
 
+### Two `toolLabel`s, and one of them said "Claude"
+
+The app named a session's tool in two places. The sidebar used `session-groups.toolLabel`, which names every tool
+it knows and otherwise prints the tool's own name; `App` had its own:
+
+    session-groups   codex → Codex, claude → Claude, opencode → opencode, dsh → DeepSeek Harness, else the raw name
+    App              codex → Codex, dsh → DeepSeek Harness, **everything else → 'Claude'**
+
+The union (`ToolName = 'claude' | 'codex' | 'dsh'`) makes those equivalent *today*, which is exactly why nothing
+caught it. But the web client casts the sessions response without validating it — established two rounds ago —
+so a newer service can report a tool this build has never heard of, and the table then called it **Claude** while
+the sidebar row beside it printed what the service actually said. `opencode` is the realistic case: it is in the
+environment catalogue the app can install, so a service reporting it as a *session's* tool is not far-fetched.
+
+App's copy is gone. The table, the mobile card, the detail page and the sidebar all read the one owner, whose
+fallback is the tool's own name rather than another tool's. The timeline's payload reader held a third copy of the
+same three names as a map; it now takes `tool` as a delegate, beside its decision and reason vocabularies, so the
+app has one place that knows what a tool is called.
+
+The test serves a session whose tool is `opencode` (cast, because the union refuses to admit it) and asserts the
+table and the sidebar agree. It failed first with `the table calls an unknown tool Claude: expected 'Claude' to be
+'opencode'`.
+
+Suites: web 220 -> 221; browser 89 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
