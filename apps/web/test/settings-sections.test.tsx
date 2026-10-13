@@ -331,34 +331,22 @@ describe('ShortcutsSection', () => {
 });
 
 describe('PetSection', () => {
-  it('renders the ornament only when enabled and persists the form', async () => {
-    render(<PetSection sessionCount={0} />);
-    expect(document.querySelector('.workspace-pet')).toBeNull();
+  it('reports the switch and the form to the caller', () => {
+    const onChange = vi.fn();
+    render(<PetSection pet={{ enabled: false, form: 'dot' }} onChange={onChange} />);
 
     fireEvent.click(screen.getByLabelText('桌面宠物'));
-    const pet = document.querySelector('.workspace-pet');
-    expect(pet).not.toBeNull();
-    expect(pet).toHaveAttribute('aria-hidden', 'true');
+    expect(onChange).toHaveBeenCalledWith({ enabled: true, form: 'dot' });
 
     fireEvent.change(screen.getByLabelText('形象'), { target: { value: 'ring' } });
-    await waitFor(() => expect(document.querySelector('.workspace-pet--ring')).not.toBeNull());
+    expect(onChange).toHaveBeenLastCalledWith({ enabled: false, form: 'ring' });
   });
 
-  it('pulses briefly when the session count changes', () => {
-    vi.useFakeTimers();
-    try {
-      const { rerender } = render(<PetSection sessionCount={1} />);
-      fireEvent.click(screen.getByLabelText('桌面宠物'));
-      expect(document.querySelector('.workspace-pet.is-pulsing')).toBeNull();
-
-      rerender(<PetSection sessionCount={2} />);
-      expect(document.querySelector('.workspace-pet.is-pulsing')).not.toBeNull();
-
-      act(() => { vi.advanceTimersByTime(600); });
-      expect(document.querySelector('.workspace-pet.is-pulsing')).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
+  it('leaves the ornament to the app, which shows it on every page', () => {
+    // The section used to draw it, so it existed only while this section was open — see the app-level
+    // tests for where it is meant to be.
+    render(<PetSection pet={{ enabled: true, form: 'ring' }} onChange={() => undefined} />);
+    expect(document.querySelector('.workspace-pet'), 'the section drew the ornament itself').toBeNull();
   });
 });
 

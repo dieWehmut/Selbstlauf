@@ -44,6 +44,7 @@ import {
   type NotificationsPref,
   type ParentalPref,
   type PetForm,
+  type PetPref,
   type ProfilePref,
   type TrustedContactCondition,
   type TrustedContactPref,
@@ -342,22 +343,18 @@ export const PET_FORMS = Object.freeze([
   { value: 'ring', label: '圆环' },
 ] as const);
 
-export function PetSection(props: { readonly sessionCount: number }) {
-  const [pref, setPref] = usePref(PREF_KEYS.pet, PET_DEFAULTS, isPetPref);
-  const [pulsing, setPulsing] = useState(false);
-  const mounted = useRef(false);
-
-  // The ornament reacts briefly whenever the number of live sessions changes.
-  useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      return undefined;
-    }
-    setPulsing(true);
-    const timer = window.setTimeout(() => setPulsing(false), 600);
-    return () => window.clearTimeout(timer);
-  }, [props.sessionCount]);
-
+/**
+ * The desktop pet's controls.
+ *
+ * The ornament itself is drawn by the app shell, not here: this section used to render it, so it existed
+ * only while this section was open — invisible while using the app, with a pulse that could only fire if
+ * the session count changed during the visit. Its stylesheet is `position: fixed` at the window's
+ * bottom-right, which is where the shell now puts it, on every page.
+ */
+export function PetSection(props: {
+  readonly pet: PetPref;
+  readonly onChange: (next: PetPref) => void;
+}) {
   return (
     <Section
       eyebrow="Pet"
@@ -368,15 +365,15 @@ export function PetSection(props: { readonly sessionCount: number }) {
       <SwitchRow
         label="桌面宠物"
         hint="会话数量变化时轻轻跳动一下"
-        checked={pref.enabled}
-        onChange={(enabled) => setPref({ ...pref, enabled })}
+        checked={props.pet.enabled}
+        onChange={(enabled) => props.onChange({ ...props.pet, enabled })}
       />
       <div className="field-stack">
         <Field label="形象">
           <select
             aria-label="形象"
-            value={pref.form}
-            onChange={(event) => setPref({ ...pref, form: event.target.value as PetForm })}
+            value={props.pet.form}
+            onChange={(event) => props.onChange({ ...props.pet, form: event.target.value as PetForm })}
           >
             {PET_FORMS.map((form) => (
               <option key={form.value} value={form.value}>{form.label}</option>
@@ -384,12 +381,6 @@ export function PetSection(props: { readonly sessionCount: number }) {
           </select>
         </Field>
       </div>
-      {pref.enabled && (
-        <div
-          className={`workspace-pet workspace-pet--${pref.form}${pulsing ? ' is-pulsing' : ''}`}
-          aria-hidden="true"
-        />
-      )}
     </Section>
   );
 }

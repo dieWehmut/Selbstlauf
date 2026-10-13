@@ -454,7 +454,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
    * test's notice (the Codex endpoint switch asserts 端点已切换), which is how this was noticed at all.
    */
   afterEach(() => {
-    for (const key of ['watchdog-notifications', 'watchdog-personalization', 'watchdog-plugins']) {
+    for (const key of ['watchdog-notifications', 'watchdog-personalization', 'watchdog-plugins', 'watchdog-pet']) {
       localStorage.removeItem(key);
     }
   });
@@ -828,6 +828,54 @@ describe('watchdog dashboard', () => {
     fireEvent.click((await screen.findAllByRole('button', { name: '立即续写 PID 10' }))[0]);
     expect(await screen.findByText(/超过 4096 字符/u)).toBeInTheDocument();
     expect(fake.inject, 'an over-long prompt was sent anyway').not.toHaveBeenCalled();
+  });
+
+  /**
+   * The desktop pet has to be on screen wherever the app is.
+   *
+   * It was rendered by the 宠物 settings section, so it existed only while that section was open: a
+   * corner ornament nobody saw while using the app, and a pulse that could only fire if the session
+   * count happened to change during the visit. Its own stylesheet is `position: fixed` at the window's
+   * bottom-right, which says where it belongs — the shell, not the settings page.
+   */
+  it('shows the desktop pet on every page, not only where it is configured', async () => {
+    localStorage.setItem('watchdog-pet', JSON.stringify({ enabled: true, form: 'ring' }));
+    const fake = api();
+    render(<App api={fake} />);
+
+    expect(document.querySelector('.workspace-pet--ring'), 'the pet is missing from the overview').not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '事件' }));
+    expect(document.querySelector('.workspace-pet--ring'), 'the pet vanished on another page').not.toBeNull();
+  });
+
+  it('shows the pet as soon as its switch is turned on', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    expect(document.querySelector('.workspace-pet')).toBeNull();
+
+    openSettings();
+    const tabs = await screen.findByRole('tablist', { name: '设置分区' });
+    fireEvent.click(within(tabs).getByRole('tab', { name: '宠物' }));
+    fireEvent.click(screen.getByLabelText('桌面宠物'));
+    await waitFor(() => expect(document.querySelector('.workspace-pet')).not.toBeNull());
+
+    // And leaving the section — the case that used to remove it — does not take it away.
+    fireEvent.click(within(tabs).getByRole('tab', { name: '常规' }));
+    expect(document.querySelector('.workspace-pet'), 'the pet only appears on its own settings page').not.toBeNull();
+  });
+
+  it('bounces the pet when the number of sessions changes', async () => {
+    localStorage.setItem('watchdog-pet', JSON.stringify({ enabled: true, form: 'dot' }));
+    const fake = api();
+    let sessions = await fake.sessions();
+    fake.sessions = vi.fn(async () => sessions);
+    render(<App api={fake} />);
+    await waitFor(() => expect(document.querySelector('.workspace-pet')).not.toBeNull());
+    expect(document.querySelector('.workspace-pet.is-pulsing'), 'the pet was already bouncing').toBeNull();
+
+    sessions = sessions.slice(1);
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await waitFor(() => expect(document.querySelector('.workspace-pet.is-pulsing')).not.toBeNull());
   });
 
   it('persists editable prompt settings through the API', async () => {

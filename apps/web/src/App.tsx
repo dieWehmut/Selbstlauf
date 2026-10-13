@@ -80,6 +80,7 @@ import {
   NOTIFICATIONS_DEFAULTS,
   PARENTAL_DEFAULTS,
   PERSONALIZATION_DEFAULTS,
+  PET_DEFAULTS,
   PINNED_SESSIONS_DEFAULTS,
   PLUGINS_DEFAULTS,
   PREF_KEYS,
@@ -89,6 +90,7 @@ import {
   isNotificationsPref,
   isParentalPref,
   isPersonalizationPref,
+  isPetPref,
   isPinnedSessionsPref,
   isPluginsPref,
   isProfilePref,
@@ -97,6 +99,7 @@ import {
   writePref,
   type Density,
   type NotificationsPref,
+  type PetPref,
   type ProfilePref,
 } from './settings/desktop-prefs';
 
@@ -1562,6 +1565,9 @@ function SettingsPanel(props: {
   /** Comfortable or compact spacing; the app owns it so a change reaches the document root. */
   density: Density;
   onDensityChange: (next: Density) => void;
+  /** The desktop ornament, drawn by the shell so it is on screen on every page. */
+  pet: PetPref;
+  onPetChange: (next: PetPref) => void;
   theme: ThemePreference;
   /** The scheme the preference actually resolves to right now. */
   activeTheme: Theme;
@@ -1793,7 +1799,7 @@ function SettingsPanel(props: {
       {activeSection === 'profile' && (
         <ProfileSection onDisplayNameChange={props.onDisplayNameChange} />
       )}
-      {activeSection === 'pet' && <PetSection sessionCount={props.sessions.length} />}
+      {activeSection === 'pet' && <PetSection pet={props.pet} onChange={props.onPetChange} />}
       {activeSection === 'shortcuts' && <ShortcutsSection />}
       {activeSection === 'account' && (
         <>
@@ -2349,6 +2355,20 @@ export default function App({ api: suppliedApi }: AppProps) {
   };
 
   /**
+   * The desktop pet, which the shell draws rather than the settings section.
+   *
+   * The 宠物 section used to render the ornament itself, so it existed only while that section was open —
+   * invisible while actually using the app, and its pulse could only fire if the session count changed
+   * during the visit. Its stylesheet is `position: fixed` at the window's bottom-right, which is where the
+   * shell now puts it, on every page.
+   */
+  const [pet, setPet] = useState(() => readPref(PREF_KEYS.pet, PET_DEFAULTS, isPetPref));
+  const changePet = (next: PetPref) => {
+    setPet(next);
+    writePref(PREF_KEYS.pet, next);
+  };
+
+  /**
    * Run a title bar menu item.
    *
    * Items that need the desktop bridge are already disabled without it, so this
@@ -2881,6 +2901,24 @@ export default function App({ api: suppliedApi }: AppProps) {
    */
   const liveSessions = useMemo(() => sessions.filter((session) => session.alive), [sessions]);
 
+  /**
+   * The pet bounces briefly whenever the number of live sessions changes.
+   *
+   * A count that arrives from nothing is the app loading, not a change to signal: the first sessions of a
+   * launch used to set the pet bouncing before a person had looked at it. Only a change *from* a count the
+   * user was already looking at is a signal.
+   */
+  const [petPulsing, setPetPulsing] = useState(false);
+  const previousSessionCount = useRef<number | null>(null);
+  useEffect(() => {
+    const previous = previousSessionCount.current;
+    previousSessionCount.current = liveSessions.length;
+    if (previous === null || previous === 0) return undefined;
+    setPetPulsing(true);
+    const timer = window.setTimeout(() => setPetPulsing(false), 600);
+    return () => window.clearTimeout(timer);
+  }, [liveSessions.length]);
+
   const ready = liveSessions.filter(canInject).length;
   const goalCount = liveSessions.filter((session) => session.tool === 'codex' && session.goal && ['active', 'paused'].includes(session.goal.status)).length;
 
@@ -3108,8 +3146,17 @@ export default function App({ api: suppliedApi }: AppProps) {
         </div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} connected={connected} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} /></div>}
       </main>
+
+      {/* The desktop pet, in the shell rather than in the section that configures it, so it is on
+          screen on every page — the 宠物 settings page included. */}
+      {pet.enabled && (
+        <div
+          className={`workspace-pet workspace-pet--${pet.form}${petPulsing ? ' is-pulsing' : ''}`}
+          aria-hidden="true"
+        />
+      )}
     </div>
   );
 }
