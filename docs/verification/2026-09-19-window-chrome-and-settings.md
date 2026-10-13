@@ -3189,6 +3189,18 @@ means wiring it first.
 
 Suites: web 193 -> 194; browser 87 (unchanged).
 
+**Found in the same sweep, and queued — a hint that describes a behaviour nothing implements.** 续写插件
+(`PluginsSection`) tells the user that "这些提示词会依次拼接，作为手动续写时使用的提示": that the stored
+prompts are joined in order and used as the prompt for a manual continuation. Measured, the preference is
+read by nothing but the section itself — `PREF_KEYS.plugins`, `isPluginsPref` and `PLUGINS_DEFAULTS` appear
+only in `desktop-prefs.ts` and `sections.tsx` — and neither write path consults it: the one-click 立即续写
+calls `mutateSession(session, 'inject')` with no prompt, and the composer sends only what was typed.
+
+Unlike the two fields above, this is not merely unreachable: the section *states* the behaviour. The next
+round should either join the prompts into the single line the service accepts — it refuses anything else
+(`prompt must be a non-empty single line of at most 4096 characters`, `http-server.ts`) — and send them on
+the one-click write, or change the hint to describe what the list really is.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
