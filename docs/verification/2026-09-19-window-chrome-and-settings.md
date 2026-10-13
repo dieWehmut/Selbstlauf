@@ -3767,6 +3767,31 @@ It is recorded as cleanup for that reason, not as a fix.
 
 Suites: web 235 (unchanged); browser 90 (unchanged).
 
+### The taskbar showed the description instead of the name
+
+`index.html` carried `<title>Continuation Watchdog</title>`, while the desktop shell creates its window with
+`DEFAULT_WINDOW_POLICY.title` = **Selbstlauf Console** and the tray tooltip is **Selbstlauf**. Electron follows
+`document.title` once the page loads, so the title that wins in the taskbar, the Alt-Tab list and the browser tab
+was the *description* the account popup prints **under** the product name:
+
+    account popup header    Selbstlauf
+                            continuation watchdog      <- this was the window title
+    window policy           Selbstlauf Console
+    tray tooltip            Selbstlauf
+
+No test pinned the window title, which is why the drift was invisible: the desktop suite creates its windows from the
+policy and never compared the loaded page's title to it.
+
+The page title is `Selbstlauf Console` now, and `app-title.spec.ts` **reads the policy out of
+`apps/desktop/src/navigation.ts`** rather than restating the string, so the two cannot drift apart again — and it
+asserts the popup still names the product, so the description cannot creep back into the name's place. It failed
+first with `Expected: "Selbstlauf Console" / Received: "Continuation Watchdog"`.
+
+(Note the family around it: the *service*'s Windows task is `Selbstlauf Continuation Watchdog`, which is a different
+thing from the console's window title and stays as it is.)
+
+Suites: web 235 (unchanged); browser 90 -> 91 (a new 36th test file).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
