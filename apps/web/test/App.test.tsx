@@ -509,6 +509,42 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     expect(await screen.findByText('探测失败')).toBeInTheDocument();
   });
 
+  /**
+   * 保留最近事件条数 is offered up to 1000, and the events page counts what it shows — but the arrival path kept
+   * the newest 100 whatever the setting said, so asking for 300 showed "100 条" and the rest had already been
+   * dropped. Two surfaces disagreed about one number, and the setting lost.
+   */
+  it('keeps as many events as the retention setting asks for, past the old hundred', async () => {
+    localStorage.setItem('watchdog-notifications', JSON.stringify({ inPanel: true, onSuccess: true, onError: true, timelineLimit: 300 }));
+    const fake = api();
+    let emit: ((event: WatchdogEvent) => void) | null = null;
+    fake.subscribe = vi.fn((listener: (event: WatchdogEvent) => void) => {
+      emit = listener;
+      return () => undefined;
+    });
+    render(<App api={fake} />);
+    await waitFor(() => expect(emit).not.toBeNull());
+
+    act(() => {
+      for (let index = 0; index < 150; index += 1) {
+        emit!({
+          kind: 'audit',
+          event: {
+            id: `kept-${index}`,
+            timestampMs: Date.now(),
+            type: 'activity',
+            sessionId: 'codex:336756',
+            tool: 'codex',
+            details: { source: 'codex-rollout' },
+          },
+        });
+      }
+    });
+    fireEvent.click(screen.getByRole('button', { name: '事件' }));
+
+    expect(await screen.findByText('150 条'), 'events beyond the hundredth were dropped').toBeInTheDocument();
+  });
+
   it('turns the whole notice strip off from 面板内通知, without a reload', async () => {
     const fake = api();
     render(<App api={fake} />);

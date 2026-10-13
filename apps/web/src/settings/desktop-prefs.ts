@@ -208,6 +208,14 @@ export function isPinnedSessionsPref(value: unknown): value is PinnedSessionsPre
   return Array.isArray(value.ids) && value.ids.every((entry) => typeof entry === 'string');
 }
 
+/**
+ * The most events the timeline will keep, and the most 保留最近事件条数 will offer.
+ *
+ * One constant for both, because two numbers disagreed: the field allowed 1000 while the arrival path kept the
+ * newest 100, so a setting of 300 showed "100 条" on the events page and the rest had already been dropped.
+ */
+export const TIMELINE_LIMIT_MAX = 1_000;
+
 export const NOTIFICATIONS_DEFAULTS: NotificationsPref = Object.freeze({
   inPanel: true,
   onSuccess: true,

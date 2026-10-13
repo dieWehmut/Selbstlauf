@@ -86,6 +86,7 @@ import {
   PLUGINS_DEFAULTS,
   PREF_KEYS,
   PROFILE_DEFAULTS,
+  TIMELINE_LIMIT_MAX,
   TRUSTED_CONTACT_DEFAULTS,
   hashPin,
   isNotificationsPref,
@@ -2642,7 +2643,10 @@ export default function App({ api: suppliedApi }: AppProps) {
     void refresh();
     void loadEnvironment();
     const unsubscribe = api.subscribe((event: WatchdogEvent) => {
-      if (event.kind === 'audit') setEvents((current) => [event.event, ...current].slice(0, 100));
+      // Keep as many events as 保留最近事件条数 can ask for. This closure is created once, so it cannot read
+      // the *current* setting; keeping the ceiling that setting offers is what makes it honest, and
+      // `visibleEvents` slices back down to whatever it says.
+      if (event.kind === 'audit') setEvents((current) => [event.event, ...current].slice(0, TIMELINE_LIMIT_MAX));
       else void refresh();
     });
     const timer = window.setInterval(() => {

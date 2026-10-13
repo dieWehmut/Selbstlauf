@@ -29,6 +29,7 @@ import {
   PLUGINS_DEFAULTS,
   PREF_KEYS,
   PROFILE_DEFAULTS,
+  TIMELINE_LIMIT_MAX,
   TRUSTED_CONTACT_DEFAULTS,
   VOICE_DEFAULTS,
   hashPin,
@@ -150,7 +151,8 @@ export function NotificationsSection(props: {
 
   const setLimit = (raw: number) => {
     if (!Number.isFinite(raw)) return;
-    const limit = Math.min(1_000, Math.max(1, Math.trunc(raw)));
+    // The ceiling is shared with the app's own retention, so the field cannot offer more than is kept.
+    const limit = Math.min(TIMELINE_LIMIT_MAX, Math.max(1, Math.trunc(raw)));
     patch({ timelineLimit: limit });
   };
 
