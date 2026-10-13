@@ -188,8 +188,11 @@ export function SettingsRail(props: SettingsRailProps) {
             })}
           </div>
         ))}
-        {matches === 0 && <p className="settings-rail__empty">无匹配设置</p>}
       </div>
+      {/* Outside the tablist, and a live region. A `role="tablist"` may contain only tabs, so the paragraph that
+          said the rail was empty was both invalid there and in the wrong place to be heard: when the filter empties
+          the rail, this is the one thing worth announcing. */}
+      {matches === 0 && <p className="settings-rail__empty" role="status">无匹配设置</p>}
     </div>
   );
 }

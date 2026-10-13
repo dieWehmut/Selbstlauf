@@ -72,3 +72,30 @@ test('the settings rail behaves like the tablist it declares itself to be', asyn
   await page.screenshot({ path: testInfo.outputPath('rail-keyboard.png'), fullPage: true });
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
+
+/**
+ * A tablist may hold tabs.
+ *
+ * When the rail's search matched nothing it rendered its empty-state paragraph *inside* the tablist, so the control
+ * whose whole purpose is to contain `role="tab"` children held one paragraph and no tabs. The WAI-ARIA tabs pattern
+ * does not allow that, and it puts the message where a screen reader looks for tabs rather than where it looks for
+ * text — so the one thing the message exists to say was the thing least likely to be heard.
+ */
+test('keeps the empty state out of the tablist it would invalidate', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await page.keyboard.press('Control+,');
+
+  const rail = page.getByRole('tablist', { name: '设置分区' });
+  await page.getByRole('searchbox', { name: '搜索设置' }).fill('没有这样一个分区');
+  await expect(rail.getByRole('tab')).toHaveCount(0);
+
+  const message = page.getByText('无匹配设置');
+  await expect(message).toBeVisible();
+  expect(
+    await message.evaluate((node) => node.closest('[role="tablist"]') !== null),
+    'the empty state is a child of the tablist, which may only contain tabs',
+  ).toBe(false);
+  // And it is announced when it appears, rather than only being visible.
+  await expect(message).toHaveAttribute('role', 'status');
+});
