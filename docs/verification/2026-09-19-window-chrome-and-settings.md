@@ -3694,6 +3694,48 @@ matching, one case fails on `classes.size > 200` rather than passing quietly.
 
 Suites: web 230 -> 233 (a new 17th test file); browser 90 (unchanged).
 
+### The monitor dot was invisible on the light theme
+
+The colour matrix covered green, red and blue — and never amber, because **amber was not a token**. It was written
+at its three use sites as `var(--amber, #e6b65b)` and defined nowhere, so the fallback was the only value it could
+ever have. Adding `.sidebar-row .process-dot--monitor` to the matrix measured what that costs:
+
+    dark theme            rgb(230, 182, 91) on rgb(13, 13, 13)     10.37:1   passes (3:1 bar)
+    light theme           rgb(230, 182, 91) on rgb(227, 231, 231)   1.50:1   FAILS
+    custom near-white
+    palette on dark       rgb(230, 182, 91) on rgb(227, 231, 231)   1.50:1   FAILS
+
+Two of the three cases were below the bar, and the same literal is what two pieces of amber *text* used
+(`.prompt-composer__blocked`, `.window-type__cost`), which need 4.5:1.
+
+Amber is now a status colour like the others: a token in each theme block (dark keeps the exact value it shipped,
+so nothing moves there) and an entry in `STATUS_COLOURS`, which is the list the palette effect solves against
+whatever background the user chose. `readableText` then adjusts it per palette. Measured after:
+
+    dark theme            rgb(230, 182, 91)   10.37:1
+    light theme           rgb(131, 86, 0)      5.11:1
+    custom near-white
+    palette on dark       rgb(115, 91, 46)     5.16:1
+
+The lesson is worth recording because it is the same shape as the density rule: **a value that is a literal at
+every use site cannot be measured, and something that cannot be measured does not get fixed.** The `var(--amber,
+…)` fallback made the raw colour look deliberate to every check that only asked whether the CSS parses.
+
+The reachability guard grew a custom-property case in the same pass, which found `--shadow` and `--mesh-line`
+defined in both theme blocks and read by nothing; both are removed. It would *not* have found amber — its reads
+carried a fallback — so the doc records that the matrix is what found it, not the guard.
+
+Suites: web 233 -> 235; browser 90 (unchanged).
+
+### One rail entry named a feature that does not exist
+
+The settings rail labelled the import section **导入历史** — an import *history* — while the section reads a theme or
+a config out of the clipboard and applies it, and the app keeps no history of imports anywhere. `git log -S` shows
+the label arrived with the rail rebuild rather than surviving a removed feature, so it was a promise never kept
+rather than a leftover. It reads **导入** now, matching the section's own heading.
+
+Suites: web 235 (unchanged); browser 90 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
