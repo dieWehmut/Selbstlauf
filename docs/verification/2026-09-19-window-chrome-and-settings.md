@@ -3579,6 +3579,32 @@ against the old build first — the browser one failed with `unexpected value "�
 
 Suites: web 222 (unchanged); browser 89 -> 90.
 
+### Two panels explained refusals in the shell's own codes
+
+The same question turned to the window panels, which had the round-21 defect in a different place. The desktop
+shell reports machine codes, and the two panels printed whichever arrived verbatim:
+
+    窗口预览      this build cannot capture windows / windowPreview is not wired up /
+                  windowPreview needs a session id / that session is no longer running /
+                  could not list sessions: <message>
+    模拟键盘写入   empty-text / multi-line-text / text-too-long / invalid-window-handle /
+                  unreadable-response / windowType is not wired up / type-command-failed: <message>
+
+The same shell writes Chinese for the refusals it raises in its own main process (服务未在运行, 该会话已不在运行,
+该会话没有可写入的窗口), so this was one vocabulary split across two files rather than a deliberate style.
+
+`process/shell-reasons.ts` now holds the mapping, keeping the rule the service's transport reasons already follow:
+a known code is explained, a prefixed reason translates the *step* and keeps the helper's own message after it
+(`无法读取会话列表：access denied`), and anything unmapped is passed through, because a reason from a helper
+process or the OS is the only description of what failed and inventing a phrase would hide it.
+
+Tests: the module's own cases cover every code the shell raises, both prefix forms and two passthroughs; the
+panels' cases assert a refusal reads 窗口句柄无效 rather than `invalid-window-handle`, and an unsupported preview
+reads 这个版本不能预览窗口 rather than `this build cannot capture windows`. Both failed first with exactly those
+strings — the second one showing the raw English in the rendered output.
+
+Suites: web 222 -> 227 (a new 16th test file); browser 90 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
