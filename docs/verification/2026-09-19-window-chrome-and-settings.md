@@ -3449,6 +3449,36 @@ enabled and inert.
 
 Suites: web 215 -> 216; desktop 142 -> 145; browser 89 (unchanged).
 
+### Three surfaces said "0s" where one said nothing
+
+The service sends `quietForMs: null` when it has no last-activity time to measure from
+(`lastActivityAtMs === null ? null : …` in the watchdog controller), and the app's own surfaces had **three
+different answers** for what that means:
+
+    process table    quietForMs ?? (lastActivityAtMs ? now - lastActivityAtMs : null)   → "--" when unknown
+    detail page      same computation, then `?? 0` on the way out                       → "0s"
+    mobile card      quietForMs ?? 0                                                    → "0s"
+    sidebar row      formatSilence(quietForMs ?? 0)                                      → "0s"
+
+So a session with no activity timestamp at all read as *actively working this second* on three of four
+surfaces, and as "unknown" on the fourth — and the mobile card and the table are the same list at different
+widths, so the same session changed its story when the window narrowed. The web's `SessionView.quietForMs` type
+said `number | undefined` while the service sends null, which is how the mismatch stayed invisible: the compiler
+believed a null could not arrive, and `?? 0` looked like a default rather than a claim.
+
+`quietMs(session, now)` now owns the rule — the service's value if it has one (a real `0` is kept), else a live
+fallback to the last activity, else **null** — and `formatSilence` writes null as `—`. The table, the detail
+page, the mobile card and the sidebar row all read through it, and the type now admits the null the service
+actually sends. (Session *ordering* still treats an unknown silence as `0`, i.e. sorts it last; that is an
+ordering rather than a value on screen, and it is recorded here rather than changed silently.)
+
+Tests: `quietMs` covers the four cases including a clock that moved backwards, `formatSilence(null)` is `—`, and
+the app-level case serves one session with both timestamps null and asserts every surface agrees — the table
+cell, the sidebar row and every 静默 row on the card and the detail page. It failed first with
+`the sidebar row claims 0s: expected '0s' to be '—'`.
+
+Suites: web 216 -> 219; browser 89 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
