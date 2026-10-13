@@ -2956,6 +2956,42 @@ The tests were written first: both halves failed, naming the light page and the 
 
 Suites: web 183 (unchanged); browser 80 -> 81.
 
+### The theme swatch was not the theme
+
+The appearance section's preview cards derived their own colours: `mix(background, foreground,
+0.1 | 0.05)` for the rail and `0.16 | 0.04` for the sheet, fixed, and never reading `contrast`. The
+app derives `--panel-soft` and `--panel` from the background with `weight + contrast / 1400`.
+Measured in the browser on the dark theme, on the 深色 card — the one that stands for what is on
+screen:
+
+    preview rail   rgb(23, 24, 24)      the app paints #0d0d0d
+    preview sheet  rgb(37, 38, 38)      the app paints #0f0f0f
+    contrast 68 -> 100                  moved the app to #131313 / #151515, swatches unmoved
+
+The mismatch is visible in a single gesture on the same panel: dragging the contrast slider repaints
+the app and leaves the swatch it is supposed to preview exactly where it was. A swatch that does not
+show the theme it is chosen by is worse than no swatch.
+
+**Fixed by there being one derivation.** `paletteSurfaces(palette)` now lives in
+`src/theme/palette.ts` and is called by both the palette effect and `ThemePreviewCard`; the card's
+own formula and the effect's local `mixColor` are gone, leaving the module's `mix` as the only blend
+in the app. It takes no theme parameter — the direction comes from the palette's own background,
+which is what round 7 made possible and what lets the card for the *other* theme be correct while
+this one is on screen.
+
+Measured after:
+
+    dark card    rail rgb(13, 13, 13) = the painted rail    sheet rgb(15, 15, 15) = the painted panel
+    light card   rail rgb(227, 231, 231), sheet rgb(239, 243, 242)   (the light palette's own surfaces)
+    contrast 68 -> 100   app rail rgb(13, 13, 13) -> rgb(19, 19, 19), swatch with it, step for step
+
+Three unit tests pin the derivation — the built-in palettes' exact values, that every surface moves
+with the slider, and that the direction is the palette's — and the browser case was run against the
+previous `App.tsx`: both halves fail, naming `rgb(23, 24, 24)` against `rgb(13, 13, 13)` and the
+frozen swatch.
+
+Suites: web 183 -> 186; browser 81 -> 83.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
