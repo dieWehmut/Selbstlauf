@@ -2675,6 +2675,7 @@ evidence for calling it environmental rather than a defect:
     2 workers (89)     4.2m        88 passed, 1 click timeout (sidebar-processes); --last-failed 1/1 green in 12s
     2 workers (89)     3.2m        89 passed          <- clean run on the round-22 tree
     2 workers (89)     5.2m        87 passed, 2 timeouts (breakpoint-sweep, dashboard table scroll); --last-failed 2/2 green in 3.4m
+    2 workers (89)     4.9m        88 passed, 1 timeout (breakpoint-sweep); --last-failed 1/1 green in 1.6m
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3392,6 +3393,32 @@ The test sets 300, delivers 150 events through the subscription, and asserts the
 code it failed with `Unable to find an element with the text: 150 条`.
 
 Suites: web 212 -> 213; browser 89 (unchanged).
+
+### The poll-age chip said "轮询 -- 前", and its name was English
+
+Two small things in the same chip, both about a value that is not there yet. Before the first successful poll —
+which is the state of a machine whose service is not running — the topbar rendered:
+
+    轮询 -- 前
+
+a sentence with a hole where the number belongs. (`duration()` writes `--` for "no value", which is right for a
+cell that holds a value and wrong for a phrase that needs one: the chip now says 尚未轮询.)
+
+And the chip carried `aria-label="Last watchdog poll"`, an accessible name that both replaced the visible text and
+was the only English phrase in the shell — a screen reader heard English where the panel says 轮询 2s 前. The label
+is gone: the visible text is a complete phrase and is now the accessible name, so what is announced and what is
+shown agree.
+
+Axe does not catch the second one — `label-content-name-mismatch` applies to controls, and this is a static span —
+which is why a foreign-language name on a non-interactive element can sit in a page that passes a serious/critical
+audit. The audit was asked for evidence rather than assumed: the chip's `--` state had never been asserted by any
+test.
+
+Three tests now cover the chip: the never-polled phrase, the age in the words it shows with no `aria-label`, and
+the existing age test, whose query moved from `findByLabelText('Last watchdog poll')` to the visible text — the
+same assertion of intent, made through what a person actually sees.
+
+Suites: web 213 -> 215; browser 89 (unchanged).
 
 ## Not verified
 
