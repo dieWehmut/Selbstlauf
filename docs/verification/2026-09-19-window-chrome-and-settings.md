@@ -2679,6 +2679,7 @@ evidence for calling it environmental rather than a defect:
     2 workers (89)     4.4m        87 passed, 2 goto timeouts (theme-chrome, theme-status-colours); --last-failed re-run green
                                  (the second invocation printed "No tests found", which is how a green re-run shows)
     2 workers (89)     4.3m        88 passed, 1 goto timeout (tool-icons); --last-failed 1/1 green in 12.6s
+    2 workers (93)     5.7m        92 passed, 1 timeout (the accessibility popup audit); --last-failed 1/1 green in 22.1s
 
 Every reported spec passes on its own: `service-outage` in **19.1s** on the first reproduction and
 **3.9m** on a later one — a 12x spread on a test that did not change — and
@@ -3853,6 +3854,34 @@ pointing at the exact markup, while the default-state audit still passes. That i
 that would catch the class and one that merely happened to be green.
 
 Suites: web 236 (unchanged); browser 92 -> 93.
+
+### The write rule failed open on a transport it did not know
+
+`writeEligibility` named the transports it could **not** write to and treated everything else as writable:
+
+    const MONITOR_ONLY_TRANSPORTS = ['monitor-only', 'cannot-inject', 'unknown'];
+    ...
+    return { writable: true, reason: null };        // anything else
+
+The web client casts the sessions response without validating it — the same gap behind the unknown-tool label two
+rounds ago — so a newer service can report a transport this build has never heard of, and the row then **promised
+可写入** and offered 立即续写 for a write the service refuses. That is precisely the contradiction this module exists
+to prevent (its docstring records the row whose dot said 可写入 while its own detail page refused). Measured:
+`exec-pty must not be promised as writable: expected true to be false`.
+
+The rule names the writable transports now (`classic-console`, `pty`, `codex-app-server`, `claude-stop-hook`,
+`dsh-web`) and refuses everything else in the same words as any other unwritable transport, so an unknown one fails
+closed rather than open.
+
+The same transport exposed a second gap: `transportLabel` is a closed `Record`, so the capability badge's only text
+came out as `undefined` and rendered as **an empty pill beside its dot**. It falls back to the transport's own name
+now — the rule `toolLabel` already follows — so the badge reads `exec-pty` and refuses it in the same chip.
+
+Both are covered: the rule by `write-eligibility.test.ts` (including an empty transport name), and the rendering by
+an app-level case that asserts the chip is `capability--limited`, that it names the transport, and that **every**
+立即续写 button for it is disabled.
+
+Suites: web 236 -> 238; browser 93 (unchanged).
 
 ## Not verified
 
