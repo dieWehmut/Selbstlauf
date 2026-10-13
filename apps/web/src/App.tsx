@@ -134,6 +134,22 @@ function pluginPromptLine(): string | undefined {
   return line;
 }
 
+/**
+ * A number field's value, held inside the range the control states.
+ *
+ * The service refuses anything else — `requirePositiveNumber` and `requirePositiveInteger` in
+ * `apps/cli/src/domain/config.ts` — so a field holding `0`, a negative or a fraction can only fail when
+ * 保存 is pressed, after the user has left the field. The inputs declare `min` attributes that nothing
+ * enforced; this enforces them, and truncates, because every one of these settings is a whole count of
+ * milliseconds or seconds. `Number('')` is 0, which is why clearing a field yields its minimum rather
+ * than a rejected save.
+ */
+function clampNumber(raw: string | number, min: number, max = Number.MAX_SAFE_INTEGER): number {
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
 type Page = 'overview' | 'process' | 'timeline' | 'settings';
 /** What the person chose; 'system' resolves against the OS preference. */
 type ThemePreference = 'light' | 'dark' | 'system';
@@ -1700,10 +1716,10 @@ function SettingsPanel(props: {
       <section className="settings-section">
         <div className="section-title"><div><span className="eyebrow">Timing</span><h2>检测节奏</h2></div><Gauge size={20} /></div>
         <div className="field-grid">
-          <label><span>静默阈值（秒）</span><input type="number" min="1" value={draft.defaultIdleTimeoutMs / 1_000} onChange={(event) => setDraft({ ...draft, defaultIdleTimeoutMs: Number(event.target.value) * 1_000 })} /></label>
-          <label><span>冷却时间（秒）</span><input type="number" min="1" value={draft.defaultCooldownMs / 1_000} onChange={(event) => setDraft({ ...draft, defaultCooldownMs: Number(event.target.value) * 1_000 })} /></label>
-          <label><span>轮询间隔（毫秒）</span><input type="number" min="250" step="250" value={draft.pollIntervalMs} onChange={(event) => setDraft({ ...draft, pollIntervalMs: Number(event.target.value) })} /></label>
-          <label><span>每轮最大尝试</span><input type="number" min="1" value={draft.maxAttemptsPerQuietPeriod} onChange={(event) => setDraft({ ...draft, maxAttemptsPerQuietPeriod: Number(event.target.value) })} /></label>
+          <label><span>静默阈值（秒）</span><input type="number" min="1" value={draft.defaultIdleTimeoutMs / 1_000} onChange={(event) => setDraft({ ...draft, defaultIdleTimeoutMs: clampNumber(event.target.value, 1) * 1_000 })} /></label>
+          <label><span>冷却时间（秒）</span><input type="number" min="1" value={draft.defaultCooldownMs / 1_000} onChange={(event) => setDraft({ ...draft, defaultCooldownMs: clampNumber(event.target.value, 1) * 1_000 })} /></label>
+          <label><span>轮询间隔（毫秒）</span><input type="number" min="250" step="250" value={draft.pollIntervalMs} onChange={(event) => setDraft({ ...draft, pollIntervalMs: clampNumber(event.target.value, 250) })} /></label>
+          <label><span>每轮最大尝试</span><input type="number" min="1" value={draft.maxAttemptsPerQuietPeriod} onChange={(event) => setDraft({ ...draft, maxAttemptsPerQuietPeriod: clampNumber(event.target.value, 1) })} /></label>
         </div>
       </section>
       <section className="settings-section">
@@ -1713,7 +1729,7 @@ function SettingsPanel(props: {
           <label><span>Codex 普通对话</span><input value={draft.tools.codex.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, normalPrompt: event.target.value } } })} /></label>
           <label><span>Codex Goal</span><input value={draft.tools.codex.goalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, goalPrompt: event.target.value } } })} /></label>
           <label><span>DeepSeek Harness</span><input value={draft.tools.dsh.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, normalPrompt: event.target.value } } })} /></label>
-          <label><span>Harness 活动窗口（分钟）</span><input aria-label="Harness 活动窗口（分钟）" type="number" min="1" value={Math.round(draft.tools.dsh.sessionWindowMs / 60_000)} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, sessionWindowMs: Math.max(1, Number(event.target.value)) * 60_000 } } })} /></label>
+          <label><span>Harness 活动窗口（分钟）</span><input aria-label="Harness 活动窗口（分钟）" type="number" min="1" value={Math.round(draft.tools.dsh.sessionWindowMs / 60_000)} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, sessionWindowMs: clampNumber(event.target.value, 1) * 60_000 } } })} /></label>
         </div>
         <div className="switch-row"><div><strong>允许续写 DeepSeek Harness</strong><span>通过 Harness 自己的本机会话接口写入，仅在会话已停止且能完成本机认证时生效</span></div><label className="switch"><input aria-label="允许续写 DeepSeek Harness" type="checkbox" checked={draft.tools.dsh.allowApiInput} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, allowApiInput: event.target.checked } } })} /><span /></label></div>
         <div className="switch-row"><div><strong>Dry run</strong><span>只记录决策，不写入进程</span></div><label className="switch"><input aria-label="Dry run" type="checkbox" checked={draft.dryRun} onChange={(event) => setDraft({ ...draft, dryRun: event.target.checked })} /><span /></label></div>
@@ -1772,8 +1788,8 @@ function SettingsPanel(props: {
             <div className="hook-settings__body">
               <div>
                 <div className="field-grid hook-settings__fields">
-                  <label><span>Lease 有效期（毫秒）</span><input aria-label="Lease 有效期（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.leaseTtlMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, leaseTtlMs: Number(event.target.value) } } } })} /></label>
-                  <label><span>命令超时（毫秒）</span><input aria-label="命令超时（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.commandTimeoutMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, commandTimeoutMs: Number(event.target.value) } } } })} /></label>
+                  <label><span>Lease 有效期（毫秒）</span><input aria-label="Lease 有效期（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.leaseTtlMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, leaseTtlMs: clampNumber(event.target.value, 1) } } } })} /></label>
+                  <label><span>命令超时（毫秒）</span><input aria-label="命令超时（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.commandTimeoutMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, commandTimeoutMs: clampNumber(event.target.value, 1) } } } })} /></label>
                 </div>
                 <div className="switch-row"><div><strong>启用 Stop Hook 续写</strong><span>仅对唯一关联且已静默的 Claude 会话创建一次性 Lease</span></div><label className="switch"><input aria-label="启用 Claude Stop Hook" type="checkbox" checked={draft.tools.claude.stopHook.enabled} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, enabled: event.target.checked } } } })} /><span /></label></div>
               </div>

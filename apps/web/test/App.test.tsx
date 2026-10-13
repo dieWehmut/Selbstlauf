@@ -888,6 +888,44 @@ describe('watchdog dashboard', () => {
     await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({ tools: expect.objectContaining({ claude: expect.objectContaining({ normalPrompt: '继续工作' }) }) })));
   });
 
+  it('keeps the config numbers inside the range the service accepts', async () => {
+    /**
+     * The service rejects anything outside its own bounds — `requirePositiveNumber` and
+     * `requirePositiveInteger` in `apps/cli/src/domain/config.ts` — so a field holding 0, a negative or a
+     * fractional value can only fail when 保存 is pressed. The inputs declare `min` attributes that nothing
+     * enforced, and two fields in the same panel already clamped their value, which is what made the rest
+     * look like an oversight rather than a decision.
+     */
+    const fake = api();
+    render(<App api={fake} />);
+    openSettings();
+
+    // A counted value: zero and fractions are refused by the service, and only whole numbers are taken.
+    fireEvent.change(await screen.findByLabelText('每轮最大尝试'), { target: { value: '0' } });
+    expect(screen.getByLabelText('每轮最大尝试')).toHaveValue(1);
+    fireEvent.change(screen.getByLabelText('每轮最大尝试'), { target: { value: '1.5' } });
+    expect(screen.getByLabelText('每轮最大尝试')).toHaveValue(1);
+
+    // A millisecond interval with a declared floor of its own.
+    fireEvent.change(screen.getByLabelText('轮询间隔（毫秒）'), { target: { value: '0' } });
+    expect(screen.getByLabelText('轮询间隔（毫秒）')).toHaveValue(250);
+
+    // A seconds field, which the panel holds in milliseconds.
+    fireEvent.change(screen.getByLabelText('静默阈值（秒）'), { target: { value: '-5' } });
+    expect(screen.getByLabelText('静默阈值（秒）')).toHaveValue(1);
+    fireEvent.change(screen.getByLabelText('冷却时间（秒）'), { target: { value: '0' } });
+    expect(screen.getByLabelText('冷却时间（秒）')).toHaveValue(1);
+
+    // And what is sent is what the service will accept.
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      pollIntervalMs: 250,
+      defaultIdleTimeoutMs: 1_000,
+      defaultCooldownMs: 1_000,
+      maxAttemptsPerQuietPeriod: 1,
+    })));
+  });
+
   it('persists process ownership and include/exclude filters through the API', async () => {
     const fake = api();
     render(<App api={fake} />);
