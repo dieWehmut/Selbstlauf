@@ -2280,6 +2280,16 @@ export default function App({ api: suppliedApi }: AppProps) {
     root.style.setProperty('--bg', palette.background);
     root.style.setProperty('--text', palette.foreground);
 
+    /**
+     * The browser's own chrome follows the page too.
+     *
+     * `theme-color` tints a tab strip or an address bar. It shipped as a static `#000000` in
+     * index.html and nothing moved it, so a light-theme user's browser stayed dark however long the
+     * app ran, and a custom background never reached it at all. `theme-boot.js` sets it before the
+     * bundle for a saved palette; this keeps it right for everything else, including a live change.
+     */
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', palette.background);
+
     // The slider drives how far surfaces and borders sit from the background.
     // Surfaces always lift toward white, which is the direction both schemes
     // use: a dark page gains a lighter card, a light page gains a white one.

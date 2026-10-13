@@ -34,12 +34,16 @@
     // Only the three colours the page needs before anything is painted: the background it shows, the
     // text on it, and the accent for an empty shell. Everything else is derived after the bundle runs.
     const boot = { '--bg': saved.background, '--text': saved.foreground, '--accent': saved.accent };
+    const readable = (value) => typeof value === 'string' && /^#[0-9a-f]{6}$/iu.test(value);
     for (const name of Object.keys(boot)) {
-      const value = boot[name];
-      if (typeof value === 'string' && /^#[0-9a-f]{6}$/iu.test(value)) {
-        document.documentElement.style.setProperty(name, value);
-      }
+      if (readable(boot[name])) document.documentElement.style.setProperty(name, boot[name]);
     }
+
+    // The browser tints its own chrome with `theme-color`, which shipped as a static dark literal.
+    // A saved background has to reach it before the bundle as well, or a light-theme user's tab strip
+    // stays dark until the app has run. The app keeps it in step afterwards.
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta !== null && readable(boot['--bg'])) meta.setAttribute('content', boot['--bg']);
   } catch {
     // A corrupt or unreadable preference must not stop the app from loading.
   }

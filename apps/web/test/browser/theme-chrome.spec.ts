@@ -70,6 +70,37 @@ test('declares the colour scheme so native chrome follows the theme', async ({ p
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
+test('the theme-color meta follows the page the browser is drawing', async ({ page }) => {
+  /**
+   * `theme-color` tints the browser's own chrome — a tab strip or an address bar. It shipped as a
+   * static `#000000` and nothing ever moved it, so a light-theme user's browser stayed dark however
+   * long the app ran, and a custom palette never reached it at all.
+   */
+  const meta = () => page.locator('meta[name="theme-color"]').getAttribute('content');
+
+  await page.setViewportSize({ width: 1249, height: 704 });
+  await page.goto('/');
+  expect(await meta(), 'the dark page').toBe('#000000');
+
+  // Switching to the light theme has to move it with the page.
+  await page.keyboard.press('Control+,');
+  await page.getByRole('tab', { name: '外观' }).click();
+  await page.getByRole('radio', { name: '浅色' }).click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+  expect(await meta(), 'the light page').toBe('#eef2f1');
+
+  // And a custom background has to reach it too, not only the two built-in pages. The preference
+  // saved above is still light, so the custom light palette is the one that applies.
+  await page.addInitScript(() => {
+    localStorage.setItem('watchdog-palette', JSON.stringify({
+      light: { accent: '#e05c93', background: '#fdf6e3', foreground: '#2b2b2b', contrast: 68 },
+    }));
+  });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+  expect(await meta(), 'a custom light palette').toBe('#fdf6e3');
+});
+
 test('the settings rail scrolls without a light band and keeps its labels readable', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));

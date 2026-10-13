@@ -22,6 +22,8 @@ interface BootState {
   readonly bg: string;
   readonly text: string;
   readonly accent: string;
+  /** What the browser tints its own chrome with, when it has one. */
+  readonly meta: string;
 }
 
 const LIGHT_PALETTE = {
@@ -51,6 +53,7 @@ async function readBeforeTheBundle(
       bg: style.getPropertyValue('--bg').trim(),
       text: style.getPropertyValue('--text').trim(),
       accent: style.getPropertyValue('--accent').trim(),
+      meta: document.querySelector('meta[name="theme-color"]')?.getAttribute('content') ?? '',
     };
   });
 }
@@ -61,6 +64,7 @@ test('a saved light theme and palette are applied before the bundle runs', async
   expect(state.bg, 'the saved background is not the first paint').toBe('#fdf6e3');
   expect(state.text).toBe('#2b2b2b');
   expect(state.accent).toBe('#e05c93');
+  expect(state.meta, 'the browser chrome still tints itself with the built-in dark literal').toBe('#fdf6e3');
 });
 
 test('a saved dark theme is applied before the bundle runs', async ({ page }) => {
