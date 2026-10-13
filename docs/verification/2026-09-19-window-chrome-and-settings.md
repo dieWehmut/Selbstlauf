@@ -3623,6 +3623,26 @@ recorded in the assertion.
 
 Suites: web 227 -> 228; browser 90 (unchanged).
 
+### An upgrade reported by package id
+
+Each tool card in 关于 is titled with the tool's **label** and its button reads `升级 Claude Code`, while the notice
+that button produces said **`claude 升级完成`** — the package id, printed a few centimetres below the name the app
+had just shown. The environment view carries both fields (`{ id: 'claude', label: 'Claude Code', … }`), so the
+notice was reaching past the name it already had.
+
+`upgradeTool` now resolves the label from the report it fetches after the upgrade, with the id kept as the fallback
+for a tool that report does not describe — an unknown tool is still named by whatever the service called it rather
+than by nothing.
+
+The test opens 关于, clicks 升级 Claude Code and asserts the notice reads `Claude Code 升级完成`; it failed first with
+`expected 'claude 升级完成' to be 'Claude Code 升级完成'`.
+
+Checked in the same pass and found sound, so not changed: the typing panel's maximum (4096) against the desktop
+shell's own `MAX_TYPED_LENGTH` (4096) — two constants in two packages that agree today, and the shell refuses with
+`text-too-long`, which the previous round taught the panel to explain.
+
+Suites: web 228 -> 229; browser 90 (unchanged).
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
