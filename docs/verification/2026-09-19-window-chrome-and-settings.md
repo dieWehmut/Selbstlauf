@@ -3549,6 +3549,36 @@ names the connection, and no surface still uses the old shared words. It failed 
 
 Suites: web 221 -> 222; browser 89 (unchanged).
 
+### The demo said it was a live console
+
+The same lens turned up one state described two ways — 样例数据 above the table and 离线预览 below it — and following
+it found the reason, which was larger than the wording.
+
+`main.tsx` **always** supplies the static demo's api (`<App api={VITE_STATIC_DEMO ? createStaticDemoApi() : undefined} />`),
+so in the demo build `refresh()` succeeds against memory and `connected` becomes true. Every surface that reports the
+connection therefore said **实时同步 / 服务在线 / 在线**, and the chip's light went green — for a page whose data is
+built into the bundle and which has no service at all. The app's own preview wording sat behind `connected === false`,
+which no build could reach: in the demo `connected` is always true, and everywhere else `staticDemo` is false. The
+deployed Pages preview was the one build that needed those words, and it could not show them.
+
+Display state is now derived in one place:
+
+    const live = connected && !staticDemo;
+
+Every surface that reports the connection reads `live` — the overview chip and its light, the account bar's button,
+the popup's 连接状态 fact and its dot, the Watchdog cell's fallback, and the 关于 section's own row. The demo now says
+离线预览 in all of them, with its light off, and the `staticDemo` branches are live code again.
+
+A consequence handled rather than discovered later: `theme-status-colours.spec.ts` measured the online indicator's
+green, which the demo no longer paints. Its non-text surface is now the sidebar's writable dot — the same `--green`
+in the same role, and present in the demo — with the substitution recorded in the spec itself.
+
+Tests: a demo-project browser case asserts all three surfaces say 离线预览 and the chip's light is not online; the
+jsdom static-demo case asserts the same and that neither 样例数据 nor 实时同步 appears anywhere. Both were written
+against the old build first — the browser one failed with `unexpected value "实时同步"`.
+
+Suites: web 222 (unchanged); browser 89 -> 90.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
