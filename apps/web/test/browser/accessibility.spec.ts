@@ -112,6 +112,54 @@ test.describe('accessibility audit', () => {
     ).toEqual([]);
   });
 
+  /**
+   * The same pages, in the states a person has to reach.
+   *
+   * This sweep visits pages in the state they open in, and several defects live only elsewhere: the rail's empty
+   * state exists after typing a filter (where it sat inside the tablist — a `role="tablist"` holding one paragraph
+   * and no tabs, which the default-state audit never saw because the rail is full when it opens), a menu exists
+   * only while it is open, and the account popup only after it is opened. Those are audited here.
+   */
+  test('the states a person has to reach have no serious violations either', async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(String(error)));
+    await page.setViewportSize({ width: 1249, height: 704 });
+    await page.goto('/');
+    await expect(page.locator('.sidebar')).toBeVisible();
+    const all: AxeViolation[] = [];
+
+    // The account popup: two menus and a facts block that do not exist until it is opened.
+    await page.getByRole('button', { name: /个进程/u }).click();
+    await expect(page.getByRole('region', { name: '账户与状态' })).toBeVisible();
+    all.push(...await audit(page, '账户弹窗'));
+
+    // A title-bar menu, open rather than absent.
+    await page.getByRole('button', { name: '文件', exact: true }).click();
+    await expect(page.getByRole('menu', { name: '文件' })).toBeVisible();
+    all.push(...await audit(page, '文件菜单'));
+    await page.keyboard.press('Escape');
+
+    // The rail filtered down to nothing, which is where its empty message appears.
+    await page.keyboard.press('Control+,');
+    await page.getByRole('searchbox', { name: '搜索设置' }).fill('没有这样一个分区');
+    await expect(page.getByText('无匹配设置')).toBeVisible();
+    all.push(...await audit(page, '设置(无匹配)'));
+
+    // A notice: a live region with a dismiss control, absent until something reports.
+    await page.getByRole('searchbox', { name: '搜索设置' }).fill('');
+    await page.getByRole('tab', { name: '关于' }).click();
+    await page.getByRole('button', { name: '刷新本地环境' }).click();
+    await expect(page.locator('.notice')).toBeVisible();
+    all.push(...await audit(page, '通知条'));
+
+    expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+    const serious = all.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+    expect(
+      serious,
+      `serious or critical accessibility violations:\n    ${describe(serious)}`,
+    ).toEqual([]);
+  });
+
   test('the light theme has no serious violations either', async ({ page }) => {
     // The palette is theme-dependent, so contrast must be audited per theme rather than assumed to
     // hold for both.
