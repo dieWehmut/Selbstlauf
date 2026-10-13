@@ -2889,6 +2889,52 @@ all and the direction therefore has to be black — and the browser case is run 
 
 Suites: web 172 -> 183; browser 73 -> 76.
 
+### The window opened in the dark colours and corrected itself
+
+The saved theme and palette live in localStorage and were read only by the app, so until the bundle
+had loaded and React had rendered, the stylesheet's own `:root` literals painted — the dark ones.
+Measured against the **built** app with the bundle held back and a light palette saved, which is
+exactly the first frame a user gets:
+
+    before   data-theme unset   html rgb(0, 0, 0)   body rgb(0, 0, 0)   color-scheme dark   --bg #000000
+    after    data-theme light   html rgb(253, 246, 227)   body rgb(253, 246, 227)   color-scheme light
+
+The desktop shell reveals its window on first paint, so that frame is not hypothetical: a user whose
+theme is light, or who saved a light custom palette, watched the app open black and turn light.
+
+**The fix ships as a file, because an inline script is forbidden here.** The service that serves this
+bundle sends `script-src 'self'` (`apps/cli/src/server/http-server.ts`), so the usual inline
+`<script>` in the head would be blocked in the packaged app and in the desktop shell. `public/theme-boot.js`
+is a same-origin file instead: a classic, non-deferred script in the head, which runs before the first
+paint, resolves the saved theme, and applies the saved palette's `--bg`, `--text` and `--accent`.
+
+`:root`'s own `background` was a literal in both blocks; it is now `var(--bg)`, so the element that
+paints the very first pixel follows a saved palette too rather than crossing to the built-in colour.
+Measured after that change: html and body both report the saved `rgb(253, 246, 227)`.
+
+**A boot script duplicates logic the app already has, so the drift is pinned rather than trusted.**
+The rules mirror `resolveTheme()` *and* the `useState` initialiser in `src/App.tsx` that sanitises
+`watchdog-theme` — anything unrecognised resolves to `dark`, not to the system preference. A boot
+script that fell back to the system would paint one theme and be corrected to another on a light
+machine, so `theme-boot.spec.ts` holds the bundle back and asserts the pre-bundle state for: a saved
+light theme with a palette, a saved dark theme, `system` under both media settings, and an unreadable
+preference (`banana` + malformed JSON) which must resolve to `dark`. One more case lets the bundle run
+and requires the script and the app to agree afterwards.
+
+**And the script cannot be trusted to be well-formed, either.** The first version declared `stored`
+twice; that is a `SyntaxError`, which `try`/`catch` cannot catch, so the whole file failed and the page
+silently kept the dark first frame — the exact symptom being fixed. The spec caught it immediately
+(`Identifier 'stored' has already been declared`, with `data-theme` unset), which is the argument for
+testing the behaviour rather than reading the file.
+
+Suites: web 183 (unchanged), browser 75 -> 80 (five boot cases).
+
+**A note on the counts in this section.** The per-round deltas above were added up by hand as files
+were written, and one of them was off by one — the round-7 line says 76 where the total was 75. The
+authoritative number is what Playwright itself reports: `--list` gives **80 tests in 31 files** on
+this tree. Kept rather than quietly corrected, because an arithmetic slip in a record that is relied
+on for exactly this kind of claim is worth seeing.
+
 ## Not verified
 
 The tray icon's on-screen appearance in the notification area, and the native title-bar overlay's
