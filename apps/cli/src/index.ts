@@ -12,6 +12,8 @@ import { ClaudeLeaseStore } from './claude/lease-store.js';
 import { CodexConfigProfiles } from './codex/profile-store.js';
 import { EnvironmentCheck } from './environment/environment-check.js';
 import { ToolUpgrader } from './environment/upgrade.js';
+import { ManagedAgentSessions } from './agents/managed-sessions.js';
+import type { AgentPtyBackend } from './agents/types.js';
 import {
   CLAUDE_HOOK_OWNER,
   ClaudeHookInstallation,
@@ -24,6 +26,8 @@ export interface WatchdogProcessOptions {
   readonly staticDirectory?: string;
   readonly claudeSettingsPath?: string;
   readonly codexConfigPath?: string;
+  readonly ptyBackend?: AgentPtyBackend;
+  readonly agentWorkingDirectory?: string;
 }
 
 export interface WatchdogProcess {
@@ -69,6 +73,11 @@ export async function startWatchdogProcess(
   }
   let controller: WatchdogController | null = null;
   let server: WatchdogHttpServer;
+  const agents = new ManagedAgentSessions({
+    backend: options.ptyBackend,
+    defaultCwd: options.agentWorkingDirectory,
+    onSessionsChanged: () => server?.publish('agents', { action: 'changed' }),
+  });
   const sessionController = sessions ?? (controller = new WatchdogController({
     configStore,
     auditStore,
@@ -80,6 +89,7 @@ export async function startWatchdogProcess(
     configStore,
     auditStore,
     sessions: sessionController,
+    agents,
     status: () => controller?.status() ?? { lastPollAtMs: null },
     host: options.host ?? '127.0.0.1',
     port: options.port ?? readPort(process.env.WATCHDOG_PORT),
@@ -152,6 +162,7 @@ export async function startWatchdogProcess(
     );
   } catch (error) {
     await controller?.stop();
+    await agents.stop();
     await server.stop();
     throw error;
   }
@@ -164,6 +175,7 @@ export async function startWatchdogProcess(
     if (stopped) return;
     stopped = true;
     await controller?.stop();
+    await agents.stop();
     await server.stop();
     const { rm } = await import('node:fs/promises');
     await rm(pidFile, { force: true });
@@ -171,6 +183,7 @@ export async function startWatchdogProcess(
   uninstallProcess = async () => {
     if (stopped) return;
     stopped = true;
+    await agents.stop();
     await server.stop();
     const { rm } = await import('node:fs/promises');
     await rm(pidFile, { force: true });

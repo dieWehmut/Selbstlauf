@@ -8,6 +8,8 @@ import type { ConfigStore } from '../store/config-store.js';
 import type { CodexConfigProfiles } from '../codex/profile-store.js';
 import type { EnvironmentCheck } from '../environment/environment-check.js';
 import { isKnownToolId, type ToolUpgrader } from '../environment/upgrade.js';
+import type { ManagedAgentSessions } from '../agents/managed-sessions.js';
+import { AgentSessionError } from '../agents/types.js';
 type Awaitable<T> = T | Promise<T>;
 
 export interface InjectionResult {
@@ -71,6 +73,7 @@ export interface WatchdogHttpServerOptions {
   readonly environment?: EnvironmentCheck;
   readonly upgrader?: ToolUpgrader;
   readonly sessions: SessionController;
+  readonly agents?: ManagedAgentSessions;
   readonly status?: () => Awaitable<WatchdogStatus>;
   readonly host?: string;
   readonly port?: number;
@@ -95,6 +98,7 @@ export class WatchdogHttpServer {
   private readonly environment?: EnvironmentCheck;
   private readonly upgrader?: ToolUpgrader;
   private readonly sessions: SessionController;
+  private readonly agents?: ManagedAgentSessions;
   private readonly status: () => Awaitable<WatchdogStatus>;
   private readonly host: string;
   private readonly requestedPort: number;
@@ -104,6 +108,7 @@ export class WatchdogHttpServer {
   private readonly now: () => number;
   private readonly startedAtMs: number;
   private readonly clients = new Map<number, SseClient>();
+  private readonly terminalStreams = new Set<ServerResponse>();
   private server: Server | null = null;
   private activePort: number | null = null;
   private nextClientId = 1;
@@ -117,6 +122,7 @@ export class WatchdogHttpServer {
     this.environment = options.environment;
     this.upgrader = options.upgrader;
     this.sessions = options.sessions;
+    this.agents = options.agents;
     this.status = options.status ?? (() => ({ lastPollAtMs: null }));
     this.host = options.host ?? '127.0.0.1';
     if (!LOOPBACK_HOSTS.has(this.host.toLocaleLowerCase())) {
@@ -176,6 +182,8 @@ export class WatchdogHttpServer {
     this.activePort = null;
     for (const client of this.clients.values()) client.response.end();
     this.clients.clear();
+    for (const stream of this.terminalStreams) stream.end();
+    this.terminalStreams.clear();
     await closeServer(server);
   }
 
@@ -212,6 +220,55 @@ export class WatchdogHttpServer {
     }
     const base = this.url();
     const url = new URL(request.url ?? '/', base);
+
+    if (url.pathname === '/api/agents/catalog' && method === 'GET') {
+      if (this.agents === undefined) throw new HttpError(501, '智能体终端服务未配置。');
+      return this.json(response, 200, await this.agents.catalog());
+    }
+    if (url.pathname === '/api/agents' && (method === 'GET' || method === 'POST')) {
+      if (this.agents === undefined) throw new HttpError(501, '智能体终端服务未配置。');
+      if (method === 'GET') return this.json(response, 200, { sessions: this.agents.list() });
+      const session = await this.agents.launch(await readJson(request, this.maxJsonBytes, false));
+      await this.audit({ timestampMs: this.now(), type: 'user-override', sessionId: session.id,
+        details: { action: 'agent-launch', agent: session.tool, pid: session.pid } });
+      this.publish('agents', { action: 'launch', sessionId: session.id });
+      return this.json(response, 201, session);
+    }
+    const agentRoute = /^\/api\/agents\/([^/]+)(?:\/(input|resize|interrupt|terminate|output|events))?$/u.exec(url.pathname);
+    if (agentRoute !== null) {
+      if (this.agents === undefined) throw new HttpError(501, '智能体终端服务未配置。');
+      const id = safeDecode(agentRoute[1]);
+      const action = agentRoute[2];
+      if (method === 'GET' && action === 'output') {
+        return this.json(response, 200, this.agents.output(id, parseCursor(url.searchParams.get('after'))));
+      }
+      if (method === 'GET' && action === 'events') {
+        return this.openTerminalStream(request, response, id, parseCursor(
+          typeof request.headers['last-event-id'] === 'string' ? request.headers['last-event-id'] : url.searchParams.get('after'),
+        ));
+      }
+      if (method === 'POST' && action === 'input') {
+        const body = await readJson(request, this.maxJsonBytes, false) as { data?: unknown };
+        this.agents.input(id, body?.data);
+        return this.json(response, 200, { ok: true });
+      }
+      if (method === 'POST' && action === 'resize') {
+        const body = await readJson(request, this.maxJsonBytes, false) as { cols?: unknown; rows?: unknown };
+        return this.json(response, 200, this.agents.resize(id, body?.cols, body?.rows));
+      }
+      if (method === 'POST' && (action === 'interrupt' || action === 'terminate')) {
+        if (action === 'interrupt') this.agents.interrupt(id);
+        else await this.agents.terminate(id);
+        await this.audit({ timestampMs: this.now(), type: 'user-override', sessionId: id, details: { action: `agent-${action}` } });
+        this.publish('agents', { action, sessionId: id });
+        return this.json(response, 200, { ok: true });
+      }
+      if (method === 'DELETE' && action === undefined) {
+        this.agents.remove(id);
+        this.publish('agents', { action: 'remove', sessionId: id });
+        return this.json(response, 200, { ok: true });
+      }
+    }
 
     if (method === 'GET' && url.pathname === '/api/health') {
       const config = await this.configStore.load();
@@ -480,6 +537,43 @@ export class WatchdogHttpServer {
     request.once('close', () => this.clients.delete(id));
   }
 
+  private openTerminalStream(request: IncomingMessage, response: ServerResponse, id: string, after: number): void {
+    // Validate before sending headers; output and subscription setup are synchronous, so there is no gap.
+    const initial = this.agents!.output(id, after);
+    response.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive', 'x-accel-buffering': 'no',
+    });
+    response.flushHeaders();
+    this.terminalStreams.add(response);
+    let cursor = initial.offset;
+    let blocked = false;
+    const send = (output: typeof initial) => {
+      blocked = !response.write(`id: ${output.offset}\nevent: output\ndata: ${JSON.stringify(output)}\n\n`);
+      cursor = output.offset;
+    };
+    send(initial);
+    const flush = () => {
+      if (blocked || response.destroyed || response.writableEnded) return;
+      try {
+        const output = this.agents!.output(id, cursor);
+        // State changes also use this event, even if the process produced no additional output.
+        send(output);
+      } catch { response.end(); }
+    };
+    const unsubscribe = this.agents!.subscribe(id, flush);
+    response.on('drain', () => { blocked = false; flush(); });
+    const heartbeat = setInterval(() => {
+      if (!blocked) blocked = !response.write(': keep-alive\n\n');
+    }, 15000);
+    heartbeat.unref();
+    response.once('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      this.terminalStreams.delete(response);
+    });
+  }
+
   private async audit(event: Omit<AuditEvent, 'id'>): Promise<AuditEvent> {
     const stored = await this.auditStore.append(event);
     this.publish('audit', stored);
@@ -528,8 +622,8 @@ export class WatchdogHttpServer {
 
   private handleError(response: ServerResponse, error: unknown): void {
     if (response.writableEnded) return;
-    const status = error instanceof HttpError ? error.status : isValidationError(error) ? 400 : 500;
-    const message = status >= 500 ? 'internal server error' : error instanceof Error ? error.message : 'bad request';
+    const status = error instanceof HttpError || error instanceof AgentSessionError ? error.status : isValidationError(error) ? 400 : 500;
+    const message = status >= 500 && !(error instanceof AgentSessionError) ? 'internal server error' : error instanceof Error ? error.message : 'bad request';
     this.json(response, status, { ok: false, error: message });
   }
 
@@ -640,6 +734,12 @@ function parseLimit(value: string | null): number {
   const limit = Number(value);
   if (!Number.isInteger(limit) || limit <= 0 || limit > 2_000) throw new HttpError(400, 'limit must be between 1 and 2000');
   return limit;
+}
+
+function parseCursor(value: string | null): number {
+  if (value === null) return 0;
+  if (!/^\d+$/u.test(value) || !Number.isSafeInteger(Number(value))) throw new HttpError(400, '输出游标必须是非负整数。');
+  return Number(value);
 }
 
 function safeDecode(value: string): string {
