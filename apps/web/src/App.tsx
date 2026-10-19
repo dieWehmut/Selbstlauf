@@ -64,6 +64,9 @@ import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, formatDuration, quietMs, togglePinnedId, toolLabel } from './sidebar/session-groups';
 import { describeAuditDetails } from './timeline/audit-details';
+import { createAgentApi, type AgentApi } from './api/agents';
+import { AgentLauncher } from './agents/AgentLauncher';
+import { AgentWindows } from './agents/AgentWindows';
 import {
   AccountSection,
   BrowserSection,
@@ -158,7 +161,7 @@ function clampNumber(raw: string | number, min: number, max = Number.MAX_SAFE_IN
   return Math.min(max, Math.max(min, Math.trunc(value)));
 }
 
-type Page = 'overview' | 'process' | 'timeline' | 'settings';
+type Page = 'overview' | 'process' | 'agents' | 'timeline' | 'settings';
 /** What the person chose; 'system' resolves against the OS preference. */
 type ThemePreference = 'light' | 'dark' | 'system';
 type Theme = 'light' | 'dark';
@@ -1932,7 +1935,7 @@ function SettingsPanel(props: {
   );
 }
 
-export interface AppProps { api?: WatchdogApi }
+export interface AppProps { api?: WatchdogApi; agentsApi?: AgentApi }
 
 /** The four menu labels, in the order the reference layout presents them. */
 const MENU_LABELS = ['文件', '编辑', '视图', '帮助'] as const;
@@ -2126,8 +2129,11 @@ function TitleBar(props: {
   );
 }
 
-export default function App({ api: suppliedApi }: AppProps) {
+export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: AppProps) {
   const api = useMemo(() => suppliedApi ?? createApi(), [suppliedApi]);
+  const agentsApi = useMemo(() => suppliedAgentsApi ?? createAgentApi(), [suppliedAgentsApi]);
+  const [launcherOpen, setLauncherOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(() => localStorage.getItem('selbstlauf-selected-agent'));
   const staticDemo = import.meta.env.VITE_STATIC_DEMO === 'true';
   // Read once: the bridge is installed by the preload before the page script
   // runs, so it never appears or disappears during a session.
@@ -3049,6 +3055,7 @@ export default function App({ api: suppliedApi }: AppProps) {
    */
   const nav = [
     { id: 'overview' as const, label: '进程', icon: LayoutDashboard },
+    { id: 'agents' as const, label: '智能体窗口', icon: Terminal },
     { id: 'timeline' as const, label: '事件', icon: ListTree },
   ];
 
@@ -3225,7 +3232,7 @@ export default function App({ api: suppliedApi }: AppProps) {
       )}
 
       <main className="workspace">
-        <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'process' ? '进程详情' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><span className="poll-age"><Activity size={14} />{health.lastPollAtMs === null ? '尚未轮询' : `轮询 ${formatDuration(Math.max(0, Date.now() - health.lastPollAtMs))} 前`}</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>
+        <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'process' ? '进程详情' : page === 'agents' ? '智能体窗口' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><button className="button button--primary agent-launch-button" type="button" aria-label="启动智能体" onClick={() => setLauncherOpen(true)}><CirclePlay size={16} />启动智能体</button><span className="poll-age"><Activity size={14} />{health.lastPollAtMs === null ? '尚未轮询' : `轮询 ${formatDuration(Math.max(0, Date.now() - health.lastPollAtMs))} 前`}</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>
 
         {notice !== null
           && notifications.inPanel
@@ -3267,9 +3274,18 @@ export default function App({ api: suppliedApi }: AppProps) {
           />
         </div>}
 
+        {page === 'agents' && <div className="page-content"><AgentWindows api={agentsApi} demo={staticDemo} selectedId={selectedAgentId} onSelect={(id) => { setSelectedAgentId(id); if (id === null) localStorage.removeItem('selbstlauf-selected-agent'); else localStorage.setItem('selbstlauf-selected-agent', id); }} onLaunch={() => setLauncherOpen(true)} /></div>}
+
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
         {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} connected={live} /></div>}
       </main>
+
+      {launcherOpen && <AgentLauncher api={agentsApi} demo={staticDemo} onClose={() => setLauncherOpen(false)} onLaunch={(session) => {
+        setSelectedAgentId(session.id);
+        localStorage.setItem('selbstlauf-selected-agent', session.id);
+        setLauncherOpen(false);
+        navigate('agents');
+      }} onInstall={() => { setLauncherOpen(false); openSettings('general'); }} />}
 
       {/* The desktop pet, in the shell rather than in the section that configures it, so it is on
           screen on every page — the 宠物 settings page included. */}

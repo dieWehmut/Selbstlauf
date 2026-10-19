@@ -19,3 +19,10 @@
 - 验证 POSIX 进程组的子进程随窗口终止。
 - `npm --workspace apps/cli test`：286 项通过，11 项 Windows 专用测试在 Linux 跳过。
 - xterm 和桌面 PTY 的依赖在这一步统一准备，后续任务接入界面与 Electron。
+
+## 任务 2 验证
+
+- 各页面标题栏提供启动入口，工具目录来自本机 PATH；支持自定义可执行路径、工作目录、窗口名称与字面参数。
+- 启动成功后进入智能体窗口列表，列表保留真实 PID、状态和结束/关闭操作。
+- 启动失败保留输入字段并显示服务原因；在线演示不会请求本机启动服务。
+- `npm --workspace apps/web run build` 与 `npm --workspace apps/web test` 通过，260 项前端测试通过。
