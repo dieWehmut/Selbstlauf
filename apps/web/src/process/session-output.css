@@ -1,0 +1,10 @@
+.session-output { border: 1px solid var(--line-soft); background: var(--panel); border-radius: var(--radius); padding: 16px; margin: 16px 0; min-width: 0; }
+.session-output__head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.session-output__head h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; }
+.session-output__head button { margin-left: auto; }
+.session-output__entries { max-height: 440px; overflow: auto; }
+.session-output__entry { padding: 12px 0; border-top: 1px solid var(--line-soft); }
+.session-output__entry header { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); }
+.session-output__entry--user strong { color: var(--accent); }
+.session-output__entry pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.65; margin: 8px 0 0; }
+.session-output__error { color: var(--red); }

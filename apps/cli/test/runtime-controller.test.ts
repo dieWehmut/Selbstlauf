@@ -211,6 +211,55 @@ test('reports the timestamp of the most recently completed poll', async () => {
   }
 });
 
+test('reads output only from each process\'s uniquely associated Claude conversation', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-output-association-'));
+  const projects = join(root, 'projects');
+  const records: RawProcessRecord[] = [
+    { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: Date.now() - 1000, userSid: 'test' },
+  ];
+  for (const [pid, text] of [[100, '第一会话的实际回复'], [200, '第二会话的实际回复']] as const) {
+    const cwd = join(root, String(pid));
+    await mkdir(join(projects, String(pid)), { recursive: true });
+    await writeFile(join(projects, String(pid), 'session.jsonl'), [
+      JSON.stringify({ cwd, sessionId: `conversation-${pid}` }),
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text }] } }),
+    ].join('\n'));
+    records.push({ pid, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: Date.now() - 1000, userSid: 'test' });
+  }
+  const controller = new WatchdogController({
+    configStore: new ConfigStore(join(root, 'config.json')), auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider(records), platform: 'win32', currentProcessId: 50,
+    claudeProjectsDirectory: projects, transportFactory: () => new CannotInjectFixtureTransport(),
+  });
+  t.after(async () => { await controller.stop(); await rm(root, { recursive: true, force: true }); });
+  await controller.poll();
+  assert.deepEqual((await controller.output('claude:100'))?.entries.map((entry) => entry.text), ['第一会话的实际回复']);
+  assert.deepEqual((await controller.output('claude:200'))?.entries.map((entry) => entry.text), ['第二会话的实际回复']);
+  assert.equal(await controller.output('claude:999'), null);
+  assert.equal((await controller.list()).find((entry) => entry.id === 'claude:100')?.sessionCwd, join(root, '100'));
+});
+
+test('reads a matched Codex rollout through the runtime controller', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-codex-output-'));
+  const threadId = 'aaaa1111-2222-4333-8444-555555555555';
+  const paths = await createCodexState(root, threadId, root, 'active');
+  const rollout = join(root, 'rollout.jsonl');
+  await writeFile(rollout, JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Codex 实际会话输出' }] } }));
+  const { DatabaseSync } = await import('node:sqlite');
+  const state = new DatabaseSync(paths.statePath);
+  state.prepare('UPDATE threads SET rollout_path = ? WHERE id = ?').run(rollout, threadId); state.close();
+  const controller = new WatchdogController({
+    configStore: new ConfigStore(join(root, 'config.json')), auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider: new FixtureProvider([
+      { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: 1000, userSid: 'test' },
+      { pid: 300, parentPid: 1, name: 'codex.exe', commandLine: `codex.exe resume ${threadId}`, executablePath: null, creationTimeMs: 1000, userSid: 'test' },
+    ]), platform: 'win32', currentProcessId: 50, codexStatePath: paths.statePath, codexGoalPath: paths.goalPath,
+  });
+  t.after(async () => { await controller.stop(); await rm(root, { recursive: true, force: true }); });
+  await controller.poll();
+  assert.deepEqual((await controller.output('codex:300'))?.entries.map((entry) => entry.text), ['Codex 实际会话输出']);
+});
+
 test('quiesce does not wait for a slow read-only process discovery poll', async () => {
   const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-quiesce-'));
   const provider = new BlockingFixtureProvider();

@@ -11,6 +11,7 @@ import { isKnownToolId, type ToolUpgrader } from '../environment/upgrade.js';
 import type { ManagedAgentSessions } from '../agents/managed-sessions.js';
 import { AgentSessionError } from '../agents/types.js';
 import { LiveSocketServer } from './live-socket.js';
+import type { SessionOutput } from '../runtime/session-output.js';
 type Awaitable<T> = T | Promise<T>;
 
 export interface InjectionResult {
@@ -22,6 +23,7 @@ export interface InjectionResult {
 
 export interface SessionController {
   list(): Awaitable<readonly SessionSnapshot[]>;
+  output?(sessionId: string): Awaitable<SessionOutput | null>;
   configChanged?(config: WatchdogConfig): Awaitable<void>;
   pause(sessionId: string): Awaitable<boolean>;
   resume(sessionId: string): Awaitable<boolean>;
@@ -308,6 +310,13 @@ export class WatchdogHttpServer {
     }
     if (method === 'GET' && url.pathname === '/api/sessions') {
       return this.json(response, 200, { sessions: await this.sessions.list() });
+    }
+    const outputRoute = /^\/api\/sessions\/([^/]+)\/output$/u.exec(url.pathname);
+    if (method === 'GET' && outputRoute !== null) {
+      if (this.sessions.output === undefined) throw new HttpError(501, 'session output is not configured');
+      const output = await this.sessions.output(safeDecode(outputRoute[1]));
+      if (output === null) throw new HttpError(404, 'session not found');
+      return this.json(response, 200, output);
     }
     if (method === 'GET' && url.pathname === '/api/audit') {
       const limit = parseLimit(url.searchParams.get('limit'));

@@ -8,6 +8,7 @@ import {
   assertBundledDistribution,
   resolveBundledDistribution,
   startBundledService,
+  createDesktopPtyBackend,
   type WatchdogServiceModule,
 } from '../src/service-host.js';
 
@@ -87,10 +88,28 @@ test('starts the bundled service with the bundled static directory', async () =>
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.host, '127.0.0.1');
     assert.equal(calls[0]?.staticDirectory, staticDirectory);
+    assert.equal(typeof (calls[0]?.ptyBackend as { spawn?: unknown }).spawn, 'function');
     assert.ok(stateDirectory.endsWith(join('ai-cli-bypass', 'continuation')));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('the desktop-native backend starts a real PTY and delivers Unicode input/output', async (t) => {
+  const backend = createDesktopPtyBackend(resolve('.'));
+  const pty = backend.spawn(process.execPath, ['-e', 'process.stdout.write(`TTY=${process.stdin.isTTY}\\n`); require("node:readline").createInterface({input:process.stdin}).on("line",line=>process.stdout.write(`REPLY=${line}\\n`))'], { cwd: process.cwd(), name: 'xterm-256color', cols: 80, rows: 24, env: process.env });
+  t.after(() => pty.kill());
+  let output = '';
+  const done = new Promise<void>((resolveDone, reject) => {
+    const timer = setTimeout(() => reject(new Error('desktop PTY produced no reply')), 5000);
+    pty.onData((data) => {
+      output += data;
+      if (output.includes('REPLY=桌面中文输入')) { clearTimeout(timer); resolveDone(); }
+    });
+  });
+  pty.write('桌面中文输入\r');
+  await done;
+  assert.ok(output.includes('TTY=true'));
 });
 
 test('adopts a healthy recorded service instead of starting another', async () => {

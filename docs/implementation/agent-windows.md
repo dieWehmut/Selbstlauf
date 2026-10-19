@@ -35,3 +35,13 @@
 - 两项 Playwright 测试运行真实 PTY，覆盖中文、多行、键盘输入、窗口隔离、草稿、刷新重放、独立窗口、退出后保留输出，以及启动 DSR 查询和 bracketed paste 协议。
 - 本机浏览器实际启动 PATH 中的 Claude Code、OpenCode、Codex，`--version` 均正常显示并以退出码 0 结束。这里验证真实 CLI 启动，不把测试用 Node 进程当成模型回复。
 - CLI：287 项通过、11 项 Windows 专用测试跳过；前端：264 项通过；两项浏览器终端测试通过。
+
+## 任务 4 验证
+
+- 原有进程详情页读取该进程唯一关联的 Claude JSONL、Codex rollout 或 DeepSeek Harness projection，展示真实输入、回复及工具输出。读取范围有上限，不接收客户端提供的文件路径；关联失败显示实际原因。
+- 前端每 3 秒更新输出，切换会话时丢弃旧请求，按文本显示记录。
+- Electron 主进程从应用自己的原生依赖加载 PTY；独立 BrowserWindow 连接同一会话，关闭子窗口后主窗口仍能继续输入。
+- 打包显式携带 WebSocket 运行库，并解包 node-pty 的原生库及辅助文件。
+- CLI：294 项通过、11 项 Windows 专用测试跳过；前端：267 项通过；桌面：149 项通过。三个工作区构建通过。
+- 实际 Electron 启动验证了原生 PTY、中文/多行输入、实时输出、独立窗口与子窗口关闭后的继续交互。
+- Linux 安装目录产物复制到仓库外的临时安装位置、移除 NODE_PATH 后再次运行同样的验证，成功；运行库没有依赖开发目录兜底。可通过 `SELBSTLAUF_PACKAGED_EXECUTABLE` 对打包产物重复此验证。

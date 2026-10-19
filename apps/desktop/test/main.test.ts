@@ -591,13 +591,23 @@ test('registers the shell handlers exactly once', () => {
   assert.equal(stub.channels.length, new Set(stub.channels).size, 'no channel is registered twice');
   assert.deepEqual(
     [...stub.channels].sort(),
-    [SHELL_CHANNELS.invoke, SHELL_CHANNELS.settingsGet, SHELL_CHANNELS.settingsSet].sort(),
+    [SHELL_CHANNELS.invoke, SHELL_CHANNELS.settingsGet, SHELL_CHANNELS.settingsSet, SHELL_CHANNELS.agentWindowOpen].sort(),
   );
 });
 
 test('registration is a no-op when ipcMain is missing', () => {
   const shell = {} as unknown as ElectronShell;
   assert.equal(registerShellHandlers(shell, buildShellActionContext()), false);
+});
+
+test('opens a managed agent viewer over IPC and rejects malformed ids before calling the handler', async () => {
+  const stub = buildIpcShell();
+  const ids: string[] = [];
+  registerShellHandlers(stub.shell, { ...buildShellActionContext(), openAgentWindow: async (id) => { ids.push(id); } });
+  const id = 'agent-11111111-2222-4333-8444-555555555555';
+  await stub.invoke(SHELL_CHANNELS.agentWindowOpen, id);
+  await assert.rejects(Promise.resolve(stub.invoke(SHELL_CHANNELS.agentWindowOpen, '../other')), /编号无效/u);
+  assert.deepEqual(ids, [id]);
 });
 
 /**

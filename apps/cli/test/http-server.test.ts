@@ -76,6 +76,22 @@ async function request(base: string, path: string, options: { method?: string; b
   return { response, text, json: text.length === 0 ? null : JSON.parse(text) };
 }
 
+test('serves controller-bound session output and refuses an unknown session id', async (t) => {
+  const calls: string[] = [];
+  const { service } = await makeServer({ output: (id) => {
+    calls.push(id);
+    return id === session.id ? { sessionId: id, state: 'ready', source: 'claude-jsonl', entries: [
+      { id: '1', role: 'assistant', text: '真实记录输出', timestampMs: null },
+    ], truncated: false } : null;
+  } });
+  t.after(() => service.stop());
+  const result = await request(service.url(), '/api/sessions/claude%3A1200/output?path=ignored');
+  assert.equal(result.response.status, 200);
+  assert.equal(result.json.entries[0].text, '真实记录输出');
+  assert.equal((await request(service.url(), '/api/sessions/other/output')).response.status, 404);
+  assert.deepEqual(calls, ['claude:1200', 'other']);
+});
+
 test('serves the local environment report and refreshes it on demand', async (t) => {
   let scans = 0;
   const check = new EnvironmentCheck({

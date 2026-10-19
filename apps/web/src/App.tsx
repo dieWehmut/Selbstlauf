@@ -61,6 +61,8 @@ import { ToolIcon } from './sidebar/ToolIcon';
 import { canWriteSession, writeEligibility } from './session/write-eligibility';
 import { isLight, mix, paletteSurfaces, readableText } from './theme/palette';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
+import { SessionOutputPanel } from './process/SessionOutputPanel';
+import type { SessionOutputView } from './api/client';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
 import { sessionTone, sessionToneLabel, conversationLabel, formatDuration, quietMs, togglePinnedId, toolLabel } from './sidebar/session-groups';
 import { describeAuditDetails } from './timeline/audit-details';
@@ -938,6 +940,7 @@ function ProcessDetail(props: {
   readonly allowReveal: boolean;
   /** Absent outside the desktop shell, where no window can be captured. */
   readonly requestPreview?: (sessionId: string) => Promise<WindowPreviewResult>;
+  readonly requestOutput?: (sessionId: string) => Promise<SessionOutputView>;
   /** Write a typed line into the session, reporting whether it was really written. */
   readonly onSendPrompt?: (session: SessionView, prompt: string) => Promise<{ readonly dryRun: boolean }> | { readonly dryRun: boolean };
   /** Type a line into the session's window. Absent outside the desktop shell. */
@@ -1000,6 +1003,8 @@ function ProcessDetail(props: {
         busy={props.busy === session.id}
         {...(props.requestPreview === undefined ? {} : { requestPreview: props.requestPreview })}
       />
+
+      <SessionOutputPanel sessionId={session.id} {...(props.requestOutput === undefined ? {} : { requestOutput: props.requestOutput })} />
 
       {/* Writing a line into the session, next to the window it will appear in. */}
       <SessionPromptComposer
@@ -3268,6 +3273,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
             onInject={(session) => void mutateSession(session, 'inject')}
             onFocus={(session) => void focusSession(session)}
             onSendPrompt={(session, prompt) => mutateSession(session, 'inject', prompt)}
+            {...(staticDemo || api.output === undefined ? {} : { requestOutput: api.output })}
             {...(previewWindow === null ? {} : { requestPreview: previewWindow })}
             {...(typeIntoWindow === null ? {} : { onTypeIntoWindow: typeIntoWindow })}
             windowSharedBy={

@@ -10,9 +10,11 @@
     "test": "npm run build --silent && node --test --test-concurrency=1 dist/test/*.test.js",
     "smoke": "node scripts/smoke.mjs",
     "package:dir": "electron-builder --dir --config electron-builder.config.mjs",
-    "package:win": "electron-builder --win --config electron-builder.config.mjs"
+    "package:win": "electron-builder --win --config electron-builder.config.mjs",
+    "test:agents": "npm --workspace @ai-cli-bypass/cli run build --silent && npm --workspace @ai-cli-bypass/web run build --silent && npm run build --silent && node scripts/verify-agents.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "electron": "44.4.1",
     "electron-builder": "^26.0.12"
   },

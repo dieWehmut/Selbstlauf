@@ -20,6 +20,7 @@ const SHELL_CHANNELS = Object.freeze({
   settingsGet: 'selbstlauf:settings:get',
   settingsSet: 'selbstlauf:settings:set',
   command: 'selbstlauf:command',
+  agentWindowOpen: 'selbstlauf:agent-window:open',
 });
 
 // Every action is named here rather than taking a channel argument, so the
@@ -69,6 +70,7 @@ contextBridge.exposeInMainWorld('selbstlaufDesktop', {
      * helper itself refuses unless it has confirmed the target took the foreground.
      */
     windowType: (sessionId, text, submit) => invoke({ action: 'windowType', sessionId, text, submit: submit === true }),
+    openAgentWindow: (sessionId) => ipcRenderer.invoke(SHELL_CHANNELS.agentWindowOpen, sessionId),
   }),
   settings: Object.freeze({
     get: () => ipcRenderer.invoke(SHELL_CHANNELS.settingsGet),

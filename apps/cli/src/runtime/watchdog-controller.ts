@@ -54,6 +54,7 @@ import type {
 } from '../transport/transport.js';
 import type { AuditStore } from '../store/audit-store.js';
 import type { ConfigStore } from '../store/config-store.js';
+import { readSessionOutput, unavailableSessionOutput, type SessionOutput } from './session-output.js';
 
 export interface RuntimeInjectionResult {
   readonly ok: boolean;
@@ -95,7 +96,7 @@ export interface RuntimeSessionView extends SessionSnapshot {
   readonly pendingPrompt: string | null;
   readonly lastDecision: string;
   readonly transportError?: string;
-  /** The workspace a hosted DeepSeek Harness session is attached to. */
+  /** The workspace resolved from this process and its associated conversation. */
   readonly sessionCwd?: string | null;
   /** True while the hosted DeepSeek Harness session has an unfinished step. */
   readonly runningTurn?: boolean;
@@ -135,6 +136,8 @@ interface RuntimeSession {
   codexAdapter: CodexAdapter | null;
   codexContext: CodexContinuationContext | null;
   codexActivity: { snapshot(): Promise<{ readonly changed: boolean }> } | null;
+  codexRolloutPath: string | null;
+  codexCwd: string | null;
   dshSession: DshSessionFile | null;
   dshActivity: DshSessionActivity | null;
   goal: GoalSnapshot | null;
@@ -399,6 +402,26 @@ export class WatchdogController {
     return Object.freeze([...this.sessions.values()].map((session) => this.toView(session)));
   }
 
+  public async output(sessionId: string): Promise<SessionOutput | null> {
+    const session = this.sessions.get(sessionId);
+    if (session === undefined) return null;
+    if (session.group.tool === 'claude' && session.claudeFile !== null) {
+      return readSessionOutput(sessionId, 'claude-jsonl', session.claudeFile.path);
+    }
+    if (session.group.tool === 'codex' && session.codexRolloutPath !== null) {
+      const path = session.codexRolloutPath;
+      const distro = session.group.distribution;
+      // The Windows host reads a WSL rollout through the distribution's filesystem share.
+      const readablePath = this.platform === 'win32' && distro !== undefined && /^[A-Za-z0-9._-]+$/u.test(distro) && path.startsWith('/')
+        ? `\\\\wsl.localhost\\${distro}${path.replaceAll('/', '\\')}` : path;
+      return readSessionOutput(sessionId, 'codex-rollout', readablePath);
+    }
+    if (session.group.tool === 'dsh' && session.dshSession?.projectionPath) {
+      return readSessionOutput(sessionId, 'dsh-projection', session.dshSession.projectionPath);
+    }
+    return unavailableSessionOutput(sessionId, session.conversationId === null ? 'association-required' : 'transcript-missing');
+  }
+
   public async configChanged(config: WatchdogConfig): Promise<void> {
     this.currentConfig = config;
     await this.currentPoll;
@@ -638,6 +661,8 @@ export class WatchdogController {
       codexAdapter: null,
       codexContext: null,
       codexActivity: null,
+      codexRolloutPath: null,
+      codexCwd: null,
       dshSession: null,
       dshActivity: null,
       goal: null,
@@ -1087,12 +1112,16 @@ export class WatchdogController {
     const association = session.codexAdapter.associate(context);
     if (association.kind === 'matched') {
       session.codexActivity = association.activity;
+      session.codexRolloutPath = association.thread.rolloutPath;
+      session.codexCwd = association.thread.cwd;
       session.conversationId = association.thread.id;
       session.goal = session.codexAdapter.getGoal(context);
       session.transportKind = 'codex-app-server';
       session.transportError = undefined;
     } else {
       session.codexActivity = null;
+      session.codexRolloutPath = null;
+      session.codexCwd = null;
       session.conversationId = null;
       session.goal = null;
       session.transportKind = 'monitor-only';
@@ -1387,8 +1416,8 @@ export class WatchdogController {
       quietForMs: lastActivityAtMs === null ? null : Math.max(0, this.now() - lastActivityAtMs),
       pendingPrompt: session.pendingPrompt,
       lastDecision: state?.lastDecision ?? 'new',
+      sessionCwd: session.dshSession?.cwd ?? session.codexCwd ?? session.claudeFile?.projectPath ?? session.group.workingDirectory ?? null,
       ...(session.group.tool === 'dsh' ? {
-        sessionCwd: session.dshSession?.cwd ?? null,
         runningTurn: session.dshSession?.turnOpen ?? false,
       } : {}),
       host: session.group.host ?? null,

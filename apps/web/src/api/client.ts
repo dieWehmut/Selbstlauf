@@ -43,7 +43,7 @@ export interface SessionView {
   pendingPrompt?: string | null;
   lastDecision?: string;
   transportError?: string;
-  /** DeepSeek Harness sessions report the workspace they are attached to. */
+  /** The workspace resolved from the process or its associated conversation. */
   sessionCwd?: string | null;
   /** DeepSeek Harness sessions report whether a step is still running. */
   runningTurn?: boolean;
@@ -201,11 +201,40 @@ export interface InjectionOutcome {
   readonly prompt?: string;
 }
 
+export interface SessionOutputView {
+  readonly sessionId: string;
+  readonly state: 'ready' | 'unavailable';
+  readonly source: 'claude-jsonl' | 'codex-rollout' | 'dsh-projection' | null;
+  readonly entries: readonly {
+    readonly id: string;
+    readonly role: 'user' | 'assistant' | 'tool';
+    readonly text: string;
+    readonly timestampMs: number | null;
+  }[];
+  readonly truncated: boolean;
+  readonly reason?: string;
+}
+
+export function validateSessionOutput(value: unknown, sessionId: string): SessionOutputView {
+  const output = value as SessionOutputView | null;
+  if (output === null || typeof output !== 'object' || output.sessionId !== sessionId ||
+      !['ready', 'unavailable'].includes(output.state) || typeof output.truncated !== 'boolean' ||
+      ![null, 'claude-jsonl', 'codex-rollout', 'dsh-projection'].includes(output.source) ||
+      (output.reason !== undefined && typeof output.reason !== 'string') || !Array.isArray(output.entries) ||
+      !output.entries.every((entry) => entry !== null && typeof entry === 'object' && typeof entry.id === 'string' &&
+        ['user', 'assistant', 'tool'].includes(entry.role) && typeof entry.text === 'string' &&
+        (entry.timestampMs === null || typeof entry.timestampMs === 'number' && Number.isFinite(entry.timestampMs)))) {
+    throw new Error('无法读取该会话的输出数据。');
+  }
+  return output;
+}
+
 export interface WatchdogApi {
   health(): Promise<HealthView>;
   config(): Promise<WatchdogConfig>;
   updateConfig(config: WatchdogConfig): Promise<WatchdogConfig>;
   sessions(): Promise<SessionView[]>;
+  output?(id: string): Promise<SessionOutputView>;
   pause(id: string): Promise<void>;
   resume(id: string): Promise<void>;
   inject(id: string, prompt?: string): Promise<InjectionOutcome>;
@@ -265,6 +294,7 @@ export function createApi(): WatchdogApi {
       const response = await request<SessionView[] | { readonly sessions?: SessionView[] }>('/sessions');
       return Array.isArray(response) ? response : response.sessions ?? [];
     },
+    output: async (id) => validateSessionOutput(await request<unknown>(`/sessions/${encodeURIComponent(id)}/output`), id),
     pause: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/pause`, { method: 'POST' }),
     resume: (id) => request<void>(`/sessions/${encodeURIComponent(id)}/resume`, { method: 'POST' }),
     /**

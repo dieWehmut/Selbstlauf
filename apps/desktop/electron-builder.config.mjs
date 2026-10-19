@@ -8,6 +8,7 @@ const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(appRoot, '..', '..');
 
 const cliDist = path.join(repositoryRoot, 'apps', 'cli', 'dist');
+const socketRuntime = path.join(cliDist, 'node_modules', 'ws');
 const processProviderScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'process', 'windows-processes.ps1');
 const windowFocusScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'process', 'window-focus.ps1');
 const windowRestoreScript = path.join(repositoryRoot, 'apps', 'cli', 'src', 'process', 'window-restore.ps1');
@@ -19,6 +20,7 @@ const icon = path.join(appRoot, 'build', 'icon.ico');
 
 for (const [label, target] of [
   ['apps/cli/dist', cliDist],
+  ['apps/cli/dist/node_modules/ws', socketRuntime],
   ['apps/cli/src/process/windows-processes.ps1', processProviderScript],
   ['apps/cli/src/process/window-focus.ps1', windowFocusScript],
   ['apps/cli/src/process/window-restore.ps1', windowRestoreScript],
@@ -51,6 +53,8 @@ export default {
   ],
   extraResources: [
     { from: cliDist, to: 'service-dist' },
+    // node_modules is excluded by the generic resource copy; copy the service's pure-JS dependency explicitly.
+    { from: socketRuntime, to: 'service-dist/node_modules/ws' },
     // tsc never emits the PowerShell asset, and the service resolves it beside
     // its own module. Without this copy the installed app starts, serves its
     // WebUI, and silently discovers no process at all.
@@ -73,6 +77,8 @@ export default {
     ...(existsSync(icon) ? [{ from: icon, to: 'build/icon.ico' }] : []),
   ],
   asar: true,
+  // ConPTY also loads adjacent DLLs/helpers; keep the whole native package on the real filesystem.
+  asarUnpack: ['node_modules/node-pty/**/*'],
   win: {
     target: [
       { target: 'nsis', arch: ['x64', 'arm64'] },

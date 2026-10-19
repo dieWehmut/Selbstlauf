@@ -2,6 +2,20 @@ import { rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
+
+export type DesktopPtyBackend = Pick<typeof import('node-pty'), 'spawn'> & { readonly native?: boolean };
+
+/** Resolve native PTY from the Electron app, including app.asar.unpacked in an installed build. */
+export function createDesktopPtyBackend(appRoot: string): DesktopPtyBackend {
+  const requireFromApp = createRequire(join(resolve(appRoot), 'package.json'));
+  let backend: DesktopPtyBackend | null = null;
+  return { native: true, spawn: (file, args, options) => {
+    backend ??= requireFromApp('node-pty') as DesktopPtyBackend;
+    return backend.spawn(file, args, options);
+  } };
+}
 
 import {
   readWatchdogRecord,
@@ -72,6 +86,8 @@ export interface WatchdogServiceOptions {
   readonly host?: string;
   readonly port?: number;
   readonly staticDirectory?: string;
+  readonly ptyBackend?: DesktopPtyBackend;
+  readonly agentWorkingDirectory?: string;
 }
 
 export interface WatchdogServiceModule {
@@ -91,6 +107,7 @@ export interface StartBundledServiceOptions extends ResolveDistributionOptions {
   readonly port?: number;
   readonly loadServiceModule?: (entry: string) => Promise<WatchdogServiceModule>;
   readonly probeHealth?: (origin: string) => Promise<boolean>;
+  readonly ptyBackend?: DesktopPtyBackend;
 }
 
 const SERVICE_MODULE = 'startWatchdogProcess';
@@ -143,6 +160,8 @@ export async function startBundledService(
     host: '127.0.0.1',
     ...(options.port === undefined ? {} : { port: options.port }),
     staticDirectory: distribution.staticDirectory,
+    ptyBackend: options.ptyBackend ?? createDesktopPtyBackend(options.appRoot),
+    agentWorkingDirectory: process.platform === 'win32' ? environment.USERPROFILE ?? homedir() : environment.HOME ?? homedir(),
   });
   return {
     origin: handle.server.url(),

@@ -107,6 +107,7 @@ export interface ElectronWindow {
   /** Used by the renderer's full-screen menu item. */
   toggleFullScreen?(): void;
   reload?(): void;
+  destroy?(): void;
 }
 
 /**
@@ -170,6 +171,7 @@ export interface DesktopWindowRequest {
   readonly preloadPath?: string;
   /** Branded window/taskbar icon; falls back to the Electron default when absent. */
   readonly iconPath?: string;
+  readonly title?: string;
 }
 
 export interface WindowIconOptions {
@@ -214,7 +216,7 @@ function windowIcon(appRoot: string, resourcesPath?: string): { readonly iconPat
 }
 
 function openWindow(shell: ElectronShell, request: DesktopWindowRequest): ManagedWindow {
-  const base = createWindowOptions({ serviceOrigin: request.serviceOrigin });
+  const base = createWindowOptions({ serviceOrigin: request.serviceOrigin, ...(request.title === undefined ? {} : { title: request.title }) });
   const windowOptions: DesktopWindowOptions = {
     ...base,
     // `preload` belongs inside `webPreferences`; on the top level Electron ignores
@@ -245,6 +247,36 @@ function openWindow(shell: ElectronShell, request: DesktopWindowRequest): Manage
   });
   window.once('ready-to-show', () => window.show());
   return window;
+}
+
+/** A child window is another viewer of one owned PTY; closing it does not stop that process. */
+export function createAgentWindowManager(shell: ElectronShell, request: DesktopWindowRequest & {
+  readonly agents: () => Promise<readonly { id: string; title: string }[]>;
+}) {
+  const windows = new Map<string, ManagedWindow>();
+  const opening = new Map<string, Promise<void>>();
+  const open = (sessionId: string): Promise<void> => {
+    if (!/^agent-[0-9a-f-]{36}$/u.test(sessionId)) return Promise.reject(new TypeError('智能体窗口编号无效'));
+    const existing = windows.get(sessionId);
+    if (existing !== undefined && !existing.isDestroyed()) { showWindow(existing); return Promise.resolve(); }
+    const pending = opening.get(sessionId);
+    if (pending !== undefined) return pending;
+    const task = (async () => {
+      const agent = (await request.agents()).find((entry) => entry.id === sessionId);
+      if (agent === undefined) throw new Error('该智能体窗口已关闭');
+      const child = openWindow(shell, { ...request, title: `${agent.title} — Selbstlauf` });
+      windows.set(sessionId, child);
+      child.on('closed', () => { if (windows.get(sessionId) === child) windows.delete(sessionId); });
+      const url = new URL(request.serviceOrigin);
+      url.searchParams.set('agent', sessionId);
+      try { await child.loadURL(url.href); void verifyPreloadBridge(child); }
+      catch (error) { windows.delete(sessionId); child.destroy?.(); throw error; }
+    })();
+    opening.set(sessionId, task);
+    void task.finally(() => opening.delete(sessionId)).catch(() => undefined);
+    return task;
+  };
+  return { open, all: () => [...windows.values()] as readonly ManagedWindow[] };
 }
 
 export async function launchDesktop(
@@ -337,21 +369,26 @@ export function registerShellHandlers(
   shell: ElectronShell,
   context: {
     readonly window: () => ManagedWindow | null;
+    readonly windowForEvent?: (event: unknown) => ManagedWindow | null;
     readonly quit: () => void;
     readonly openExternal: (url: string) => Promise<void> | void;
     readonly settings: () => Promise<DesktopSettings>;
     readonly saveSettings: (patch: unknown) => Promise<DesktopSettings>;
     /** Repaint the native window-button strip; optional so stubs keep working. */
-    readonly setTitleBarOverlay?: (colors: { color: string; symbolColor?: string }) => void;
+    readonly setTitleBarOverlay?: (colors: { color: string; symbolColor?: string }, requester?: ManagedWindow | null) => void;
     /** Capture a preview of a watched session's window; optional so stubs keep working. */
     readonly previewWindow?: (sessionId: string) => Promise<WindowPreview> | WindowPreview;
     /** Type a line into a watched session's window; optional so stubs keep working. */
     readonly typeIntoWindow?: (sessionId: string, text: string, submit: boolean) => Promise<WindowType> | WindowType;
+    readonly openAgentWindow?: (sessionId: string) => Promise<void>;
   },
 ): boolean {
   const ipcMain = shell.ipcMain;
   if (ipcMain === undefined) return false;
-  ipcMain.handle(SHELL_CHANNELS.invoke, (_event, payload: unknown) => {
+  ipcMain.handle(SHELL_CHANNELS.invoke, (event, payload: unknown) => {
+    const requester = context.windowForEvent === undefined ? context.window() : context.windowForEvent(event);
+    const overlay = context.setTitleBarOverlay === undefined ? undefined
+      : (colors: { color: string; symbolColor?: string }) => context.setTitleBarOverlay!(colors, requester);
     const request = parseShellRequest(payload);
     // The capture is the one action that must await, so it goes through the async dispatcher.
     // A rejected request resolves to an `unsupported` outcome rather than throwing across IPC,
@@ -378,15 +415,15 @@ export function registerShellHandlers(
           window: { reload: () => undefined },
           quit: context.quit,
           openExternal: context.openExternal,
-          ...(context.setTitleBarOverlay === undefined
+          ...(overlay === undefined
             ? {}
-            : { setTitleBarOverlay: context.setTitleBarOverlay }),
+            : { setTitleBarOverlay: overlay }),
         },
         request,
       );
       return null;
     }
-    const window = context.window();
+    const window = requester;
     if (window === null) return null;
     applyShellAction(
       {
@@ -399,9 +436,9 @@ export function registerShellHandlers(
         },
         quit: context.quit,
         openExternal: context.openExternal,
-        ...(context.setTitleBarOverlay === undefined
+        ...(overlay === undefined
           ? {}
-          : { setTitleBarOverlay: context.setTitleBarOverlay }),
+          : { setTitleBarOverlay: overlay }),
       },
       request,
     );
@@ -409,6 +446,12 @@ export function registerShellHandlers(
   });
   ipcMain.handle(SHELL_CHANNELS.settingsGet, () => context.settings());
   ipcMain.handle(SHELL_CHANNELS.settingsSet, (_event, patch: unknown) => context.saveSettings(patch));
+  ipcMain.handle(SHELL_CHANNELS.agentWindowOpen, async (event, sessionId: unknown) => {
+    if (context.windowForEvent !== undefined && context.windowForEvent(event) === null) throw new Error('无法识别请求窗口');
+    if (typeof sessionId !== 'string' || !/^agent-[0-9a-f-]{36}$/u.test(sessionId)) throw new TypeError('智能体窗口编号无效');
+    if (context.openAgentWindow === undefined) throw new Error('当前服务尚未支持独立智能体窗口');
+    await context.openAgentWindow(sessionId);
+  });
   return true;
 }
 
@@ -541,6 +584,7 @@ export async function main(): Promise<void> {
   let tray: TrayController | null = null;
   let window: ManagedWindow | null = null;
   let serviceHost: BundledServiceHost | null = null;
+  let agentWindows: ReturnType<typeof createAgentWindowManager> | null = null;
 
   const lifecycle = createLifecycle({
     window: () => window,
@@ -578,6 +622,14 @@ export async function main(): Promise<void> {
    */
   registerShellHandlers(shell, {
     window: () => window,
+    windowForEvent: (event) => {
+      const sender = (event as { sender?: unknown } | null)?.sender;
+      return [window, ...(agentWindows?.all() ?? [])].find((candidate) => candidate !== null && candidate.webContents === sender) ?? null;
+    },
+    openAgentWindow: async (sessionId) => {
+      if (agentWindows === null) throw new Error('服务正在启动，请稍后重试');
+      await agentWindows.open(sessionId);
+    },
     quit: () => void lifecycle.shutdown(),
     openExternal: (url) => shell.shell.openExternal(url),
     settings: () => readDesktopSettings(stateDirectory).catch(() => DEFAULT_DESKTOP_SETTINGS),
@@ -590,8 +642,8 @@ export async function main(): Promise<void> {
     // the theme, the contrast slider and the accent. A fixed overlay colour
     // cannot match it; the renderer reports what it painted and the native strip
     // follows.
-    setTitleBarOverlay: (colors) => {
-      window?.setTitleBarOverlay?.({
+    setTitleBarOverlay: (colors, requester) => {
+      requester?.setTitleBarOverlay?.({
         color: colors.color,
         ...(colors.symbolColor === undefined ? {} : { symbolColor: colors.symbolColor }),
         height: TITLE_BAR_OVERLAY.height,
@@ -704,6 +756,15 @@ export async function main(): Promise<void> {
   serviceHost = hosted.host;
 
   const origin = hosted.target.url;
+  agentWindows = createAgentWindowManager(shell, {
+    serviceOrigin: origin, preloadPath, ...windowIcon(appRoot, resourcesPath),
+    agents: async () => {
+      const response = await fetch(`${origin}/api/agents`);
+      if (!response.ok) throw new Error(`无法读取智能体窗口：${response.status}`);
+      const body = await response.json() as { sessions?: { id: string; title: string }[] };
+      return body.sessions ?? [];
+    },
+  });
   const startupClient = { origin };
 
   const revealWindow = () => showWindow(window);

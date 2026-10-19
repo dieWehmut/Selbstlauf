@@ -12,6 +12,8 @@ export interface AgentPty {
 }
 
 export interface AgentPtyBackend {
+  /** True only for a real local PTY backend whose PID owns the spawned process group. */
+  readonly native?: boolean;
   spawn(command: string, args: string[] | string, options: {
     name: string;
     cols: number;

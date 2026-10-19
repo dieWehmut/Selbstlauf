@@ -220,7 +220,7 @@ export class ManagedAgentSessions {
   }
 
   private kill(session: ManagedSession, signal = 'SIGHUP'): void {
-    if (this.platform !== 'win32' && this.options.backend === undefined) {
+    if (this.platform !== 'win32' && (this.options.backend === undefined || this.options.backend.native === true)) {
       try { process.kill(-session.pty.pid, signal as NodeJS.Signals); } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
       }
