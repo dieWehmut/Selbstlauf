@@ -76,7 +76,7 @@ export function AgentLauncher(props: {
       {props.demo ? <p className="agent-help">在线演示无法启动本机进程。请运行本地服务或桌面版后使用智能体窗口。</p> : (
         <form className="agent-launcher__form" onSubmit={(event) => { event.preventDefault(); void launch(); }}>
           <label>智能体
-            <select value={tool} disabled={busy || catalog === null} onChange={(event) => { setTool(event.target.value as AgentTool); setCommand(''); setError(null); }}>
+            <select aria-label="智能体" value={tool} disabled={busy || catalog === null} onChange={(event) => { setTool(event.target.value as AgentTool); setCommand(''); setError(null); }}>
               {(catalog?.tools ?? [{ id: tool, label: '正在检测本机工具…', available: false }]).map((entry) => (
                 <option key={entry.id} value={entry.id}>{entry.label}{entry.available ? '' : '（未找到）'}</option>
               ))}

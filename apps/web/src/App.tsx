@@ -222,6 +222,7 @@ interface DesktopShellBridge {
    * focus alone. The user chose that trade knowingly.
    */
   windowType?(sessionId: string, text: string, submit: boolean): Promise<WindowTypeResult>;
+  openAgentWindow?(sessionId: string): Promise<void>;
 }
 
 /** The outcome of typing into a session's window. */
@@ -2133,12 +2134,18 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const api = useMemo(() => suppliedApi ?? createApi(), [suppliedApi]);
   const agentsApi = useMemo(() => suppliedAgentsApi ?? createAgentApi(), [suppliedAgentsApi]);
   const [launcherOpen, setLauncherOpen] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(() => localStorage.getItem('selbstlauf-selected-agent'));
+  const requestedAgentId = new URLSearchParams(window.location.search).get('agent');
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(() => requestedAgentId ?? localStorage.getItem('selbstlauf-selected-agent'));
   const staticDemo = import.meta.env.VITE_STATIC_DEMO === 'true';
   // Read once: the bridge is installed by the preload before the page script
   // runs, so it never appears or disappears during a session.
   const bridge = useMemo(() => desktopBridge(), []);
-  const [page, setPage] = useState<Page>('overview');
+  const [page, setPage] = useState<Page>(requestedAgentId !== null || sessionStorage.getItem('selbstlauf-agent-page') === 'true' ? 'agents' : 'overview');
+  const [agentWindowsMounted, setAgentWindowsMounted] = useState(requestedAgentId !== null);
+  useEffect(() => {
+    if (page === 'agents') { setAgentWindowsMounted(true); sessionStorage.setItem('selbstlauf-agent-page', 'true'); }
+    else sessionStorage.removeItem('selbstlauf-agent-page');
+  }, [page]);
   /**
    * In-app page history for the title bar's back/forward arrows.
    *
@@ -3274,7 +3281,12 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
           />
         </div>}
 
-        {page === 'agents' && <div className="page-content"><AgentWindows api={agentsApi} demo={staticDemo} selectedId={selectedAgentId} onSelect={(id) => { setSelectedAgentId(id); if (id === null) localStorage.removeItem('selbstlauf-selected-agent'); else localStorage.setItem('selbstlauf-selected-agent', id); }} onLaunch={() => setLauncherOpen(true)} /></div>}
+        {(page === 'agents' || agentWindowsMounted) && <div className="page-content" hidden={page !== 'agents'}><AgentWindows api={agentsApi} demo={staticDemo} selectedId={selectedAgentId} onSelect={(id) => { setSelectedAgentId(id); if (id === null) localStorage.removeItem('selbstlauf-selected-agent'); else localStorage.setItem('selbstlauf-selected-agent', id); }} onLaunch={() => setLauncherOpen(true)} onOpenWindow={(session) => {
+          if (bridge?.shell?.openAgentWindow) { void bridge.shell.openAgentWindow(session.id).catch((error: unknown) => setNotice(error instanceof Error ? error.message : String(error), 'error')); return; }
+          const url = new URL(window.location.href);
+          url.searchParams.set('agent', session.id);
+          window.open(url.href, '_blank', 'noopener,noreferrer');
+        }} /></div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
         {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} connected={live} /></div>}

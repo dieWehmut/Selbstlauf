@@ -152,8 +152,8 @@ export class ManagedAgentSessions {
   }
 
   input(id: string, data: unknown): void {
-    if (typeof data !== 'string' || data.length === 0 || data.length > 16384 || data.includes('\0')) {
-      throw new AgentSessionError(400, '终端输入必须是 1–16384 个字符，且不能包含空字符。');
+    if (typeof data !== 'string' || data.length === 0 || data.length > 16384) {
+      throw new AgentSessionError(400, '终端输入必须是 1–16384 个字符。');
     }
     this.running(id).pty.write(data);
   }

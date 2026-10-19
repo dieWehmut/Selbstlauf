@@ -1,3 +1,5 @@
+import { subscribeLiveEvent, subscribeLiveOutput } from './live-socket';
+
 export type AgentTool = 'claude' | 'opencode' | 'codex' | 'dsh' | 'gemini' | 'shell' | 'custom';
 
 export interface AgentSession {
@@ -81,6 +83,10 @@ export function createAgentApi(): AgentApi {
     terminate: async (id) => { await request(`${route(id)}/terminate`, 'POST'); },
     remove: async (id) => { await request(route(id), 'DELETE'); },
     subscribeSessions: (onChange) => {
+      if (typeof WebSocket !== 'undefined') {
+        const stop = [subscribeLiveEvent('agents', onChange), subscribeLiveEvent('ready', onChange)];
+        return () => stop.forEach((unsubscribe) => unsubscribe());
+      }
       if (typeof EventSource === 'undefined') return () => undefined;
       const source = new EventSource('/api/events');
       source.addEventListener('agents', onChange);
@@ -88,6 +94,11 @@ export function createAgentApi(): AgentApi {
       return () => source.close();
     },
     subscribeOutput: (id, onOutput, onConnection) => {
+      const receive = (data: unknown) => {
+        if (!validOutput(data, id)) { onConnection(false); return; }
+        onOutput(data);
+      };
+      if (typeof WebSocket !== 'undefined') return subscribeLiveOutput(id, receive, onConnection);
       if (typeof EventSource === 'undefined') {
         onConnection(false);
         return () => undefined;
@@ -97,15 +108,18 @@ export function createAgentApi(): AgentApi {
       source.onerror = () => onConnection(false);
       source.addEventListener('output', (message) => {
         try {
-          const output = JSON.parse((message as MessageEvent<string>).data) as AgentOutput;
-          if (typeof output.data !== 'string' || !Number.isSafeInteger(output.offset) || output.session?.id !== id) {
-            onConnection(false);
-            return;
-          }
-          onOutput(output);
+          receive(JSON.parse((message as MessageEvent<string>).data));
         } catch { onConnection(false); }
       });
       return () => source.close();
     },
   };
+}
+
+function validOutput(value: unknown, id: string): value is AgentOutput {
+  if (value === null || typeof value !== 'object') return false;
+  const output = value as AgentOutput;
+  return typeof output.data === 'string' && Number.isSafeInteger(output.offset) && Number.isSafeInteger(output.fromOffset) &&
+    output.fromOffset >= 0 && output.offset >= output.fromOffset && output.offset - output.fromOffset === output.data.length &&
+    typeof output.reset === 'boolean' && output.session?.id === id && ['running', 'stopping', 'exited'].includes(output.session.status);
 }

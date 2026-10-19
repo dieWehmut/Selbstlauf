@@ -1,3 +1,5 @@
+import { subscribeLiveEvent } from './live-socket';
+
 export type ToolName = 'claude' | 'codex' | 'dsh';
 export type TransportKind =
   | 'classic-console'
@@ -317,6 +319,13 @@ export function createApi(): WatchdogApi {
     stop: () => request<void>('/watchdog/stop', { method: 'POST' }),
     uninstall: () => request<void>('/uninstall', { method: 'POST' }),
     subscribe: (onEvent) => {
+      if (typeof WebSocket !== 'undefined') {
+        const unsubscribe = (['audit', 'health', 'sessions', 'config', 'claude-hook', 'ready'] as const).map((kind) => subscribeLiveEvent(kind, (data) => {
+          if (kind === 'audit' && isAuditEvent(data)) onEvent({ kind, event: data });
+          else if (kind !== 'audit') onEvent({ kind, data });
+        }));
+        return () => unsubscribe.forEach((stop) => stop());
+      }
       if (typeof EventSource === 'undefined') return () => undefined;
       const source = new EventSource('/api/events');
       const receive = (kind: WatchdogEvent['kind'], message: MessageEvent<string>) => {

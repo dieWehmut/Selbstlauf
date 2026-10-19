@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: './test/setup.ts',
-    exclude: ['test/browser/**', 'node_modules/**', 'dist/**'],
+    exclude: ['test/browser/**', 'test/agents/**', 'node_modules/**', 'dist/**'],
     css: true,
     /**
      * 20s per test rather than Vitest's 5s default.

@@ -103,6 +103,7 @@ describe('local service API client', () => {
   });
 
   it('receives named audit events from the service event stream', () => {
+    vi.stubGlobal('WebSocket', undefined);
     const source = new FakeEventSource();
     vi.stubGlobal('EventSource', class {
       public constructor(_url: string) { return source; }

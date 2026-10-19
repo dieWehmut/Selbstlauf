@@ -10,6 +10,7 @@ import type { EnvironmentCheck } from '../environment/environment-check.js';
 import { isKnownToolId, type ToolUpgrader } from '../environment/upgrade.js';
 import type { ManagedAgentSessions } from '../agents/managed-sessions.js';
 import { AgentSessionError } from '../agents/types.js';
+import { LiveSocketServer } from './live-socket.js';
 type Awaitable<T> = T | Promise<T>;
 
 export interface InjectionResult {
@@ -99,6 +100,7 @@ export class WatchdogHttpServer {
   private readonly upgrader?: ToolUpgrader;
   private readonly sessions: SessionController;
   private readonly agents?: ManagedAgentSessions;
+  private readonly sockets: LiveSocketServer;
   private readonly status: () => Awaitable<WatchdogStatus>;
   private readonly host: string;
   private readonly requestedPort: number;
@@ -123,6 +125,7 @@ export class WatchdogHttpServer {
     this.upgrader = options.upgrader;
     this.sessions = options.sessions;
     this.agents = options.agents;
+    this.sockets = new LiveSocketServer(this.agents);
     this.status = options.status ?? (() => ({ lastPollAtMs: null }));
     this.host = options.host ?? '127.0.0.1';
     if (!LOOPBACK_HOSTS.has(this.host.toLocaleLowerCase())) {
@@ -159,6 +162,13 @@ export class WatchdogHttpServer {
       const server = createServer((request, response) => {
         void this.handle(request, response).catch((error: unknown) => this.handleError(response, error));
       });
+      server.on('upgrade', (request, socket, head) => {
+        if (request.url !== '/api/socket' || !isLoopbackAddress(request.socket.remoteAddress) || !this.isAllowedOrigin(request.headers.origin)) {
+          socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+          return;
+        }
+        this.sockets.upgrade(request, socket, head);
+      });
       try {
         await listen(server, port, this.host);
         this.server = server;
@@ -184,6 +194,7 @@ export class WatchdogHttpServer {
     this.clients.clear();
     for (const stream of this.terminalStreams) stream.end();
     this.terminalStreams.clear();
+    this.sockets.stop();
     await closeServer(server);
   }
 
@@ -206,7 +217,7 @@ export class WatchdogHttpServer {
       client.response.write(frame);
       delivered = true;
     }
-    return delivered;
+    return this.sockets.publish(event, data) || delivered;
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
