@@ -591,7 +591,7 @@ test('registers the shell handlers exactly once', () => {
   assert.equal(stub.channels.length, new Set(stub.channels).size, 'no channel is registered twice');
   assert.deepEqual(
     [...stub.channels].sort(),
-    [SHELL_CHANNELS.invoke, SHELL_CHANNELS.settingsGet, SHELL_CHANNELS.settingsSet, SHELL_CHANNELS.agentWindowOpen].sort(),
+    [SHELL_CHANNELS.invoke, SHELL_CHANNELS.settingsGet, SHELL_CHANNELS.settingsSet, SHELL_CHANNELS.agentWindowOpen, SHELL_CHANNELS.terminalOpen].sort(),
   );
 });
 
@@ -771,6 +771,41 @@ test('the settings channels read and write the persisted store', async () => {
     preferredTerminal: null,
   });
   assert.deepEqual(patches, [{ closeToTray: false }]);
+});
+
+test('settings broadcasts only confirmed saves and a failed save remains a failure', async () => {
+  const stub = buildIpcShell();
+  const notifications: unknown[] = [];
+  let fail = false;
+  registerShellHandlers(stub.shell, {
+    ...buildShellActionContext(),
+    saveSettings: async () => {
+      if (fail) throw new Error('disk is full');
+      return { closeToTray: false, preferredTerminal: 'cmd' };
+    },
+    settingsChanged: (settings) => notifications.push(settings),
+  });
+  await stub.invoke(SHELL_CHANNELS.settingsSet, { closeToTray: false });
+  assert.deepEqual(notifications, [{ closeToTray: false, preferredTerminal: 'cmd' }]);
+  fail = true;
+  await assert.rejects(Promise.resolve(stub.invoke(SHELL_CHANNELS.settingsSet, { closeToTray: true })), /disk is full/u);
+  assert.equal(notifications.length, 1);
+});
+
+test('opening a terminal accepts only a session id from a known viewer', async () => {
+  const stub = buildIpcShell();
+  const opened: string[] = [];
+  let viewer = true;
+  registerShellHandlers(stub.shell, {
+    ...buildShellActionContext(),
+    windowForEvent: () => viewer ? {} as never : null,
+    openTerminal: async (sessionId) => { opened.push(sessionId); return { ok: true, terminal: 'cmd' }; },
+  });
+  assert.deepEqual(await stub.invoke(SHELL_CHANNELS.terminalOpen, 'codex:123'), { ok: true, terminal: 'cmd' });
+  assert.equal((await stub.invoke(SHELL_CHANNELS.terminalOpen, { sessionId: 'codex:123', cwd: '/arbitrary' }) as { ok: boolean }).ok, false);
+  viewer = false;
+  assert.equal((await stub.invoke(SHELL_CHANNELS.terminalOpen, 'codex:123') as { ok: boolean }).ok, false);
+  assert.deepEqual(opened, ['codex:123']);
 });
 
 test('the window close hook hides the real window instead of quitting', async () => {

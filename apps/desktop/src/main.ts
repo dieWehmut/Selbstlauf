@@ -29,6 +29,7 @@ import {
 import { readStartupState, setStartupInstalled } from './startup-client.js';
 import { installTray, showWindow, type TrayController, type TrayLike } from './tray.js';
 import { createLifecycle } from './lifecycle.js';
+import { openSessionTerminal, type TerminalResult, type TerminalSession } from './terminal.js';
 import {
   captureSessionWindow,
   type PreviewSession,
@@ -376,6 +377,8 @@ export function registerShellHandlers(
     readonly openExternal: (url: string) => Promise<void> | void;
     readonly settings: () => Promise<DesktopSettings>;
     readonly saveSettings: (patch: unknown) => Promise<DesktopSettings>;
+    readonly settingsChanged?: (settings: DesktopSettings) => void;
+    readonly openTerminal?: (sessionId: string) => Promise<TerminalResult>;
     /** Repaint the native window-button strip; optional so stubs keep working. */
     readonly setTitleBarOverlay?: (colors: { color: string; symbolColor?: string }, requester?: ManagedWindow | null) => void;
     /** Capture a preview of a watched session's window; optional so stubs keep working. */
@@ -447,7 +450,17 @@ export function registerShellHandlers(
     return null;
   });
   ipcMain.handle(SHELL_CHANNELS.settingsGet, () => context.settings());
-  ipcMain.handle(SHELL_CHANNELS.settingsSet, (_event, patch: unknown) => context.saveSettings(patch));
+  ipcMain.handle(SHELL_CHANNELS.settingsSet, async (_event, patch: unknown) => {
+    const saved = await context.saveSettings(patch);
+    context.settingsChanged?.(saved);
+    return saved;
+  });
+  ipcMain.handle(SHELL_CHANNELS.terminalOpen, async (event, sessionId: unknown) => {
+    if (context.windowForEvent !== undefined && context.windowForEvent(event) === null) return { ok: false, reason: '无法识别请求窗口。' };
+    if (typeof sessionId !== 'string' || !sessionId.trim()) return { ok: false, reason: '会话编号无效。' };
+    if (context.openTerminal === undefined) return { ok: false, reason: '当前应用未提供打开终端功能。' };
+    return context.openTerminal(sessionId);
+  });
   ipcMain.handle(SHELL_CHANNELS.agentWindowOpen, async (event, sessionId: unknown) => {
     if (context.windowForEvent !== undefined && context.windowForEvent(event) === null) throw new Error('无法识别请求窗口');
     if (typeof sessionId !== 'string' || !/^agent-[0-9a-f-]{36}$/u.test(sessionId)) throw new TypeError('智能体窗口编号无效');
@@ -640,6 +653,26 @@ export async function main(): Promise<void> {
       closeToTray = saved.closeToTray;
       return saved;
     },
+    settingsChanged: (settings) => {
+      for (const viewer of [window, ...(agentWindows?.all() ?? [])]) {
+        if (viewer !== null && !viewer.isDestroyed()) viewer.webContents.send?.(SHELL_CHANNELS.settingsChanged, settings);
+      }
+    },
+    openTerminal: (sessionId) => openSessionTerminal(sessionId, {
+      sessions: async () => {
+        const origin = serviceHost?.origin ?? (await resolveDesktopTarget()).url;
+        if (!/^https?:\/\//u.test(origin)) throw new Error('服务尚未启动。');
+        const responses = await Promise.all([fetch(`${origin}/api/sessions`), fetch(`${origin}/api/agents`)]);
+        const sessions: TerminalSession[] = [];
+        for (const response of responses) {
+          if (!response.ok) throw new Error(`无法读取会话列表：${response.status}`);
+          const body = await response.json() as { sessions?: readonly TerminalSession[] };
+          sessions.push(...(body.sessions ?? []));
+        }
+        return sessions;
+      },
+      preference: () => readDesktopSettings(stateDirectory).then((settings) => settings.preferredTerminal),
+    }),
     // The title bar is painted from the live palette, so its colour changes with
     // the theme, the contrast slider and the accent. A fixed overlay colour
     // cannot match it; the renderer reports what it painted and the native strip

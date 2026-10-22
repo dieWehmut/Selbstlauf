@@ -120,3 +120,15 @@ test('an update from a corrupt file recovers to the defaults plus the patch', as
     assert.deepEqual(next, { closeToTray: false, preferredTerminal: null });
   });
 });
+
+test('concurrent windows preserve independent settings patches', async () => {
+  await withStateDirectory(async (directory) => {
+    await writeDesktopSettings(directory, DEFAULT_DESKTOP_SETTINGS);
+    await Promise.all([
+      updateDesktopSettings(directory, { closeToTray: false }),
+      updateDesktopSettings(directory, { preferredTerminal: 'powershell' }),
+    ]);
+    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: false, preferredTerminal: 'powershell' });
+    assert.deepEqual(await readdir(directory), [DESKTOP_SETTINGS_FILE]);
+  });
+});

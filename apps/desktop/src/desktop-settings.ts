@@ -10,6 +10,7 @@
 
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 export interface DesktopSettings {
   /** Hide to the tray instead of quitting when the window is closed. */
@@ -80,7 +81,7 @@ export async function writeDesktopSettings(
   const normalized = normalizeDesktopSettings(settings);
   await mkdir(stateDirectory, { recursive: true });
   const destination = resolveDesktopSettingsPath(stateDirectory);
-  const temporary = `${destination}.${process.pid}.tmp`;
+  const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
     await rename(temporary, destination);
@@ -92,15 +93,26 @@ export async function writeDesktopSettings(
 }
 
 /** Merge a partial patch over what is on disk and store the result. */
+const pendingUpdates = new Map<string, Promise<DesktopSettings>>();
+
 export async function updateDesktopSettings(
   stateDirectory: string,
   patch: unknown,
 ): Promise<DesktopSettings> {
-  const current = await readDesktopSettings(stateDirectory);
-  // Unknown keys and wrong types are dropped rather than written through.
-  const safePatch = normalizeDesktopSettings(
-    { ...current, ...(patch !== null && typeof patch === 'object' ? (patch as object) : {}) },
-    current,
-  );
-  return writeDesktopSettings(stateDirectory, safePatch);
+  const destination = resolveDesktopSettingsPath(stateDirectory);
+  const previous = pendingUpdates.get(destination);
+  const update = (async () => {
+    // Independent windows can save different fields at the same time. Read the
+    // latest file only after the previous update finishes, preserving both edits.
+    await previous?.catch(() => undefined);
+    const current = await readDesktopSettings(stateDirectory);
+    const safePatch = normalizeDesktopSettings(
+      { ...current, ...(patch !== null && typeof patch === 'object' && !Array.isArray(patch) ? (patch as object) : {}) },
+      current,
+    );
+    return writeDesktopSettings(stateDirectory, safePatch);
+  })();
+  pendingUpdates.set(destination, update);
+  try { return await update; }
+  finally { if (pendingUpdates.get(destination) === update) pendingUpdates.delete(destination); }
 }

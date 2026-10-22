@@ -21,6 +21,8 @@ const SHELL_CHANNELS = Object.freeze({
   settingsSet: 'selbstlauf:settings:set',
   command: 'selbstlauf:command',
   agentWindowOpen: 'selbstlauf:agent-window:open',
+  terminalOpen: 'selbstlauf:terminal:open',
+  settingsChanged: 'selbstlauf:settings:changed',
 });
 
 // Every action is named here rather than taking a channel argument, so the
@@ -71,10 +73,16 @@ contextBridge.exposeInMainWorld('selbstlaufDesktop', {
      */
     windowType: (sessionId, text, submit) => invoke({ action: 'windowType', sessionId, text, submit: submit === true }),
     openAgentWindow: (sessionId) => ipcRenderer.invoke(SHELL_CHANNELS.agentWindowOpen, sessionId),
+    openTerminal: (sessionId) => ipcRenderer.invoke(SHELL_CHANNELS.terminalOpen, sessionId),
   }),
   settings: Object.freeze({
     get: () => ipcRenderer.invoke(SHELL_CHANNELS.settingsGet),
     set: (patch) => ipcRenderer.invoke(SHELL_CHANNELS.settingsSet, patch),
+    onChange: (listener) => {
+      const handler = (_event, preferences) => listener(preferences);
+      ipcRenderer.on(SHELL_CHANNELS.settingsChanged, handler);
+      return () => ipcRenderer.removeListener(SHELL_CHANNELS.settingsChanged, handler);
+    },
   }),
   /**
    * Subscribe to named commands from the menu bar and the tray.

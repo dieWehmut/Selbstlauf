@@ -19,6 +19,7 @@ export const SHELL_CHANNELS = Object.freeze({
   command: 'selbstlauf:command',
   settingsChanged: 'selbstlauf:settings:changed',
   agentWindowOpen: 'selbstlauf:agent-window:open',
+  terminalOpen: 'selbstlauf:terminal:open',
 } as const);
 
 /** Every action the renderer is allowed to ask the main process to perform. */
