@@ -1,3 +1,5 @@
+import { DEFAULT_DESKTOP_LOCALE, nativeMessage, type DesktopLocale } from './locale.js';
+
 /**
  * The application menu template.
  *
@@ -55,16 +57,6 @@ export interface MenuItemTemplate {
   readonly submenu?: readonly MenuItemTemplate[];
 }
 
-const EDIT_ITEMS: readonly MenuItemTemplate[] = Object.freeze([
-  Object.freeze({ label: '撤销', role: 'undo' }),
-  Object.freeze({ label: '重做', role: 'redo' }),
-  Object.freeze({ type: 'separator' as const }),
-  Object.freeze({ label: '剪切', role: 'cut' }),
-  Object.freeze({ label: '复制', role: 'copy' }),
-  Object.freeze({ label: '粘贴', role: 'paste' }),
-  Object.freeze({ label: '全选', role: 'selectAll' }),
-]);
-
 /** The four top-level labels, in the order the reference layout presents them. */
 export const MENU_LABELS = Object.freeze(['文件', '编辑', '视图', '帮助'] as const);
 
@@ -74,36 +66,46 @@ export const MENU_LABELS = Object.freeze(['文件', '编辑', '视图', '帮助'
  * `文件` deliberately has no quit item: closing the window hides it to the tray,
  * and the only real quit affordance is the tray menu's `退出`.
  */
-export function buildApplicationMenu(actions: ApplicationMenuActions): MenuItemTemplate[] {
+export function buildApplicationMenu(actions: ApplicationMenuActions, locale: DesktopLocale = DEFAULT_DESKTOP_LOCALE): MenuItemTemplate[] {
+  const t = (key: Parameters<typeof nativeMessage>[1]) => nativeMessage(locale, key);
+  const editItems: readonly MenuItemTemplate[] = [
+    { label: t('undo'), role: 'undo' },
+    { label: t('redo'), role: 'redo' },
+    { type: 'separator' },
+    { label: t('cut'), role: 'cut' },
+    { label: t('copy'), role: 'copy' },
+    { label: t('paste'), role: 'paste' },
+    { label: t('selectAll'), role: 'selectAll' },
+  ];
   // Accelerators are declared explicitly so the items keep working even though
   // the bar itself is not painted behind the custom title bar.
   const viewItems: readonly MenuItemTemplate[] = [
-    { label: '重新加载', role: 'reload', accelerator: 'CmdOrCtrl+R' },
+    { label: t('reload'), role: 'reload', accelerator: 'CmdOrCtrl+R' },
     { type: 'separator' },
-    { label: '实际大小', role: 'resetZoom', accelerator: 'CmdOrCtrl+0' },
-    { label: '放大', role: 'zoomIn', accelerator: 'CmdOrCtrl+Plus' },
-    { label: '缩小', role: 'zoomOut', accelerator: 'CmdOrCtrl+-' },
+    { label: t('actualSize'), role: 'resetZoom', accelerator: 'CmdOrCtrl+0' },
+    { label: t('zoomIn'), role: 'zoomIn', accelerator: 'CmdOrCtrl+Plus' },
+    { label: t('zoomOut'), role: 'zoomOut', accelerator: 'CmdOrCtrl+-' },
     { type: 'separator' },
-    { label: '切换全屏', role: 'togglefullscreen', accelerator: 'F11' },
+    { label: t('fullscreen'), role: 'togglefullscreen', accelerator: 'F11' },
   ];
 
   return [
     {
-      label: MENU_LABELS[0],
+      label: t('file'),
       submenu: [
-        { label: '返回应用', click: () => actions.send(RENDERER_COMMANDS.backToApp) },
+        { label: t('back'), click: () => actions.send(RENDERER_COMMANDS.backToApp) },
         { type: 'separator' },
-        { label: '隐藏到托盘', click: () => actions.hide() },
+        { label: t('hide'), click: () => actions.hide() },
       ],
     },
-    { label: MENU_LABELS[1], submenu: [...EDIT_ITEMS] },
-    { label: MENU_LABELS[2], submenu: [...viewItems] },
+    { label: t('edit'), submenu: [...editItems] },
+    { label: t('view'), submenu: [...viewItems] },
     {
-      label: MENU_LABELS[3],
+      label: t('help'),
       submenu: [
-        { label: '项目主页', click: () => actions.openExternal(PROJECT_HOMEPAGE) },
+        { label: t('homepage'), click: () => actions.openExternal(PROJECT_HOMEPAGE) },
         {
-          label: '关于 Selbstlauf',
+          label: t('about'),
           click: () => actions.send(RENDERER_COMMANDS.openSettings, ACCOUNT_SECTION),
         },
       ],

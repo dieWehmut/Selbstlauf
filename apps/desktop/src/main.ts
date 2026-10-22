@@ -9,6 +9,7 @@ import {
   type DesktopWindowOptions,
   type NavigationPolicyTarget,
 } from './navigation.js';
+import { DEFAULT_DESKTOP_LOCALE, nativeMessage, type DesktopLocale } from './locale.js';
 import { buildApplicationMenu, RENDERER_COMMANDS, type RendererCommand } from './menu.js';
 import {
   SHELL_CHANNELS,
@@ -255,18 +256,19 @@ function openWindow(shell: ElectronShell, request: DesktopWindowRequest): Manage
 /** A child window is another viewer of one owned PTY; closing it does not stop that process. */
 export function createAgentWindowManager(shell: ElectronShell, request: DesktopWindowRequest & {
   readonly agents: () => Promise<readonly { id: string; title: string }[]>;
+  readonly locale?: () => DesktopLocale;
 }) {
   const windows = new Map<string, ManagedWindow>();
   const opening = new Map<string, Promise<void>>();
   const open = (sessionId: string): Promise<void> => {
-    if (!/^agent-[0-9a-f-]{36}$/u.test(sessionId)) return Promise.reject(new TypeError('智能体窗口编号无效'));
+    if (!/^agent-[0-9a-f-]{36}$/u.test(sessionId)) return Promise.reject(new TypeError(nativeMessage(request.locale?.() ?? DEFAULT_DESKTOP_LOCALE, 'agentInvalid')));
     const existing = windows.get(sessionId);
     if (existing !== undefined && !existing.isDestroyed()) { showWindow(existing); return Promise.resolve(); }
     const pending = opening.get(sessionId);
     if (pending !== undefined) return pending;
     const task = (async () => {
       const agent = (await request.agents()).find((entry) => entry.id === sessionId);
-      if (agent === undefined) throw new Error('该智能体窗口已关闭');
+      if (agent === undefined) throw new Error(nativeMessage(request.locale?.() ?? DEFAULT_DESKTOP_LOCALE, 'agentClosed'));
       const child = openWindow(shell, { ...request, title: `${agent.title} — Selbstlauf` });
       windows.set(sessionId, child);
       child.on('closed', () => { if (windows.get(sessionId) === child) windows.delete(sessionId); });
@@ -355,13 +357,14 @@ export function installApplicationMenu(
     readonly hide: () => void;
     readonly openExternal: (url: string) => void;
   },
+  locale: DesktopLocale = DEFAULT_DESKTOP_LOCALE,
 ): unknown {
   if (shell.Menu === undefined) return null;
   const template = buildApplicationMenu({
     send: actions.send,
     hide: actions.hide,
     openExternal: actions.openExternal,
-  });
+  }, locale);
   const menu = shell.Menu.buildFromTemplate(template as unknown[]);
   shell.Menu.setApplicationMenu(menu);
   return menu;
@@ -378,6 +381,7 @@ export function registerShellHandlers(
     readonly settings: () => Promise<DesktopSettings>;
     readonly saveSettings: (patch: unknown) => Promise<DesktopSettings>;
     readonly settingsChanged?: (settings: DesktopSettings) => void;
+    readonly locale?: () => DesktopLocale;
     readonly openTerminal?: (sessionId: string) => Promise<TerminalResult>;
     /** Repaint the native window-button strip; optional so stubs keep working. */
     readonly setTitleBarOverlay?: (colors: { color: string; symbolColor?: string }, requester?: ManagedWindow | null) => void;
@@ -388,6 +392,7 @@ export function registerShellHandlers(
     readonly openAgentWindow?: (sessionId: string) => Promise<void>;
   },
 ): boolean {
+  const t = (key: Parameters<typeof nativeMessage>[1]) => nativeMessage(context.locale?.() ?? DEFAULT_DESKTOP_LOCALE, key);
   const ipcMain = shell.ipcMain;
   if (ipcMain === undefined) return false;
   ipcMain.handle(SHELL_CHANNELS.invoke, (event, payload: unknown) => {
@@ -402,6 +407,7 @@ export function registerShellHandlers(
       return applyAsyncShellAction(
         {
           window: { reload: () => undefined },
+          locale: context.locale?.() ?? DEFAULT_DESKTOP_LOCALE,
           quit: context.quit,
           openExternal: context.openExternal,
           ...(context.previewWindow === undefined ? {} : { previewWindow: context.previewWindow }),
@@ -456,15 +462,15 @@ export function registerShellHandlers(
     return saved;
   });
   ipcMain.handle(SHELL_CHANNELS.terminalOpen, async (event, sessionId: unknown) => {
-    if (context.windowForEvent !== undefined && context.windowForEvent(event) === null) return { ok: false, reason: '无法识别请求窗口。' };
-    if (typeof sessionId !== 'string' || !sessionId.trim()) return { ok: false, reason: '会话编号无效。' };
-    if (context.openTerminal === undefined) return { ok: false, reason: '当前应用未提供打开终端功能。' };
+    if (context.windowForEvent !== undefined && context.windowForEvent(event) === null) return { ok: false, reason: t('unknownWindow') };
+    if (typeof sessionId !== 'string' || !sessionId.trim()) return { ok: false, reason: t('sessionInvalid') };
+    if (context.openTerminal === undefined) return { ok: false, reason: t('terminalUnavailable') };
     return context.openTerminal(sessionId);
   });
   ipcMain.handle(SHELL_CHANNELS.agentWindowOpen, async (event, sessionId: unknown) => {
-    if (context.windowForEvent !== undefined && context.windowForEvent(event) === null) throw new Error('无法识别请求窗口');
-    if (typeof sessionId !== 'string' || !/^agent-[0-9a-f-]{36}$/u.test(sessionId)) throw new TypeError('智能体窗口编号无效');
-    if (context.openAgentWindow === undefined) throw new Error('当前服务尚未支持独立智能体窗口');
+    if (context.windowForEvent !== undefined && context.windowForEvent(event) === null) throw new Error(t('unknownWindow'));
+    if (typeof sessionId !== 'string' || !/^agent-[0-9a-f-]{36}$/u.test(sessionId)) throw new TypeError(t('agentInvalid'));
+    if (context.openAgentWindow === undefined) throw new Error(t('agentsUnsupported'));
     await context.openAgentWindow(sessionId);
   });
   return true;
@@ -595,6 +601,7 @@ export async function main(): Promise<void> {
   const stateDirectory = resolveStateDirectory();
   // Tracked in a mutable box so the close handler always reads the current value.
   let closeToTray = true;
+  let locale: DesktopLocale = DEFAULT_DESKTOP_LOCALE;
 
   let tray: TrayController | null = null;
   let window: ManagedWindow | null = null;
@@ -621,8 +628,15 @@ export async function main(): Promise<void> {
   // honours them; a state directory that cannot be read keeps the defaults.
   const stored = await readDesktopSettings(stateDirectory).catch(() => DEFAULT_DESKTOP_SETTINGS);
   closeToTray = stored.closeToTray;
+  locale = stored.locale;
+  const t = (key: Parameters<typeof nativeMessage>[1], parameters = {}) => nativeMessage(locale, key, parameters);
 
   const sendToRenderer = createRendererSender(() => window);
+  const rebuildApplicationMenu = () => installApplicationMenu(shell, {
+    send: sendToRenderer,
+    hide: () => window?.hide(),
+    openExternal: (url) => { void shell.shell.openExternal(url); },
+  }, locale);
 
   /**
    * Register the shell IPC handlers before any window opens.
@@ -637,12 +651,13 @@ export async function main(): Promise<void> {
    */
   registerShellHandlers(shell, {
     window: () => window,
+    locale: () => locale,
     windowForEvent: (event) => {
       const sender = (event as { sender?: unknown } | null)?.sender;
       return [window, ...(agentWindows?.all() ?? [])].find((candidate) => candidate !== null && candidate.webContents === sender) ?? null;
     },
     openAgentWindow: async (sessionId) => {
-      if (agentWindows === null) throw new Error('服务正在启动，请稍后重试');
+      if (agentWindows === null) throw new Error(t('serviceStarting'));
       await agentWindows.open(sessionId);
     },
     quit: () => void lifecycle.shutdown(),
@@ -651,6 +666,11 @@ export async function main(): Promise<void> {
     saveSettings: async (patch) => {
       const saved = await updateDesktopSettings(stateDirectory, patch);
       closeToTray = saved.closeToTray;
+      if (locale !== saved.locale) {
+        locale = saved.locale;
+        rebuildApplicationMenu();
+        tray?.setLocale(locale);
+      }
       return saved;
     },
     settingsChanged: (settings) => {
@@ -659,13 +679,14 @@ export async function main(): Promise<void> {
       }
     },
     openTerminal: (sessionId) => openSessionTerminal(sessionId, {
+      locale,
       sessions: async () => {
         const origin = serviceHost?.origin ?? (await resolveDesktopTarget()).url;
-        if (!/^https?:\/\//u.test(origin)) throw new Error('服务尚未启动。');
+        if (!/^https?:\/\//u.test(origin)) throw new Error(t('serviceUnavailable'));
         const responses = await Promise.all([fetch(`${origin}/api/sessions`), fetch(`${origin}/api/agents`)]);
         const sessions: TerminalSession[] = [];
         for (const response of responses) {
-          if (!response.ok) throw new Error(`无法读取会话列表：${response.status}`);
+          if (!response.ok) throw new Error(t('sessionsReadFailed', { detail: response.status }));
           const body = await response.json() as { sessions?: readonly TerminalSession[] };
           sessions.push(...(body.sessions ?? []));
         }
@@ -695,7 +716,7 @@ export async function main(): Promise<void> {
     previewWindow: async (sessionId) => {
       const capturer = shell.desktopCapturer;
       if (capturer === undefined) {
-        return { state: 'unsupported', reason: 'this build cannot capture windows' } as const;
+        return { state: 'unsupported', reason: t('captureUnavailable') } as const;
       }
       const restoreOptions = restoreScriptPath === undefined ? {} : { scriptPath: restoreScriptPath };
       return captureSessionWindow(
@@ -705,12 +726,13 @@ export async function main(): Promise<void> {
           // minimized again. Both calls use the non-activating variants, so a preview never takes focus.
           showWithoutActivating: (handle) => showWindowWithoutActivating(handle, restoreOptions),
           minimizeAgain: (handle, wasMinimized) => minimizeWindowAgain(handle, wasMinimized, restoreOptions),
+          locale,
           sessions: async () => {
             const record = await readWatchdogRecord(stateDirectory);
             if (record === null) return [];
             const origin = watchdogOrigin(record.port);
             const response = await fetch(`${origin}/api/sessions`);
-            if (!response.ok) throw new Error(`sessions request failed: ${response.status}`);
+            if (!response.ok) throw new Error(t('sessionsReadFailed', { detail: response.status }));
             const body = (await response.json()) as { sessions?: readonly PreviewSession[] };
             return body.sessions ?? [];
           },
@@ -731,9 +753,9 @@ export async function main(): Promise<void> {
       let sessions: readonly PreviewSession[];
       try {
         const record = await readWatchdogRecord(stateDirectory);
-        if (record === null) return { ok: false, reason: '服务未在运行' };
+        if (record === null) return { ok: false, reason: t('serviceUnavailable') };
         const response = await fetch(`${watchdogOrigin(record.port)}/api/sessions`);
-        if (!response.ok) return { ok: false, reason: `无法读取会话列表：${response.status}` };
+        if (!response.ok) return { ok: false, reason: t('sessionsReadFailed', { detail: response.status }) };
         const body = (await response.json()) as { sessions?: readonly PreviewSession[] };
         sessions = body.sessions ?? [];
       } catch (error) {
@@ -741,12 +763,12 @@ export async function main(): Promise<void> {
       }
 
       const session = sessions.find((entry) => entry.id === sessionId);
-      if (session === undefined) return { ok: false, reason: '该会话已不在运行' };
+      if (session === undefined) return { ok: false, reason: t('sessionClosed') };
       const handle = session.host?.windowHandle ?? null;
-      if (handle === null) return { ok: false, reason: '该会话没有可写入的窗口' };
+      if (handle === null) return { ok: false, reason: t('noWritableWindow') };
 
       const sharedBy = sessions.filter((entry) => (entry.host?.windowHandle ?? null) === handle).length;
-      const refusal = typingRefusal(sharedBy);
+      const refusal = typingRefusal(sharedBy, locale);
       if (refusal !== null) return { ok: false, reason: refusal };
 
       return await typeIntoWindow(
@@ -793,9 +815,10 @@ export async function main(): Promise<void> {
   const origin = hosted.target.url;
   agentWindows = createAgentWindowManager(shell, {
     serviceOrigin: origin, preloadPath, ...windowIcon(appRoot, resourcesPath),
+    locale: () => locale,
     agents: async () => {
       const response = await fetch(`${origin}/api/agents`);
-      if (!response.ok) throw new Error(`无法读取智能体窗口：${response.status}`);
+      if (!response.ok) throw new Error(t('agentsReadFailed', { detail: response.status }));
       const body = await response.json() as { sessions?: { id: string; title: string }[] };
       return body.sessions ?? [];
     },
@@ -804,15 +827,10 @@ export async function main(): Promise<void> {
 
   const revealWindow = () => showWindow(window);
 
-  installApplicationMenu(shell, {
-    send: sendToRenderer,
-    // With the native menu bar hidden behind the custom title bar, the menu's
-    // "hide" item is the same gesture as the window's own close button.
-    hide: () => window?.hide(),
-    openExternal: (url) => { void shell.shell.openExternal(url); },
-  });
+  rebuildApplicationMenu();
 
   tray = installTray({
+    locale,
     dependencies: {
       createIcon: (path) =>
         path === undefined || shell.nativeImage === undefined ? null : shell.nativeImage.createFromPath(path),

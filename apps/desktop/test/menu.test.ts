@@ -9,6 +9,7 @@ import {
   buildApplicationMenu,
   type MenuItemTemplate,
 } from '../src/menu.js';
+import { type DesktopLocale } from '../src/locale.js';
 
 interface Recorder {
   readonly sent: Array<{ command: string; section?: string }>;
@@ -120,3 +121,23 @@ test('帮助 opens the project homepage and the about section', () => {
   assert.deepEqual(spy.sent, [{ command: RENDERER_COMMANDS.openSettings, section: ACCOUNT_SECTION }]);
   assert.equal(ACCOUNT_SECTION, 'account');
 });
+
+for (const [locale, expected] of Object.entries({
+  'zh-CN': ['文件', '编辑', '视图', '帮助', '关于 Selbstlauf', '粘贴'],
+  'zh-TW': ['檔案', '編輯', '檢視', '說明', '關於 Selbstlauf', '貼上'],
+  en: ['File', 'Edit', 'View', 'Help', 'About Selbstlauf', 'Paste'],
+  ja: ['ファイル', '編集', '表示', 'ヘルプ', 'Selbstlauf について', '貼り付け'],
+})) {
+  test(`${locale} localizes native menus while preserving roles, accelerators and actions`, () => {
+    const spy = recorder();
+    const template = buildApplicationMenu(spy.actions, locale as DesktopLocale);
+    assert.deepEqual(template.map((item) => item.label), expected.slice(0, 4));
+    assert.equal(template[1]?.submenu?.find((item) => item.role === 'paste')?.label, expected[5]);
+    assert.equal(template[3]?.submenu?.at(-1)?.label, expected[4]);
+    const behavior = (items: readonly MenuItemTemplate[]): unknown[] => items.map(({ role, accelerator, type, submenu }) => ({ role, accelerator, type, submenu: submenu === undefined ? undefined : behavior(submenu) }));
+    assert.deepEqual(behavior(template), behavior(buildApplicationMenu(recorder().actions)));
+    template[0]?.submenu?.[0]?.click?.();
+    template[3]?.submenu?.at(-1)?.click?.();
+    assert.deepEqual(spy.sent, [{ command: RENDERER_COMMANDS.backToApp }, { command: RENDERER_COMMANDS.openSettings, section: ACCOUNT_SECTION }]);
+  });
+}

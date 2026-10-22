@@ -1,3 +1,4 @@
+import { DEFAULT_DESKTOP_LOCALE, nativeMessage, type DesktopLocale } from './locale.js';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -34,7 +35,7 @@ export function windowsTerminalLaunchScript(command: TerminalCommand): string {
  * Node's detached spawn with ignored standard handles lets PowerShell exit before
  * it opens an interactive prompt, even though the spawn event reports success.
  */
-export async function launchWindowsTerminal(command: TerminalCommand, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+export async function launchWindowsTerminal(command: TerminalCommand, env: NodeJS.ProcessEnv = process.env, locale: DesktopLocale = DEFAULT_DESKTOP_LOCALE): Promise<void> {
   const powershell = win32.join(env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const script = windowsTerminalLaunchScript(command);
   const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -42,7 +43,7 @@ export async function launchWindowsTerminal(command: TerminalCommand, env: NodeJ
     let finished = false;
     let stdout = '';
     let stderr = '';
-    const timer = setTimeout(() => { child.kill(); finish(new Error('打开终端超时。')); }, 15_000);
+    const timer = setTimeout(() => { child.kill(); finish(new Error(nativeMessage(locale, 'terminalTimeout'))); }, 15_000);
     const finish = (error?: Error) => {
       if (finished) return;
       finished = true;
@@ -55,7 +56,7 @@ export async function launchWindowsTerminal(command: TerminalCommand, env: NodeJ
     child.stdout?.on('data', (data) => { stdout += String(data); if (/^\d+\r?\n/u.test(stdout)) finish(); });
     child.stderr?.on('data', (data) => { stderr += String(data); });
     child.once('error', (error) => finish(error));
-    child.once('exit', (code) => { if (!/^\d+\r?\n/u.test(stdout)) finish(new Error(stderr.trim() || `终端启动失败 (${code})。`)); });
+    child.once('exit', (code) => { if (!/^\d+\r?\n/u.test(stdout)) finish(new Error(nativeMessage(locale, 'terminalFailed', { detail: stderr.trim() || String(code) }))); });
   });
 }
 
@@ -84,20 +85,22 @@ export async function terminalExecutable(command: string, platform: NodeJS.Platf
 
 /** The renderer names a session; only the service may supply its actual directory. */
 export async function resolveTerminalCommand(session: TerminalSession, preference: string | null, options: {
+  readonly locale?: DesktopLocale;
   readonly platform?: NodeJS.Platform;
   readonly env?: NodeJS.ProcessEnv;
   readonly findExecutable?: (command: string) => Promise<string | null>;
   readonly fallbackCwd?: string;
 } = {}): Promise<TerminalCommand> {
+  const locale = options.locale ?? DEFAULT_DESKTOP_LOCALE;
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
   const preferred = preference ?? 'system';
-  if (!TERMINALS[platform]?.includes(preferred)) throw new Error(`当前系统不支持首选终端“${preferred}”，请在设置中重新选择。`);
+  if (!TERMINALS[platform]?.includes(preferred)) throw new Error(nativeMessage(locale, 'unsupportedTerminal', { terminal: preferred }));
   const cwd = session.sessionCwd ?? session.workingDirectory ?? session.cwd;
-  if (!cwd || /[\0\r\n]/u.test(cwd)) throw new Error('无法读取该会话的工作目录。');
+  if (!cwd || /[\0\r\n]/u.test(cwd)) throw new Error(nativeMessage(locale, 'cwdUnavailable'));
   const wsl = platform === 'win32' && session.distribution !== undefined;
   if (!(wsl ? cwd.startsWith('/') : (platform === 'win32' ? win32.isAbsolute(cwd) : isAbsolute(cwd)))) {
-    throw new Error('会话工作目录不是有效的绝对路径。');
+    throw new Error(nativeMessage(locale, 'cwdInvalid'));
   }
   const find = options.findExecutable ?? ((command: string) => terminalExecutable(command, platform, env));
   if (platform === 'win32') {
@@ -124,7 +127,7 @@ export async function resolveTerminalCommand(session: TerminalSession, preferenc
   } else if (platform === 'darwin') {
     return { executable: '/usr/bin/open', args: ['-a', preferred === 'iterm' ? 'iTerm' : 'Terminal', cwd], cwd, terminal: preferred === 'system' ? 'terminal' : preferred };
   } else {
-    if (!env.DISPLAY && !env.WAYLAND_DISPLAY) throw new Error('当前会话没有图形桌面，无法打开终端窗口。');
+    if (!env.DISPLAY && !env.WAYLAND_DISPLAY) throw new Error(nativeMessage(locale, 'desktopUnavailable'));
     const choices = preferred === 'system' ? TERMINALS.linux.filter((entry) => entry !== 'system') : [preferred];
     for (const terminal of choices) {
       const executable = await find(terminal);
@@ -133,24 +136,26 @@ export async function resolveTerminalCommand(session: TerminalSession, preferenc
       return { executable, args, cwd, terminal };
     }
   }
-  throw new Error(`未找到终端“${preferred}”。请安装该终端或在设置中选择其他终端。`);
+  throw new Error(nativeMessage(locale, 'terminalMissing', { terminal: preferred }));
 }
 
 export async function openSessionTerminal(sessionId: string, options: {
   readonly sessions: () => Promise<readonly TerminalSession[]>;
   readonly preference: () => Promise<string | null>;
+  readonly locale?: DesktopLocale;
   readonly platform?: NodeJS.Platform;
   readonly env?: NodeJS.ProcessEnv;
   readonly findExecutable?: (command: string) => Promise<string | null>;
   readonly spawnImpl?: (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
 }): Promise<TerminalResult> {
   try {
-    if (typeof sessionId !== 'string' || !sessionId.trim()) throw new Error('会话编号无效。');
+    const locale = options.locale ?? DEFAULT_DESKTOP_LOCALE;
+    if (typeof sessionId !== 'string' || !sessionId.trim()) throw new Error(nativeMessage(locale, 'sessionInvalid'));
     const session = (await options.sessions()).find((entry) => entry.id === sessionId);
-    if (session === undefined) throw new Error('该会话已不在运行。');
+    if (session === undefined) throw new Error(nativeMessage(locale, 'sessionClosed'));
     const command = await resolveTerminalCommand(session, await options.preference(), options);
     if ((options.platform ?? process.platform) === 'win32' && options.spawnImpl === undefined) {
-      await launchWindowsTerminal(command, options.env);
+      await launchWindowsTerminal(command, options.env, locale);
       return { ok: true, terminal: command.terminal };
     }
     const child = (options.spawnImpl ?? spawn)(command.executable, command.args, {

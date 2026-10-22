@@ -9,6 +9,7 @@ import {
   type TrayWindow,
 } from '../src/tray.js';
 import { ACCOUNT_SECTION, RENDERER_COMMANDS, type MenuItemTemplate } from '../src/menu.js';
+import { type DesktopLocale } from '../src/locale.js';
 
 interface WindowSpy extends TrayWindow {
   shown: number;
@@ -136,6 +137,33 @@ test('offers the tray menu with its labels in order', () => {
   assert.equal(spy.template().at(-2)?.type, 'separator');
   assert.equal(spy.template().at(-1)?.label, '退出');
   assert.deepEqual(spy.tooltips, ['Selbstlauf']);
+});
+
+test('changing locale repaints the live tray and keeps the service checkbox and actions', async () => {
+  const spy = harness();
+  spy.serviceInstalled = true;
+  await spy.controller.refreshStartupState();
+  for (const [locale, expected] of Object.entries({
+    'zh-TW': ['開啟主介面', '設定', '開機自動啟動', '關於 Selbstlauf', '結束'],
+    en: ['Open main window', 'Settings', 'Start at login', 'About Selbstlauf', 'Quit'],
+    ja: ['メイン画面を開く', '設定', 'ログイン時に起動', 'Selbstlauf について', '終了'],
+    'zh-CN': ['打开主界面', '设置', '开机自启', '关于 Selbstlauf', '退出'],
+  })) {
+    const previous = spy.menus.length;
+    spy.controller.setLocale(locale as DesktopLocale);
+    assert.equal(spy.menus.length, previous + 1);
+    assert.deepEqual(spy.labels(), expected);
+    assert.equal(spy.template()[2]?.checked, true);
+    await spy.controller.refreshStartupState();
+    assert.deepEqual(spy.labels(), expected, 'startup refresh keeps the selected language');
+    spy.template()[1]?.click?.();
+    assert.deepEqual(spy.sent.at(-1), { command: RENDERER_COMMANDS.openSettings });
+  }
+  spy.template().at(-1)?.click?.();
+  assert.equal(spy.quits.count, 1);
+  spy.controller.destroy();
+  spy.controller.setLocale('ja');
+  assert.equal(spy.controller.tray, null);
 });
 
 test('left click shows and focuses the window, restoring it when minimised', () => {

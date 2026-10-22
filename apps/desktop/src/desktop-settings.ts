@@ -11,17 +11,21 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_DESKTOP_LOCALE, isDesktopLocale, type DesktopLocale } from './locale.js';
 
 export interface DesktopSettings {
   /** Hide to the tray instead of quitting when the window is closed. */
   readonly closeToTray: boolean;
   /** Preferred terminal for "open in terminal"; null means "not chosen yet". */
   readonly preferredTerminal: string | null;
+  /** Also used by the native application menu and system tray. */
+  readonly locale: DesktopLocale;
 }
 
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = Object.freeze({
   closeToTray: true,
   preferredTerminal: null,
+  locale: DEFAULT_DESKTOP_LOCALE,
 });
 
 export const DESKTOP_SETTINGS_FILE = 'desktop-settings.json';
@@ -41,7 +45,7 @@ export function normalizeDesktopSettings(
   fallback: DesktopSettings = DEFAULT_DESKTOP_SETTINGS,
 ): DesktopSettings {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return fallback;
-  const entry = value as { closeToTray?: unknown; preferredTerminal?: unknown };
+  const entry = value as { closeToTray?: unknown; preferredTerminal?: unknown; locale?: unknown };
   return {
     closeToTray: typeof entry.closeToTray === 'boolean' ? entry.closeToTray : fallback.closeToTray,
     preferredTerminal:
@@ -50,6 +54,7 @@ export function normalizeDesktopSettings(
         : entry.preferredTerminal === null
           ? null
           : fallback.preferredTerminal,
+    locale: isDesktopLocale(entry.locale) ? entry.locale : fallback.locale,
   };
 }
 

@@ -25,8 +25,8 @@ async function withStateDirectory(run: (directory: string) => Promise<void>): Pr
 
 test('uses the documented defaults when the file is missing', async () => {
   await withStateDirectory(async (directory) => {
-    assert.deepEqual(DEFAULT_DESKTOP_SETTINGS, { closeToTray: true, preferredTerminal: null });
-    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: true, preferredTerminal: null });
+    assert.deepEqual(DEFAULT_DESKTOP_SETTINGS, { closeToTray: true, preferredTerminal: null, locale: 'zh-CN' as const });
+    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: true, preferredTerminal: null, locale: 'zh-CN' as const });
     // The file lives beside the service state, not inside the service's config.
     assert.equal(resolveDesktopSettingsPath(directory), join(directory, DESKTOP_SETTINGS_FILE));
     assert.equal(DESKTOP_SETTINGS_FILE, 'desktop-settings.json');
@@ -47,20 +47,20 @@ test('falls back to the defaults on corrupt JSON', async () => {
 });
 
 test('keeps the fields it understands and defaults the rest', () => {
-  assert.deepEqual(normalizeDesktopSettings({ closeToTray: false }), { closeToTray: false, preferredTerminal: null });
+  assert.deepEqual(normalizeDesktopSettings({ closeToTray: false }), { closeToTray: false, preferredTerminal: null, locale: 'zh-CN' as const });
   assert.deepEqual(normalizeDesktopSettings({ closeToTray: 'yes' }), DEFAULT_DESKTOP_SETTINGS);
-  assert.deepEqual(normalizeDesktopSettings({ preferredTerminal: 'wt.exe' }), {
+  assert.deepEqual(normalizeDesktopSettings({ preferredTerminal: 'wt.exe', locale: 'zh-CN' as const }), {
     closeToTray: true,
-    preferredTerminal: 'wt.exe',
+    preferredTerminal: 'wt.exe', locale: 'zh-CN' as const,
   });
-  assert.deepEqual(normalizeDesktopSettings({ preferredTerminal: '   ' }), {
+  assert.deepEqual(normalizeDesktopSettings({ preferredTerminal: '   ', locale: 'zh-CN' as const }), {
     closeToTray: true,
-    preferredTerminal: null,
+    preferredTerminal: null, locale: 'zh-CN' as const,
   });
   // A patch naming only unknown keys leaves the current values alone.
-  assert.deepEqual(updatePatch({ closeToTray: false, preferredTerminal: null }, { nonsense: 1 }), {
+  assert.deepEqual(updatePatch({ closeToTray: false, preferredTerminal: null, locale: 'zh-CN' as const }, { nonsense: 1 }), {
     closeToTray: false,
-    preferredTerminal: null,
+    preferredTerminal: null, locale: 'zh-CN' as const,
   });
 });
 
@@ -74,9 +74,9 @@ function updatePatch(current: typeof DEFAULT_DESKTOP_SETTINGS, patch: unknown) {
 
 test('writes settings and reads them back', async () => {
   await withStateDirectory(async (directory) => {
-    const saved = await writeDesktopSettings(directory, { closeToTray: false, preferredTerminal: 'wt.exe' });
-    assert.deepEqual(saved, { closeToTray: false, preferredTerminal: 'wt.exe' });
-    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: false, preferredTerminal: 'wt.exe' });
+    const saved = await writeDesktopSettings(directory, { closeToTray: false, preferredTerminal: 'wt.exe', locale: 'zh-CN' as const });
+    assert.deepEqual(saved, { closeToTray: false, preferredTerminal: 'wt.exe', locale: 'zh-CN' as const });
+    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: false, preferredTerminal: 'wt.exe', locale: 'zh-CN' as const });
 
     const raw = await readFile(resolveDesktopSettingsPath(directory), 'utf8');
     assert.match(raw, /"closeToTray": false/u);
@@ -86,12 +86,12 @@ test('writes settings and reads them back', async () => {
 
 test('leaves no temp file behind and writes atomically', async () => {
   await withStateDirectory(async (directory) => {
-    await writeDesktopSettings(directory, { closeToTray: true, preferredTerminal: null });
-    await writeDesktopSettings(directory, { closeToTray: false, preferredTerminal: null });
+    await writeDesktopSettings(directory, { closeToTray: true, preferredTerminal: null, locale: 'zh-CN' as const });
+    await writeDesktopSettings(directory, { closeToTray: false, preferredTerminal: null, locale: 'zh-CN' as const });
     // A rename-based write leaves exactly one file, so a crash cannot expose a
     // half-written settings file to the next launch.
     assert.deepEqual(await readdir(directory), [DESKTOP_SETTINGS_FILE]);
-    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: false, preferredTerminal: null });
+    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: false, preferredTerminal: null, locale: 'zh-CN' as const });
   });
 });
 
@@ -105,10 +105,10 @@ test('creates the state directory when it does not exist yet', async () => {
 
 test('updateDesktopSettings merges a patch over what is on disk', async () => {
   await withStateDirectory(async (directory) => {
-    await writeDesktopSettings(directory, { closeToTray: true, preferredTerminal: 'wt.exe' });
+    await writeDesktopSettings(directory, { closeToTray: true, preferredTerminal: 'wt.exe', locale: 'zh-CN' as const });
     const next = await updateDesktopSettings(directory, { closeToTray: false });
     // The untouched field survives; only the patched one changes.
-    assert.deepEqual(next, { closeToTray: false, preferredTerminal: 'wt.exe' });
+    assert.deepEqual(next, { closeToTray: false, preferredTerminal: 'wt.exe', locale: 'zh-CN' as const });
     assert.deepEqual(await readDesktopSettings(directory), next);
   });
 });
@@ -117,7 +117,7 @@ test('an update from a corrupt file recovers to the defaults plus the patch', as
   await withStateDirectory(async (directory) => {
     await writeFile(resolveDesktopSettingsPath(directory), 'not json at all', 'utf8');
     const next = await updateDesktopSettings(directory, { closeToTray: false });
-    assert.deepEqual(next, { closeToTray: false, preferredTerminal: null });
+    assert.deepEqual(next, { closeToTray: false, preferredTerminal: null, locale: 'zh-CN' as const });
   });
 });
 
@@ -126,9 +126,20 @@ test('concurrent windows preserve independent settings patches', async () => {
     await writeDesktopSettings(directory, DEFAULT_DESKTOP_SETTINGS);
     await Promise.all([
       updateDesktopSettings(directory, { closeToTray: false }),
-      updateDesktopSettings(directory, { preferredTerminal: 'powershell' }),
+      updateDesktopSettings(directory, { preferredTerminal: 'powershell', locale: 'zh-CN' as const }),
+      updateDesktopSettings(directory, { locale: 'ja' }),
     ]);
-    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: false, preferredTerminal: 'powershell' });
+    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: false, preferredTerminal: 'powershell', locale: 'ja' });
     assert.deepEqual(await readdir(directory), [DESKTOP_SETTINGS_FILE]);
+  });
+});
+
+test('legacy desktop preferences acquire a default locale without resetting other fields', async () => {
+  await withStateDirectory(async (directory) => {
+    await writeFile(resolveDesktopSettingsPath(directory), JSON.stringify({ closeToTray: false, preferredTerminal: 'cmd' }));
+    assert.deepEqual(await readDesktopSettings(directory), { closeToTray: false, preferredTerminal: 'cmd', locale: 'zh-CN' });
+    assert.deepEqual(await updateDesktopSettings(directory, { locale: 'zh-TW' }), { closeToTray: false, preferredTerminal: 'cmd', locale: 'zh-TW' });
+    assert.deepEqual(await updateDesktopSettings(directory, { preferredTerminal: 'powershell', locale: 'fr' }), { closeToTray: false, preferredTerminal: 'powershell', locale: 'zh-TW' });
+    assert.equal(JSON.parse(await readFile(resolveDesktopSettingsPath(directory), 'utf8')).locale, 'zh-TW');
   });
 });

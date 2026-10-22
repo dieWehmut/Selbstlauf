@@ -1,3 +1,4 @@
+import { DEFAULT_DESKTOP_LOCALE, nativeMessage, type DesktopLocale } from './locale.js';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -155,9 +156,9 @@ export async function typeIntoWindow(
  * focus inside it, which need not be the session the person selected. Nothing in the window's own state reveals
  * that, so the only safe rule is to decline and say why.
  */
-export function typingRefusal(sharedBy: number): string | null {
+export function typingRefusal(sharedBy: number, locale: DesktopLocale = DEFAULT_DESKTOP_LOCALE): string | null {
   if (sharedBy > 1) {
-    return `该窗口内有 ${sharedBy} 个受监控会话，输入会送到其中当前获得焦点的那个，无法确定是你选的那个，因此不允许写入。`;
+    return nativeMessage(locale, 'sharedWindow', { count: sharedBy });
   }
   return null;
 }

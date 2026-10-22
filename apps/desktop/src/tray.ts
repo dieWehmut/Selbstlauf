@@ -8,6 +8,7 @@
  * missing rather than throwing during startup.
  */
 
+import { DEFAULT_DESKTOP_LOCALE, nativeMessage, type DesktopLocale } from './locale.js';
 import { RENDERER_COMMANDS, ACCOUNT_SECTION, type MenuItemTemplate, type RendererCommand } from './menu.js';
 
 /** The tray's menu, top to bottom. Exported so tests assert the real labels. */
@@ -61,6 +62,7 @@ export interface TrayControllerOptions {
   readonly dependencies: TrayDependencies;
   readonly actions: TrayActions;
   readonly iconPath?: string;
+  readonly locale?: DesktopLocale;
 }
 
 export interface TrayController {
@@ -70,6 +72,8 @@ export interface TrayController {
   refreshStartupState(): Promise<void>;
   /** Rebuild the context menu; Windows renders a static menu, so this matters. */
   rebuild(): void;
+  /** Saved language changes repaint the live native context menu. */
+  setLocale(locale: DesktopLocale): void;
   destroy(): void;
 }
 
@@ -81,13 +85,14 @@ export interface TrayController {
 export function buildTrayMenuTemplate(
   actions: Pick<TrayActions, 'window' | 'send' | 'toggleStartup' | 'quit'>,
   state: { readonly installed: boolean | null },
+  locale: DesktopLocale = DEFAULT_DESKTOP_LOCALE,
 ): MenuItemTemplate[] {
   const reveal = () => showWindow(actions.window());
   return [
-    { label: TRAY_MENU_LABELS[0], click: reveal },
-    { label: TRAY_MENU_LABELS[1], click: () => { reveal(); actions.send(RENDERER_COMMANDS.openSettings); } },
+    { label: nativeMessage(locale, 'openMain'), click: reveal },
+    { label: nativeMessage(locale, 'settings'), click: () => { reveal(); actions.send(RENDERER_COMMANDS.openSettings); } },
     {
-      label: TRAY_MENU_LABELS[2],
+      label: nativeMessage(locale, 'startup'),
       type: 'checkbox',
       checked: state.installed === true,
       click: (item?: { checked?: boolean }) => {
@@ -99,9 +104,9 @@ export function buildTrayMenuTemplate(
         })();
       },
     },
-    { label: TRAY_MENU_LABELS[3], click: () => { reveal(); actions.send(RENDERER_COMMANDS.openSettings, ACCOUNT_SECTION); } },
+    { label: nativeMessage(locale, 'about'), click: () => { reveal(); actions.send(RENDERER_COMMANDS.openSettings, ACCOUNT_SECTION); } },
     { type: 'separator' },
-    { label: TRAY_MENU_LABELS[4], click: () => actions.quit() },
+    { label: nativeMessage(locale, 'quit'), click: () => actions.quit() },
   ];
 }
 
@@ -122,6 +127,7 @@ export function showWindow(window: TrayWindow | null): void {
  */
 export function installTray(options: TrayControllerOptions): TrayController {
   let tray: TrayLike | null = null;
+  let locale = options.locale ?? DEFAULT_DESKTOP_LOCALE;
   let startupState: { installed: boolean | null } = { installed: null };
   try {
     // The icon is optional: without it the tray still works, just unbranded.
@@ -134,7 +140,7 @@ export function installTray(options: TrayControllerOptions): TrayController {
   const rebuild = (): void => {
     if (tray === null) return;
     try {
-      tray.setContextMenu(options.dependencies.buildMenu(buildTrayMenuTemplate(options.actions, startupState)));
+      tray.setContextMenu(options.dependencies.buildMenu(buildTrayMenuTemplate(options.actions, startupState, locale)));
     } catch {
       // A tray that cannot render its menu must not take the app down with it.
     }
@@ -156,6 +162,11 @@ export function installTray(options: TrayControllerOptions): TrayController {
       return tray;
     },
     rebuild,
+    setLocale(nextLocale): void {
+      if (locale === nextLocale) return;
+      locale = nextLocale;
+      rebuild();
+    },
     async refreshStartupState(): Promise<void> {
       let installed: boolean | null = null;
       try {

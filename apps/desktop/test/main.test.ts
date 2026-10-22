@@ -579,8 +579,8 @@ function buildShellActionContext(overrides: {
     window: () => window as never,
     quit: overrides.quit ?? (() => undefined),
     openExternal: overrides.openExternal ?? (() => undefined),
-    settings: async () => ({ closeToTray: true, preferredTerminal: null }),
-    saveSettings: async (patch: unknown) => ({ closeToTray: true, preferredTerminal: null, patch }),
+    settings: async () => ({ closeToTray: true, preferredTerminal: null, locale: 'zh-CN' as const }),
+    saveSettings: async (patch: unknown) => ({ closeToTray: true, preferredTerminal: null, locale: 'zh-CN' as const, patch }),
   };
 }
 
@@ -762,13 +762,13 @@ test('the settings channels read and write the persisted store', async () => {
     ...buildShellActionContext(),
     saveSettings: async (patch: unknown) => {
       patches.push(patch);
-      return { closeToTray: false, preferredTerminal: null };
+      return { closeToTray: false, preferredTerminal: null, locale: 'zh-CN' as const };
     },
   });
-  assert.deepEqual(await stub.invoke(SHELL_CHANNELS.settingsGet), { closeToTray: true, preferredTerminal: null });
+  assert.deepEqual(await stub.invoke(SHELL_CHANNELS.settingsGet), { closeToTray: true, preferredTerminal: null, locale: 'zh-CN' as const });
   assert.deepEqual(await stub.invoke(SHELL_CHANNELS.settingsSet, { closeToTray: false }), {
     closeToTray: false,
-    preferredTerminal: null,
+    preferredTerminal: null, locale: 'zh-CN' as const,
   });
   assert.deepEqual(patches, [{ closeToTray: false }]);
 });
@@ -781,14 +781,39 @@ test('settings broadcasts only confirmed saves and a failed save remains a failu
     ...buildShellActionContext(),
     saveSettings: async () => {
       if (fail) throw new Error('disk is full');
-      return { closeToTray: false, preferredTerminal: 'cmd' };
+      return { closeToTray: false, preferredTerminal: 'cmd', locale: 'zh-CN' as const };
     },
     settingsChanged: (settings) => notifications.push(settings),
   });
   await stub.invoke(SHELL_CHANNELS.settingsSet, { closeToTray: false });
-  assert.deepEqual(notifications, [{ closeToTray: false, preferredTerminal: 'cmd' }]);
+  assert.deepEqual(notifications, [{ closeToTray: false, preferredTerminal: 'cmd', locale: 'zh-CN' as const }]);
   fail = true;
   await assert.rejects(Promise.resolve(stub.invoke(SHELL_CHANNELS.settingsSet, { closeToTray: true })), /disk is full/u);
+  assert.equal(notifications.length, 1);
+});
+
+test('locale saves broadcast the confirmed locale and subsequent IPC errors use the current language', async () => {
+  const stub = buildIpcShell();
+  const notifications: unknown[] = [];
+  let locale: 'en' | 'ja' = 'en';
+  let fail = false;
+  registerShellHandlers(stub.shell, {
+    ...buildShellActionContext(),
+    locale: () => locale,
+    saveSettings: async () => {
+      if (fail) throw new Error('write rejected');
+      locale = 'ja';
+      return { closeToTray: true, preferredTerminal: null, locale };
+    },
+    settingsChanged: (settings) => notifications.push(settings),
+  });
+  assert.deepEqual(await stub.invoke(SHELL_CHANNELS.terminalOpen, ''), { ok: false, reason: 'Invalid session ID.' });
+  await stub.invoke(SHELL_CHANNELS.settingsSet, { locale: 'ja' });
+  assert.deepEqual(notifications, [{ closeToTray: true, preferredTerminal: null, locale: 'ja' }]);
+  assert.deepEqual(await stub.invoke(SHELL_CHANNELS.terminalOpen, ''), { ok: false, reason: 'セッション ID が無効です。' });
+  fail = true;
+  await assert.rejects(Promise.resolve(stub.invoke(SHELL_CHANNELS.settingsSet, { locale: 'en' })), /write rejected/u);
+  assert.equal(locale, 'ja');
   assert.equal(notifications.length, 1);
 });
 

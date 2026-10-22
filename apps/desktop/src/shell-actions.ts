@@ -1,3 +1,4 @@
+import { DEFAULT_DESKTOP_LOCALE, nativeMessage, type DesktopLocale } from './locale.js';
 /**
  * Desktop shell actions exposed to the renderer.
  *
@@ -122,6 +123,7 @@ export interface ShellActionTarget {
 }
 
 export interface ShellActionContext {
+  readonly locale?: DesktopLocale;
   /** The window the action applies to. */
   readonly window: ShellActionTarget;
   /** Quit the whole app through the clean-shutdown path. */
@@ -339,18 +341,19 @@ export async function applyAsyncShellAction(
   context: ShellActionContext,
   request: ShellActionRequest,
 ): Promise<WindowPreview | WindowType> {
+  const t = (key: Parameters<typeof nativeMessage>[1]) => nativeMessage(context.locale ?? DEFAULT_DESKTOP_LOCALE, key);
   if (request.action === 'windowType') {
     const typeHandler = context.typeIntoWindow;
-    if (typeHandler === undefined) return { ok: false, reason: 'windowType is not wired up' };
+    if (typeHandler === undefined) return { ok: false, reason: t('windowTypeUnavailable') };
     const sessionId = request.sessionId;
     const text = request.text;
     // A session id and a line are the only things the renderer may name here. An empty id is refused rather than
     // passed down, and the text is validated by the handler before anything is typed.
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
-      return { ok: false, reason: 'windowType needs a session id' };
+      return { ok: false, reason: t('sessionInvalid') };
     }
     if (typeof text !== 'string' || text.trim().length === 0) {
-      return { ok: false, reason: 'windowType needs text to type' };
+      return { ok: false, reason: t('windowTextMissing') };
     }
     try {
       return await typeHandler(sessionId, text, request.submit === true);
@@ -362,12 +365,12 @@ export async function applyAsyncShellAction(
     throw new TypeError(`not an async shell action: ${request.action}`);
   }
   const handler = context.previewWindow;
-  if (handler === undefined) return { state: 'unsupported', reason: 'windowPreview is not wired up' };
+  if (handler === undefined) return { state: 'unsupported', reason: t('captureUnavailable') };
   const sessionId = request.sessionId;
   // A session id is the only thing the renderer may name here, and an empty one is refused
   // rather than passed down to become some default window.
   if (typeof sessionId !== 'string' || sessionId.length === 0) {
-    return { state: 'unsupported', reason: 'windowPreview needs a session id' };
+    return { state: 'unsupported', reason: t('sessionInvalid') };
   }
   try {
     return await handler(sessionId);

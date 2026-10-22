@@ -1,3 +1,4 @@
+import { DEFAULT_DESKTOP_LOCALE, nativeMessage, type DesktopLocale } from './locale.js';
 /**
  * Capturing a preview of the window a watched session runs in.
  *
@@ -72,6 +73,7 @@ export function handleOfSourceId(id: string): number | null {
 export const PREVIEW_THUMBNAIL_SIZE = Object.freeze({ width: 960, height: 600 });
 
 export interface CaptureDependencies {
+  readonly locale?: DesktopLocale;
   /** The capturer, injected so the lookup logic is testable without Electron. */
   readonly getSources: (options: {
     types: readonly string[];
@@ -109,15 +111,16 @@ export async function captureSessionWindow(
   sessionId: string,
   thumbnailSize: { width: number; height: number } = PREVIEW_THUMBNAIL_SIZE,
 ): Promise<PreviewOutcome> {
+  const locale = dependencies.locale ?? DEFAULT_DESKTOP_LOCALE;
   let sessions: readonly PreviewSession[];
   try {
     sessions = await dependencies.sessions();
   } catch (error) {
-    return { state: 'unsupported', reason: `could not list sessions: ${error instanceof Error ? error.message : String(error)}` };
+    return { state: 'unsupported', reason: nativeMessage(locale, 'sessionsReadFailed', { detail: error instanceof Error ? error.message : String(error) }) };
   }
 
   const session = sessions.find((entry) => entry.id === sessionId);
-  if (session === undefined) return { state: 'unsupported', reason: 'that session is no longer running' };
+  if (session === undefined) return { state: 'unsupported', reason: nativeMessage(locale, 'sessionClosed') };
 
   const handle = session.host?.windowHandle ?? null;
   // DeepSeek Harness is a web UI with no window of its own, which is a real and expected state.
@@ -130,7 +133,7 @@ export async function captureSessionWindow(
     try {
       sources = await dependencies.getSources({ types: ['window'], thumbnailSize, fetchWindowIcons: false });
     } catch (error) {
-      throw new Error(`capture failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(nativeMessage(locale, 'captureFailed', { detail: error instanceof Error ? error.message : String(error) }));
     }
     return sources.find((entry) => handleOfSourceId(entry.id) === handle) ?? null;
   };
