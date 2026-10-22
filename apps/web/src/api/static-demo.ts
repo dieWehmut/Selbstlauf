@@ -96,6 +96,7 @@ type DemoStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 interface DemoPreferences {
   schema: 1;
+  installed: boolean;
   config: WatchdogConfig;
   running: boolean;
   startupInstalled: boolean;
@@ -119,7 +120,7 @@ function loadPreferences(storage: DemoStorage | null): DemoPreferences | null {
     const raw = storage?.getItem(STATIC_DEMO_STORAGE_KEY);
     if (!raw) return null;
     const value: unknown = JSON.parse(raw);
-    if (!record(value) || value.schema !== 1 || typeof value.running !== 'boolean'
+    if (!record(value) || value.schema !== 1 || (value.installed !== undefined && typeof value.installed !== 'boolean') || typeof value.running !== 'boolean'
       || typeof value.startupInstalled !== 'boolean' || !Array.isArray(value.codexProfileFields)
       || value.codexProfileFields.some((field) => !record(field) || typeof field.key !== 'string' || typeof field.value !== 'string')
       || !record(value.codexAlternatives) || Object.values(value.codexAlternatives).some((entries) => !Array.isArray(entries) || entries.some((entry) => typeof entry !== 'string'))
@@ -129,7 +130,7 @@ function loadPreferences(storage: DemoStorage | null): DemoPreferences | null {
       || typeof value.hookInstallation.manualReviewRequired !== 'boolean'
       || !record(value.installedTools) || Object.values(value.installedTools).some((version) => version !== null && typeof version !== 'string')) return null;
     const config = structuredClone(parseConfig(value.config));
-    return { ...value, config } as unknown as DemoPreferences;
+    return { ...value, installed: value.installed ?? true, config } as unknown as DemoPreferences;
   } catch {
     // Old, truncated or manually edited local data must never blank the demo.
     return null;
@@ -140,6 +141,7 @@ function loadPreferences(storage: DemoStorage | null): DemoPreferences | null {
 export function createStaticDemoApi(storageOption?: DemoStorage | null): WatchdogApi {
   const storage = storageOption === undefined ? browserStorage() : storageOption;
   const saved = loadPreferences(storage);
+  let installed = saved?.installed ?? true;
   let currentConfig: WatchdogConfig = saved?.config ?? structuredClone(initialConfig);
   let currentSessions = structuredClone(initialSessions);
   let currentTools = structuredClone(demoToolSeed).map((tool) => {
@@ -148,7 +150,8 @@ export function createStaticDemoApi(storageOption?: DemoStorage | null): Watchdo
     return { ...tool, installed, state: installed === null ? 'missing' as const : installed === tool.latest ? 'current' as const : 'outdated' as const };
   });
   const currentHealth = structuredClone(initialHealth);
-  currentHealth.running = saved?.running ?? currentHealth.running;
+  currentHealth.ok = installed;
+  currentHealth.running = installed && (saved?.running ?? currentHealth.running);
   let startupInstalled = saved?.startupInstalled ?? false;
   let codexProfileFields = saved?.codexProfileFields ?? [
     { key: 'base_url', value: 'https://external-api-platform.hkgai.net/v1' },
@@ -168,7 +171,7 @@ export function createStaticDemoApi(storageOption?: DemoStorage | null): Watchdo
     enabled: currentConfig.tools.claude.stopHook.enabled,
   });
   const preferences = (): DemoPreferences => ({
-      schema: 1, config: currentConfig, running: currentHealth.running,
+      schema: 1, installed, config: currentConfig, running: currentHealth.running,
       startupInstalled, codexProfileFields, codexAlternatives, hookInstallation,
       installedTools: Object.fromEntries(currentTools.map((tool) => [tool.id, tool.installed])),
   });
@@ -184,6 +187,8 @@ export function createStaticDemoApi(storageOption?: DemoStorage | null): Watchdo
       // Failed persistence must not become an apparently applied setting at the
       // next poll after the UI correctly reported a save error.
       currentConfig = structuredClone(lastSaved.config);
+      installed = lastSaved.installed;
+      currentHealth.ok = installed;
       currentHealth.running = lastSaved.running;
       startupInstalled = lastSaved.startupInstalled;
       codexProfileFields = structuredClone(lastSaved.codexProfileFields);
@@ -206,9 +211,12 @@ export function createStaticDemoApi(storageOption?: DemoStorage | null): Watchdo
     // The demo cannot write to a process, even if the saved Dry Run toggle is off.
     inject: async () => ({ dryRun: true }),
     focus: async () => { throw new Error('在线演示无法打开本机运行位置，请使用本地服务或桌面版'); },
-    install: async () => undefined,
+    install: async () => { installed = true; currentHealth.ok = true; persist(); },
     startup: async () => ({ installed: startupInstalled, name: 'Selbstlauf Continuation Watchdog' }),
-    installStartup: async () => { startupInstalled = true; persist(); },
+    installStartup: async () => {
+      if (!installed) throw new Error('演示 Watchdog 未安装，请先安装后添加启动项');
+      startupInstalled = true; persist();
+    },
     uninstallStartup: async () => { startupInstalled = false; persist(); },
     codexProfiles: async () => {
       const active = Object.fromEntries(codexProfileFields.map((field) => [field.key, field.value]));
@@ -272,9 +280,15 @@ export function createStaticDemoApi(storageOption?: DemoStorage | null): Watchdo
       persist();
       return hookStatus();
     },
-    start: async () => { currentHealth.running = true; persist(); },
+    start: async () => {
+      if (!installed) throw new Error('演示 Watchdog 未安装，请先安装后启动');
+      currentHealth.running = true; persist();
+    },
     stop: async () => { currentHealth.running = false; persist(); },
-    uninstall: async () => { currentHealth.running = false; persist(); },
+    uninstall: async () => {
+      installed = false; currentHealth.ok = false; currentHealth.running = false;
+      startupInstalled = false; persist();
+    },
     subscribe: () => () => undefined,
   };
 }

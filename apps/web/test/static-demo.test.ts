@@ -169,4 +169,35 @@ describe('static Pages demo API', () => {
     await expect(api.installStartup()).rejects.toThrow('浏览器无法保存演示设置');
     expect((await api.startup()).installed).toBe(false);
   });
+
+  it('persists simulated installation and makes uninstall undo startup and running state', async () => {
+    const storage = memoryStorage();
+    const api = createStaticDemoApi(storage);
+    await api.installStartup();
+    await api.uninstall();
+    const uninstalled = createStaticDemoApi(storage);
+    expect(await uninstalled.health()).toEqual(expect.objectContaining({ ok: false, running: false }));
+    expect((await uninstalled.startup()).installed).toBe(false);
+    await expect(uninstalled.start()).rejects.toThrow('未安装');
+    await expect(uninstalled.installStartup()).rejects.toThrow('未安装');
+    await uninstalled.install();
+    expect((await createStaticDemoApi(storage).health()).ok).toBe(true);
+    await uninstalled.start();
+    await uninstalled.installStartup();
+    const restored = createStaticDemoApi(storage);
+    expect((await restored.health()).running).toBe(true);
+    expect((await restored.startup()).installed).toBe(true);
+  });
+
+  it('loads existing schema-1 settings written before the installed field existed', async () => {
+    const storage = memoryStorage();
+    const api = createStaticDemoApi(storage);
+    await api.updateConfig({ ...await api.config(), pollIntervalMs: 6000 });
+    const saved = JSON.parse(storage.getItem(STATIC_DEMO_STORAGE_KEY)!);
+    delete saved.installed;
+    storage.setItem(STATIC_DEMO_STORAGE_KEY, JSON.stringify(saved));
+    const legacy = createStaticDemoApi(storage);
+    expect((await legacy.config()).pollIntervalMs).toBe(6000);
+    expect((await legacy.health()).ok).toBe(true);
+  });
 });
