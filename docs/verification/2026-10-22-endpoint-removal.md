@@ -31,3 +31,19 @@ JSON null transmission and persisted demo removal.
 This first step proves the backend and browser API semantics. UI integration,
 production browser screenshots and installed-app verification are separate
 requirements and were not yet verified by this step.
+
+## Missing-file refusal found through the production UI
+
+The production browser gate deliberately removed its isolated config file while
+a draft was pending. The file store refused the write, but its ordinary Error
+became HTTP 500 `internal server error`, leaving the browser with an undiagnosed
+refusal. `7146650` adds a known `CodexProfileStoreError` with status 409 and a
+fixed explanation that `config.toml does not exist`. It exposes no path, token
+or configuration value. The HTTP handler recognizes that class; unexpected
+internal errors still return a generic HTTP 500.
+
+The independent CLI build was refreshed, and HTTP/profile-store tests passed
+23/23. The new real HTTP regression verifies the missing-file 409, successful
+retry after restoring the file, and generic error handling for an unexpected
+error containing a sample secret. The WebUI agent resumed its production gate
+against this new independent build.
