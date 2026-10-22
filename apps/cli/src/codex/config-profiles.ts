@@ -3,6 +3,12 @@ export interface CodexProfileField {
   readonly value: string;
 }
 
+/** A null edit removes the active assignment and parks its old value. */
+export interface CodexProfileEdit {
+  readonly key: string;
+  readonly value: string | null;
+}
+
 export interface CodexProfile {
   readonly name: string;
   readonly fields: readonly CodexProfileField[];
@@ -10,7 +16,7 @@ export interface CodexProfile {
 
 export interface ApplyProfileResult {
   readonly text: string;
-  readonly changes: readonly { key: string; action: 'set' | 'uncommented' | 'added'; value: string }[];
+  readonly changes: readonly { key: string; action: 'set' | 'uncommented' | 'added' | 'removed'; value: string | null }[];
 }
 
 export interface ConfigSummary {
@@ -30,6 +36,22 @@ export type EditableKey = (typeof EDITABLE_KEYS)[number];
 
 export function isEditableKey(key: string): key is EditableKey {
   return (EDITABLE_KEYS as readonly string[]).includes(key);
+}
+
+export function validateProfileEdits(fields: readonly CodexProfileEdit[]): CodexProfileEdit[] {
+  if (!Array.isArray(fields) || fields.length === 0) throw new TypeError('fields must be a non-empty array');
+  const keys = new Set<string>();
+  return fields.map((field) => {
+    if (field === null || typeof field !== 'object' || !isEditableKey(field.key)) {
+      throw new TypeError(`unsupported Codex config key "${field?.key}"`);
+    }
+    if (keys.has(field.key)) throw new TypeError(`duplicate Codex config key "${field.key}"`);
+    keys.add(field.key);
+    if (field.value !== null && (typeof field.value !== 'string' || field.value.trim().length === 0 || /[\0\r\n]/u.test(field.value))) {
+      throw new TypeError(`invalid value for Codex config key "${field.key}"`);
+    }
+    return { key: field.key, value: field.value };
+  });
 }
 
 interface Assignment {
@@ -60,23 +82,29 @@ export function readConfigSummary(text: string): ConfigSummary {
  * loses the previous one. Unknown values replace the active line; missing keys
  * are appended after the last top-level assignment.
  */
-export function applyProfile(text: string, fields: readonly CodexProfileField[]): ApplyProfileResult {
-  for (const field of fields) {
-    if (!isEditableKey(field.key)) {
-      throw new Error(`unsupported Codex config key "${field.key}"`);
-    }
-    if (field.value.trim().length === 0 || /[\r\n]/u.test(field.value)) {
-      throw new Error(`invalid value for Codex config key "${field.key}"`);
-    }
-  }
+export function applyProfile(text: string, fields: readonly CodexProfileEdit[]): ApplyProfileResult {
+  const edits = validateProfileEdits(fields);
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const hasTrailingNewline = text.endsWith('\n') || text.length === 0;
   const body = text.replace(/\r?\n$/u, '');
   const lines = body.length === 0 ? [] : body.split(/\r?\n/u);
-  const changes: { key: string; action: 'set' | 'uncommented' | 'added'; value: string }[] = [];
+  const changes: { key: string; action: 'set' | 'uncommented' | 'added' | 'removed'; value: string | null }[] = [];
 
-  for (const field of fields) {
+  for (const field of edits) {
     const assignments = topLevelIndexes(lines);
+    if (field.value === null) {
+      // Comment the source line verbatim: labels, quote style and escapes are
+      // preserved. Existing alternatives and nested provider/project settings
+      // are untouched, and repeating removal is harmless.
+      for (const index of assignments) {
+        const assignment = matchAssignment(lines[index]!);
+        if (assignment?.key === field.key && !assignment.commented) {
+          lines[index] = lines[index]!.replace(/^(\s*)/u, '$1# ');
+        }
+      }
+      changes.push({ key: field.key, action: 'removed', value: null });
+      continue;
+    }
     const active = assignments.find((index) => {
       const assignment = matchAssignment(lines[index]!);
       return assignment !== null && !assignment.commented && assignment.key === field.key;
@@ -179,8 +207,12 @@ function matchAssignment(line: string): Assignment | null {
   const rawValue = match[2]!.trim();
   const valueMatch = /^"((?:[^\\"]|\\.)*)"\s*(?:#\s*(.*))?$/u.exec(rawValue);
   if (valueMatch !== null) {
-    return { key, value: valueMatch[1] ?? '', label: (valueMatch[2] ?? '').trim(), commented };
+    let value = valueMatch[1] ?? '';
+    try { value = JSON.parse(`"${value}"`) as string; } catch { /* Keep unusual TOML escape sequences literal. */ }
+    return { key, value, label: (valueMatch[2] ?? '').trim(), commented };
   }
+  const literalMatch = /^'([^']*)'\s*(?:#\s*(.*))?$/u.exec(rawValue);
+  if (literalMatch !== null) return { key, value: literalMatch[1] ?? '', label: (literalMatch[2] ?? '').trim(), commented };
   return { key, value: rawValue.replace(/\s+#.*$/u, ''), label: '', commented };
 }
 

@@ -11,6 +11,7 @@ import type {
 // Use the service parser so an imported Pages config has the same constraints as
 // the live HTTP API, including legacy defaults and resumable goal statuses.
 import { parseConfig } from '../../../cli/src/domain/config';
+import { applyProfile, readConfigSummary } from '../../../cli/src/codex/config-profiles';
 
 const initialConfig: WatchdogConfig = {
   enabled: true,
@@ -238,16 +239,18 @@ export function createStaticDemoApi(storageOption?: DemoStorage | null): Watchdo
       };
     },
     applyCodexProfile: async (fields) => {
-      const changes = fields.map((field) => {
-        const previous = codexProfileFields.find((entry) => entry.key === field.key)?.value;
-        if (previous !== undefined && previous !== field.value) {
-          codexAlternatives[field.key] = [...new Set([...(codexAlternatives[field.key] ?? []), previous])];
-        }
-        return { key: field.key, action: 'uncommented', value: field.value };
-      });
-      codexProfileFields = fields.map((field) => ({ key: field.key, value: field.value }));
+      // The hosted demo applies the same patch semantics as config.toml: absent
+      // keys stay active, null parks/deactivates an existing value.
+      const text = [
+        ...codexProfileFields.map((field) => `${field.key} = ${JSON.stringify(field.value)}`),
+        ...Object.entries(codexAlternatives).flatMap(([key, values]) => values.map((value) => `# ${key} = ${JSON.stringify(value)}`)),
+      ].join('\n');
+      const result = applyProfile(text, fields);
+      const summary = readConfigSummary(result.text);
+      codexProfileFields = Object.entries(summary.active).map(([key, value]) => ({ key, value }));
+      codexAlternatives = Object.fromEntries(Object.entries(summary.commented).map(([key, values]) => [key, [...new Set(values)]]));
       persist();
-      return { ok: true, changes };
+      return { ok: true, changes: [...result.changes] };
     },
     claudeHook: async () => hookStatus(),
     environment: async () => buildEnvironmentReport(structuredClone(currentTools)),

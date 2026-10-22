@@ -200,4 +200,23 @@ describe('static Pages demo API', () => {
     expect((await legacy.config()).pollIntervalMs).toBe(6000);
     expect((await legacy.health()).ok).toBe(true);
   });
+
+  it('applies explicit null edits and keeps untouched active values across reloads', async () => {
+    const storage = memoryStorage();
+    const api = createStaticDemoApi(storage);
+    await api.applyCodexProfile([{ key: 'model', value: 'sample-model' }, { key: 'experimental_bearer_token', value: 'sample-token' }]);
+    const before = await api.codexProfiles();
+    expect(before.active.base_url).toBe('https://external-api-platform.hkgai.net/v1');
+    const outcome = await api.applyCodexProfile([{ key: 'experimental_bearer_token', value: null }, { key: 'base_url', value: 'https://new.test' }]);
+    expect(outcome.changes).toContainEqual({ key: 'experimental_bearer_token', action: 'removed', value: null });
+    const restored = createStaticDemoApi(storage);
+    const after = await restored.codexProfiles();
+    expect(after.active.model).toBe('sample-model');
+    expect(after.active.base_url).toBe('https://new.test');
+    expect(after.active.experimental_bearer_token).toBeUndefined();
+    expect(after.alternatives.experimental_bearer_token).toEqual(['sample-token']);
+    await restored.applyCodexProfile([{ key: 'experimental_bearer_token', value: 'sample-token' }]);
+    expect((await restored.codexProfiles()).active.experimental_bearer_token).toBe('sample-token');
+    await expect(restored.applyCodexProfile([{ key: 'approval_policy', value: null }])).rejects.toThrow('unsupported');
+  });
 });

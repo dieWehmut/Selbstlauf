@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
   applyProfile,
   captureActiveProfile,
   readConfigSummary,
+  validateProfileEdits,
   type CodexProfile,
-  type CodexProfileField,
+  type CodexProfileEdit,
 } from "./config-profiles.js";
 
 export interface CodexConfigProfilesOptions {
@@ -26,7 +27,7 @@ export interface CodexProfilesView {
 export interface ApplyProfileOutcome {
   readonly text: string;
   readonly backupPath: string | null;
-  readonly changes: readonly { key: string; action: string; value: string }[];
+  readonly changes: readonly { key: string; action: string; value: string | null }[];
 }
 
 /**
@@ -62,27 +63,34 @@ export class CodexConfigProfiles {
     };
   }
 
-  public apply(fields: readonly CodexProfileField[]): Promise<ApplyProfileOutcome> {
-    const task = this.queue.then(() => this.applyNow(fields));
+  public apply(fields: readonly CodexProfileEdit[]): Promise<ApplyProfileOutcome> {
+    // Snapshot validated edits before queueing; the caller may keep editing its
+    // draft while another atomic write is pending.
+    let edits: CodexProfileEdit[];
+    try { edits = validateProfileEdits(fields); }
+    catch (error) { return Promise.reject(error); }
+    const task = this.queue.then(() => this.applyNow(edits));
     this.queue = task.catch(() => undefined);
     return task;
   }
 
-  private async applyNow(fields: readonly CodexProfileField[]): Promise<ApplyProfileOutcome> {
+  private async applyNow(fields: readonly CodexProfileEdit[]): Promise<ApplyProfileOutcome> {
     const text = await this.readExisting();
     if (text === null) {
       throw new Error(`refusing to write ${this.configPath}: config.toml does not exist`);
     }
     const result = applyProfile(text, fields);
-    const backupPath = `${this.configPath}.${this.now()}.bak`;
+    if (result.text === text) return { text, backupPath: null, changes: result.changes };
+    const backupPath = `${this.configPath}.${this.now()}.${randomUUID()}.bak`;
     const digest = createHash("sha256").update(text, "utf8").digest("hex");
     await writeFile(`${backupPath}.meta`, `sha256 ${digest}
-`, "utf8");
-    await writeFile(backupPath, text, "utf8");
+`, { encoding: "utf8", mode: 0o600, flag: 'wx' });
+    await writeFile(backupPath, text, { encoding: "utf8", mode: 0o600, flag: 'wx' });
     const temporaryPath = `${this.configPath}.${randomUUID()}.tmp`;
     await mkdir(dirname(this.configPath), { recursive: true });
     try {
-      await writeFile(temporaryPath, result.text, "utf8");
+      const mode = (await stat(this.configPath)).mode & 0o777;
+      await writeFile(temporaryPath, result.text, { encoding: "utf8", mode, flag: 'wx' });
       await replaceAtomically(temporaryPath, this.configPath);
     } finally {
       await rm(temporaryPath, { force: true }).catch(() => undefined);

@@ -112,6 +112,14 @@ describe('local service API client', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/uninstall', expect.objectContaining({ method: 'POST' }));
   });
 
+  it('sends an explicit null field removal and returns its removal outcome', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, changes: [{ key: 'experimental_bearer_token', action: 'removed', value: null }] }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const outcome = await createApi().applyCodexProfile([{ key: 'experimental_bearer_token', value: null }]);
+    expect(fetchMock).toHaveBeenCalledWith('/api/codex/profiles', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ fields: [{ key: 'experimental_bearer_token', value: null }] }) }));
+    expect(outcome.changes).toEqual([{ key: 'experimental_bearer_token', action: 'removed', value: null }]);
+  });
+
   it('receives named audit events from the service event stream', () => {
     vi.stubGlobal('WebSocket', undefined);
     const source = new FakeEventSource();

@@ -586,6 +586,28 @@ test('exposes Codex endpoint profiles and applies a switch through the API', asy
   ]);
   assert.equal(await readFile(configPath, 'utf8').then((text) => text.includes('base_url = "https://www.sevnx.lol"')), true);
 
+  const removed = await request(base, '/api/codex/profiles', {
+    method: 'PUT', origin: base, body: { fields: [{ key: 'base_url', value: null }] },
+  });
+  assert.equal(removed.response.status, 200);
+  assert.deepEqual(removed.json.changes, [{ key: 'base_url', action: 'removed', value: null }]);
+  const afterRemoval = await request(base, '/api/codex/profiles');
+  assert.equal(afterRemoval.json.active.base_url, undefined);
+  assert.equal(afterRemoval.json.active.model, 'deepseek-v4.1-flash');
+  assert.ok(afterRemoval.json.alternatives.base_url.includes('https://www.sevnx.lol'));
+
+  const beforeInvalid = await readFile(configPath, 'utf8');
+  for (const fields of [
+    [{ key: 'approval_policy', value: null }],
+    [{ key: 'base_url', value: 0 }],
+    [{ key: 'base_url', value: '' }],
+    [{ key: 'model', value: null }, { key: 'model', value: 'conflict' }],
+  ]) {
+    const invalid = await request(base, '/api/codex/profiles', { method: 'PUT', origin: base, body: { fields } });
+    assert.equal(invalid.response.status, 400);
+    assert.equal(await readFile(configPath, 'utf8'), beforeInvalid);
+  }
+
   const rejected = await request(base, '/api/codex/profiles', {
     method: 'PUT',
     origin: base,

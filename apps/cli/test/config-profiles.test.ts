@@ -92,3 +92,53 @@ test("does not duplicate a parked comment that already exists", () => {
   assert.equal(active.length, 1);
 });
 
+test('null removes every active top-level occurrence while preserving comments and nested sections', () => {
+  const source = [
+    '  experimental_bearer_token = "sample-token" # keep label',
+    "model = 'old-model' # literal",
+    '# model = "alternative"',
+    'base_url = "https://example.test/v1"',
+    '[model_providers.example]',
+    'experimental_bearer_token = "provider-token"',
+    'model = "provider-model"',
+    '',
+  ].join('\r\n');
+  const removed = applyProfile(source, [{ key: 'experimental_bearer_token', value: null }, { key: 'model', value: null }]);
+  const summary = readConfigSummary(removed.text);
+  assert.equal(summary.active.experimental_bearer_token, undefined);
+  assert.equal(summary.active.model, undefined);
+  assert.equal(summary.active.base_url, 'https://example.test/v1');
+  assert.deepEqual(summary.commented.experimental_bearer_token, ['sample-token']);
+  assert.deepEqual(summary.commented.model, ['old-model', 'alternative']);
+  assert.ok(removed.text.includes('  # experimental_bearer_token = "sample-token" # keep label\r\n'));
+  assert.ok(removed.text.endsWith('[model_providers.example]\r\nexperimental_bearer_token = "provider-token"\r\nmodel = "provider-model"\r\n'));
+  assert.deepEqual(removed.changes, [
+    { key: 'experimental_bearer_token', action: 'removed', value: null },
+    { key: 'model', action: 'removed', value: null },
+  ]);
+  assert.equal(applyProfile(removed.text, [{ key: 'model', value: null }]).text, removed.text);
+  const restored = applyProfile(removed.text, [{ key: 'model', value: 'old-model' }]);
+  assert.equal(readConfigSummary(restored.text).active.model, 'old-model');
+  assert.equal(restored.changes[0].action, 'uncommented');
+});
+
+test('deletion and replacement share one validated patch and do not lose escaped alternatives', () => {
+  const source = 'model = "a\\\\b\\\"c" # escaped\nbase_url = "https://old.test"\n';
+  const removed = applyProfile(source, [{ key: 'model', value: null }, { key: 'base_url', value: 'https://new.test' }]);
+  assert.equal(readConfigSummary(removed.text).active.model, undefined);
+  assert.equal(readConfigSummary(removed.text).active.base_url, 'https://new.test');
+  assert.deepEqual(readConfigSummary(removed.text).commented.model, ['a\\b"c']);
+  const restored = applyProfile(removed.text, [{ key: 'model', value: 'a\\b"c' }]);
+  assert.equal(readConfigSummary(restored.text).active.model, 'a\\b"c');
+});
+
+test('rejects an invalid complete patch before applying any deletion', () => {
+  for (const fields of [
+    [{ key: 'model', value: null }, { key: 'approval_policy', value: null }],
+    [{ key: 'model', value: null }, { key: 'model', value: 'conflicting' }],
+    [{ key: 'model', value: null }, { key: 'base_url', value: '' }],
+    [{ key: 'model', value: null }, { key: 'base_url', value: 'has\0nul' }],
+  ]) assert.throws(() => applyProfile(SAMPLE, fields), TypeError);
+  assert.throws(() => applyProfile(SAMPLE, []), /non-empty array/);
+});
+

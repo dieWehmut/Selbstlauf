@@ -123,6 +123,12 @@ export interface CodexProfileFieldView {
   value: string;
 }
 
+export interface CodexProfileEditView {
+  key: string;
+  /** null explicitly removes an active setting; omitted keys stay unchanged. */
+  value: string | null;
+}
+
 export interface CodexProfilesView {
   path: string;
   exists: boolean;
@@ -134,7 +140,7 @@ export interface CodexProfilesView {
 export interface CodexProfileChangeView {
   key: string;
   action: string;
-  value: string;
+  value: string | null;
 }
 
 export interface CodexProfileApplyView {
@@ -244,7 +250,7 @@ export interface WatchdogApi {
   installStartup(): Promise<void>;
   uninstallStartup(): Promise<void>;
   codexProfiles(): Promise<CodexProfilesView>;
-  applyCodexProfile(fields: readonly CodexProfileFieldView[]): Promise<CodexProfileApplyView>;
+  applyCodexProfile(fields: readonly CodexProfileEditView[]): Promise<CodexProfileApplyView>;
   environment(): Promise<EnvironmentView>;
   refreshEnvironment(): Promise<EnvironmentView>;
   upgradeTool(id: string): Promise<UpgradeResultView>;

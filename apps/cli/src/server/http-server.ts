@@ -447,7 +447,7 @@ export class WatchdogHttpServer {
         if (typeof entry !== 'object' || entry === null) throw new HttpError(400, 'invalid profile field');
         const record = entry as { key?: unknown; value?: unknown };
         if (typeof record.key !== 'string') throw new HttpError(400, 'profile field key must be a string');
-        if (typeof record.value !== 'string') throw new HttpError(400, 'profile field value must be a string');
+        if (record.value !== null && typeof record.value !== 'string') throw new HttpError(400, 'profile field value must be a string or null');
         return { key: record.key, value: record.value };
       });
       const outcome = await this.codexProfiles.apply(fields);
