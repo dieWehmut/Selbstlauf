@@ -1,5 +1,9 @@
 # 2026-10-22 WebUI settings audit
 
+This is a chronological stage report. Its later completion gates, final test
+totals and same-version local reinstall are closed in
+[the final settings report](2026-10-23-settings-final.md).
+
 All checks below used `scripts/verify/in-conda.sh` after the explicit PATH check proved Node 22.23.2 at `/home/han/miniconda3/envs/selbstlauf-settings-20261022/bin/node`. Dependencies came from the existing lockfile; application version remains 0.9.5. Earlier plain `conda run` checks were preliminary because shell startup preferred NVM Node 24, and their results were replaced with wrapper checks.
 
 ## Runtime setting transition follow-up — 2026-10-23
@@ -84,6 +88,6 @@ Final scoped checks used the unchanged lockfile and Node 22 conda wrapper:
 
 - `scripts/verify/in-conda.sh npm --workspace @ai-cli-bypass/web test -- test/App.test.tsx test/translation-catalog.test.ts`: 102 tests passed (99 App cases and 3 catalog gates). Four locale cases verify navigation, selected language, translated settings, preserved edited prompt/path/token and retranslation of an existing save notice. A dynamic message case verifies upgrade counts and endpoint failures across language switches while retaining raw diagnostic details.
 - `scripts/verify/in-conda.sh npm --workspace @ai-cli-bypass/web exec -- tsc --noEmit`: passed.
-- Root's `scripts/verify/settings-languages.mjs` passed with real isolated HTTP service and separately built production WebUI/Pages bundles. It verified the 13 current sections in four locales, light/dark and 1280/390 widths, persistence, cross-window changes and language-storage refusal. Its result records 558 screenshots and an empty English interface Han-text audit.
+- Root's `scripts/verify/settings-languages.mjs` passed with real isolated HTTP service and separately built production WebUI/Pages bundles. It verified the 13 current sections in four locales, light/dark and 1280/390 widths, persistence, cross-window changes and language-storage refusal. That stage recorded 558 screenshots. The later run against the final bundles replaces the shared evidence directory with 547 captures; its manifest and empty English interface Han-text audit are recorded in [the final language report](2026-10-23-languages.md).
 
 Evidence is in `tmp/settings-verification-20261022/languages/result.json` and the accompanying screenshots. Manual inspection of English wide settings and Traditional Chinese/Japanese narrow Hook/endpoint views confirmed readable labels and contained content. This stage closes the disabled-language implementation gap; the root task still owns final packaged desktop language checks and reinstalling the final same-version bundle.

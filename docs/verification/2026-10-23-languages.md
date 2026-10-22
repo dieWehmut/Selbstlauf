@@ -35,7 +35,9 @@ explicit React nodes such as the PID and prompt; they do not parse HTML.
 | Production Pages `/Selbstlauf/` | 4 passed | `environment/pages-settings-final.log` |
 | Real PTY agent/browser flows | 6 passed | `environment/agents-settings-final.log` |
 | Desktop unit suite | 171 passed | `environment/desktop-settings-final.log` |
-| Real native Windows language actions | 34 checks, 30 successful screenshots | `app/locale-native/locale-verification.log`, `locale-evidence.json` |
+| Initial native Windows language actions | 34 checks, 30 successful screenshots | `app/locale-native/locale-verification.log`, `locale-evidence.json` |
+| Final packaged Windows runtime | 44 checks, 37 successful screenshots, including notifications, restored history and pet synchronization | `app/locale-runtime-final/locale-verification.log`, `locale-evidence.json` |
+| Final installed Windows app, isolated directory copy | 44 checks, 37 successful screenshots, unchanged actual user configuration | `app/locale-installed-final/locale-verification.log`, `installed-evidence.json` |
 
 All artifact paths in this report are relative to
 `tmp/settings-verification-20261022/`.
@@ -71,6 +73,7 @@ checks passed 18 cases and retain 18 first-paint images and entry-block evidence
 
 This report proves the language implementation and its scoped checks. The
 subsequent runtime fixes for Dry run/Harness authentication and WSL distribution
-cache changes, the final same-version Windows package/reinstall, and remote
-publication status are recorded separately. The local production Pages tests
-do not claim that these commits have been published to the public site.
+cache changes, completed same-version Windows package/reinstall, and final
+test totals are recorded in [the final settings report](2026-10-23-settings-final.md).
+The local production Pages tests do not claim that these commits have been
+published to the public site.

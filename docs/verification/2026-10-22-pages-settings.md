@@ -1,5 +1,10 @@
 # Pages settings verification — 2026-10-22
 
+This is a chronological stage report. Final test totals and the completed
+same-version local reinstall are recorded in
+[the final settings report](2026-10-23-settings-final.md). Pages verification
+remains local; the public deployment was not updated by this work.
+
 The work uses the new `selbstlauf-settings-20261022` conda environment,
 Node 22.23.2 and the existing package lock. Commands run through
 `scripts/verify/in-conda.sh` because shell initialization otherwise prepends the
@@ -116,7 +121,7 @@ retaining raw command/path diagnostics.
 
 Root’s production gate `scripts/verify/settings-languages.mjs` ran with the same
 Node 22 wrapper and separately built `tmp/language-web-build` and
-`tmp/language-pages-build`. Its result records **558 captures** of real local
+`tmp/language-pages-build`. That earlier run recorded **558 captures** of real local
 WebUI/HTTP and static Pages at Simplified Chinese, Traditional Chinese, English
 and Japanese, light/dark, 1280/390 widths, all 13 sections, top/bottom where
 scrolling is needed. Both surfaces retain language on reload, synchronize to a
@@ -127,6 +132,13 @@ English settings Han-text audit is `[]`. The result and screenshots are in
 `tmp/settings-verification-20261022/languages/`. These are local production
 artifacts; the older published GitHub Pages deployment described above was not
 changed.
+
+The final run after the runtime, history and configuration-draft fixes uses
+`apps/web/dist` and `apps/web/dist-pages` and replaces that shared evidence
+directory with **547 captures**. Its complete filename manifest and the final
+four-case production Pages check are recorded in
+[the final language report](2026-10-23-languages.md). Earlier counts above
+describe their respective stages; local testing did not publish these commits.
 
 ## Pre-bundle theme regression follow-up — 2026-10-23
 
