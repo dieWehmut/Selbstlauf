@@ -153,6 +153,26 @@ try {
     await page.screenshot({ path: join(artifacts, 'live-round-trip.png'), fullPage: true });
   }
 
+  // Every window is its own session. Two echo windows are open at once and each is sent a different
+  // line; neither may see the other's text.
+  const second = await launch({ tool: 'custom', title: '往返验证窗口二', command: process.execPath, args: [fixture] });
+  if (second !== null) {
+    await waitForOutput(second.id, /READY/iu, 30_000);
+    await page.getByRole('tab', { name: '往返验证窗口', exact: true }).click();
+    await page.getByLabel('发送到 往返验证窗口 的内容').fill('窗口甲的私密内容');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await page.getByRole('tab', { name: '往返验证窗口二', exact: true }).click();
+    await page.getByLabel('发送到 往返验证窗口二 的内容').fill('窗口乙的私密内容');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    const firstSaw = await waitForOutput(roundTrip.id, /REPLY 窗口甲的私密内容/u, 20_000);
+    const secondSaw = await waitForOutput(second.id, /REPLY 窗口乙的私密内容/u, 20_000);
+    check(/REPLY 窗口甲的私密内容/u.test(firstSaw), 'the first window received its own input');
+    check(/REPLY 窗口乙的私密内容/u.test(secondSaw), 'the second window received its own input');
+    check(!firstSaw.includes('窗口乙的私密内容'), 'the first window never saw the second window input');
+    check(!secondSaw.includes('窗口甲的私密内容'), 'the second window never saw the first window input');
+    await page.screenshot({ path: join(artifacts, 'live-two-windows.png'), fullPage: true });
+  }
+
   // A real model answer, not an echo: the codex TUI is driven through the same composer.
   const codexSession = launched.find((id) => results.codex !== undefined && true) && launched[2];
   if (modelRoundTrip && results.codex !== undefined && codexSession !== undefined) {
@@ -163,16 +183,34 @@ try {
     const token = 'SELBSTLAUF_WINDOW_OK';
     const marker = [...token].reverse().join('');
     const question = `Reverse the string ${token} and reply with only the reversed string.`;
-    await page.getByLabel('发送到 codex 真实 CLI 的内容').fill(question);
-    await page.getByRole('button', { name: '发送', exact: true }).click();
-    const deadline = Date.now() + 240_000;
+    // Codex paints its banner while it is still loading; typing then leaves the text in the box.
+    const readyDeadline = Date.now() + 120_000;
+    let ready = '';
+    while (Date.now() < readyDeadline) {
+      ready = await outputOf(codexSession);
+      if (!/loading/iu.test(flat(ready)) && /AskCodex/iu.test(flat(ready))) break;
+      await page.waitForTimeout(1_000);
+    }
+    check(!/loading/iu.test(flat(ready)), 'codex finished loading before input was sent');
+
     let seen = '';
     let answered = false;
-    while (Date.now() < deadline) {
-      seen = await outputOf(codexSession);
-      const flatSeen = flat(seen);
-      if (flatSeen.includes(marker)) { answered = true; break; }
-      await page.waitForTimeout(2_000);
+    for (let attempt = 0; attempt < 2 && !answered; attempt += 1) {
+      await page.getByLabel('发送到 codex 真实 CLI 的内容').fill(question);
+      await page.getByRole('button', { name: '发送', exact: true }).click();
+      const deadline = Date.now() + 180_000;
+      while (Date.now() < deadline) {
+        seen = await outputOf(codexSession);
+        if (flat(seen).includes(marker)) { answered = true; break; }
+        await page.waitForTimeout(2_000);
+      }
+      if (!answered) {
+        // Enter can be swallowed while the TUI is busy; submit whatever is sitting in the box.
+        await page.request.post(`${origin}/api/agents/${codexSession}/input`, {
+          headers: { origin, 'content-type': 'application/json' },
+          data: { data: '\r' },
+        }).catch(() => undefined);
+      }
     }
     check(answered, 'codex answered a prompt typed into the window (the answer is not in the prompt)');
     notes.push(`      marker occurrences: ${flat(seen).split(marker).length - 1}`);
