@@ -73,6 +73,10 @@ export interface WatchdogControllerOptions {
   readonly platform?: NodeJS.Platform;
   /** The `wsl.exe` to use, overridden in tests. Defaults to the one on PATH. */
   readonly wslPath?: string;
+  /** Runs a read-only distribution probe; overridable for isolated runtime tests. */
+  readonly wslRun?: (distribution: string, script: string) => Promise<string>;
+  /** Copies distribution state to a local working directory; overridable for tests. */
+  readonly wslStateSnapshot?: typeof snapshotWslCodexState;
   readonly claudeProjectsDirectory?: string;
   readonly dshHomeDirectory?: string;
   readonly codexStatePath?: string;
@@ -182,6 +186,8 @@ export class WatchdogController {
   private readonly currentProcessId: number;
   private readonly platform: NodeJS.Platform;
   private readonly wslPath?: string;
+  private readonly wslRun?: (distribution: string, script: string) => Promise<string>;
+  private readonly wslStateSnapshot: typeof snapshotWslCodexState;
   /** The last WSL discovery failure, so a persistent one is not written to the audit log every poll. */
   private lastWslError: string | null = null;
   /** Cached per distribution, because the home directory and state paths do not move while it runs. */
@@ -235,6 +241,8 @@ export class WatchdogController {
     this.now = options.now ?? Date.now;
     this.platform = options.platform ?? process.platform;
     this.wslPath = options.wslPath;
+    this.wslRun = options.wslRun;
+    this.wslStateSnapshot = options.wslStateSnapshot ?? snapshotWslCodexState;
     this.claudeProjectsDirectory = options.claudeProjectsDirectory ?? DEFAULT_CLAUDE_PROJECTS;
     this.dshHomeDirectory = options.dshHomeDirectory ?? defaultDshHome();
     this.codexStatePath = options.codexStatePath;
@@ -565,6 +573,7 @@ export class WatchdogController {
     const result = await listWslProcesses({
       distribution,
       ...(this.wslPath === undefined ? {} : { wslPath: this.wslPath }),
+      ...(this.wslRun === undefined ? {} : { runWsl: this.wslRun }),
     });
     if (result.error !== undefined) {
       // Reported once per poll at most, and only when the state changes, so a stopped distribution does not
@@ -894,7 +903,7 @@ export class WatchdogController {
     // `/home/han` -> `\\wsl.localhost\Ubuntu-22.04\home\han\.codex`
     const uncCodexHome = `\\\\wsl.localhost\\${distribution}${join(home, '.codex').replaceAll('/', '\\')}`;
     try {
-      const snapshot = snapshotWslCodexState({ uncCodexHome });
+      const snapshot = this.wslStateSnapshot({ uncCodexHome });
       if (snapshot === null) return null;
       this.wslStateDirectory = snapshot.directory;
       const paths: CodexPaths = { statePath: snapshot.statePath, goalPath: snapshot.goalPath };
@@ -909,7 +918,7 @@ export class WatchdogController {
   /** The distribution account's home directory, as the distribution itself reports it. */
   private async resolveWslHome(distribution: string): Promise<string | null> {
     try {
-      const stdout = await new Promise<string>((resolve, reject) => {
+      const stdout = this.wslRun === undefined ? await new Promise<string>((resolve, reject) => {
         const child = nodeSpawn(this.wslPath ?? 'wsl.exe', ['-d', distribution, '--', 'sh', '-c', 'printf %s "$HOME"'], {
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
@@ -918,7 +927,7 @@ export class WatchdogController {
         child.stdout.on('data', (chunk) => { out += String(chunk); });
         child.on('error', reject);
         child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`wsl exited with code ${code}`))));
-      });
+      }) : await this.wslRun(distribution, 'printf %s "$HOME"');
       const home = stdout.trim();
       return home.startsWith('/') ? home : null;
     } catch {
@@ -1032,7 +1041,7 @@ export class WatchdogController {
       'printf "%s\\t%s" "$node" "$entry"',
     ].join('\n');
     try {
-      const stdout = await new Promise<string>((resolve, reject) => {
+      const stdout = this.wslRun === undefined ? await new Promise<string>((resolve, reject) => {
         const child = nodeSpawn(this.wslPath ?? 'wsl.exe', ['-d', distribution, '--', 'sh', '-s'], {
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
@@ -1042,7 +1051,7 @@ export class WatchdogController {
         child.on('error', reject);
         child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`wsl exited with code ${code}`))));
         child.stdin.end(script);
-      });
+      }) : await this.wslRun(distribution, script);
       const [node, entry] = stdout.trim().split('\t');
       if (node === undefined || entry === undefined || node.length === 0 || entry.length === 0) return null;
       const launch = { node, entry };
