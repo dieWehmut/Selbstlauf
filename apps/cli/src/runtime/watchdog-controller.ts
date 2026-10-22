@@ -219,7 +219,7 @@ export class WatchdogController {
   private readonly activeClaudeLeaseWrites = new Set<Promise<WriteResultLike>>();
   private readonly sessions = new Map<string, RuntimeSession>();
   private dshSessions = new Map<string, DshSessionFile>();
-  private readonly dshHosts = new Map<number, { client: DshHostClient; attemptedAtMs: number | null }>();
+  private readonly dshHosts = new Map<number, { client: DshHostClient; attemptedAtMs: number | null; attemptedMayWrite: boolean | null }>();
   private codexPathsPromise: Promise<CodexPaths | null> | null = null;
   private currentConfig: WatchdogConfig = defaultConfig;
   private timer: NodeJS.Timeout | null = null;
@@ -781,23 +781,28 @@ export class WatchdogController {
     for (const host of hosts) {
       let entry = this.dshHosts.get(host.rootPid);
       if (entry === undefined) {
-        entry = { client: this.dshHostClientFactory(), attemptedAtMs: null };
+        entry = { client: this.dshHostClientFactory(), attemptedAtMs: null, attemptedMayWrite: null };
         this.dshHosts.set(host.rootPid, entry);
       }
-      if (entry.client.origin !== null) continue;
-      if (entry.attemptedAtMs !== null && timestamp - entry.attemptedAtMs < DSH_HOST_RETRY_MS) {
+      const modeChanged = entry.attemptedMayWrite !== mayWrite;
+      entry.attemptedMayWrite = mayWrite;
+      if (entry.client.origin !== null && (!mayWrite || entry.client.authenticated)) continue;
+      // Saving Dry Run off must authenticate a previously probed address now,
+      // without waiting for the discovery cooldown or restarting the watchdog.
+      if (!modeChanged && entry.attemptedAtMs !== null && timestamp - entry.attemptedAtMs < DSH_HOST_RETRY_MS) {
         continue;
       }
       entry.attemptedAtMs = timestamp;
 
       const candidates: string[] = [];
+      if (entry.client.origin !== null) candidates.push(entry.client.origin);
       const configured = process.env.DSH_WEB_URL?.trim();
       if (configured !== undefined && configured.length > 0) candidates.push(configured);
       for (const port of await this.dshPortLister(host.rootPid)) {
         candidates.push(`http://127.0.0.1:${port}`);
       }
       if (this.stopping) return;
-      for (const candidate of candidates) {
+      for (const candidate of new Set(candidates)) {
         const accepted = mayWrite
           ? await entry.client.adopt(candidate)
           : await entry.client.probe(candidate);
@@ -833,7 +838,7 @@ export class WatchdogController {
         ? DSH_DRY_RUN_REASON
         : null;
     const client = this.dshHosts.get(session.group.rootPid)?.client ?? null;
-    if (reason !== null || client === null || client.origin === null) {
+    if (reason !== null || client === null || !client.authenticated) {
       session.transport = null;
       session.validatedTransportKind = null;
       session.transportKind = 'monitor-only';

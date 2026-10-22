@@ -1369,11 +1369,11 @@ const DSH_SECRET = 'kRvh6kC50JlSEaqoon1GHkVx7zv8h8lfIyu36z8cob4';
 
 /** A fake harness web host: the 401 fingerprint on `/`, RPC elsewhere. */
 function fakeDshHost(onPrompt?: (body: unknown) => void) {
-  const calls: Array<{ readonly url: string; readonly body: unknown }> = [];
+  const calls: Array<{ readonly url: string; readonly headers: Record<string, string>; readonly body: unknown }> = [];
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) as unknown : undefined;
-    calls.push({ url, body });
+    calls.push({ url, headers: { ...init?.headers as Record<string, string> }, body });
     if (init?.method === undefined) {
       return new Response('dsh web authentication required; reopen the URL printed by dsh web.\n', { status: 401 });
     }
@@ -1449,6 +1449,8 @@ async function dshControllerFixture(options: {
   return {
     root,
     controller,
+    configStore,
+    credentialsHome,
     auditStore,
     host,
     advance: (ms: number) => { clock += ms; },
@@ -1513,6 +1515,68 @@ test('a dry run keeps harness input disabled even when the host is reachable', a
     assert.equal(session?.transport, 'monitor-only');
     assert.equal(session?.transportError, 'dry run keeps DeepSeek Harness input disabled');
     assert.equal(fixture.host.calls.filter((call) => call.url.endsWith('/api/session/prompt')).length, 0);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('saving Dry Run off authenticates an already probed harness without restarting', async () => {
+  const fixture = await dshControllerFixture({ dryRun: true });
+  try {
+    await fixture.controller.start();
+    assert.equal((await fixture.controller.list())[0]?.transport, 'monitor-only');
+    assert.equal(fixture.host.calls.filter((call) => call.url.endsWith('/api/session/prompt')).length, 0);
+
+    const config = await fixture.configStore.load();
+    const saved = await fixture.configStore.save({ ...config, dryRun: false });
+    await fixture.controller.configChanged(saved);
+    await fixture.controller.poll();
+    const session = (await fixture.controller.list())[0];
+    assert.equal(session?.transport, 'dsh-web');
+    assert.equal(session?.transportError, undefined);
+    const result = await fixture.controller.inject(session!.id, 'authenticated after saving', false);
+    assert.equal(result.ok, true, result.error);
+    const promptCalls = fixture.host.calls.filter((call) => call.url.endsWith('/api/session/prompt'));
+    assert.equal(promptCalls.length, 1);
+    assert.match(promptCalls[0]!.headers.cookie, /^dsh-auth-/u);
+
+    await fixture.controller.configChanged(await fixture.configStore.save({ ...saved, dryRun: true }));
+    await fixture.controller.poll();
+    assert.equal((await fixture.controller.list())[0]?.transport, 'monitor-only');
+    const disabled = await fixture.controller.inject(session!.id, 'must not write', false);
+    assert.equal(disabled.ok, false);
+    assert.equal(fixture.host.calls.filter((call) => call.url.endsWith('/api/session/prompt')).length, 1);
+    await fixture.controller.configChanged(await fixture.configStore.save(saved));
+    await fixture.controller.poll();
+    assert.equal((await fixture.controller.inject(session!.id, 'enabled again', false)).ok, true);
+    assert.equal(fixture.host.calls.filter((call) => call.url.endsWith('/api/session/prompt')).length, 2);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('saving Dry Run off without credentials stays monitor-only and retries when credentials return', async () => {
+  const fixture = await dshControllerFixture({ dryRun: true });
+  try {
+    await fixture.controller.start();
+    const credentialPath = join(fixture.credentialsHome, '.credentials.yaml');
+    const credential = await readFile(credentialPath, 'utf8');
+    await rm(credentialPath);
+    const config = await fixture.configStore.load();
+    const saved = await fixture.configStore.save({ ...config, dryRun: false });
+    await fixture.controller.configChanged(saved);
+    await fixture.controller.poll();
+    const session = (await fixture.controller.list())[0];
+    assert.equal(session?.transport, 'monitor-only');
+    assert.equal(session?.transportError, 'the local DeepSeek Harness session API is unavailable');
+    assert.equal((await fixture.controller.inject(session!.id, 'must not write', false)).ok, false);
+    assert.equal(fixture.host.calls.filter((call) => call.url.endsWith('/api/session/prompt')).length, 0);
+
+    await writeFile(credentialPath, credential);
+    fixture.advance(60_001);
+    await fixture.controller.poll();
+    assert.equal((await fixture.controller.list())[0]?.transport, 'dsh-web');
+    assert.equal((await fixture.controller.inject(session!.id, 'recovered', false)).ok, true);
   } finally {
     await fixture.cleanup();
   }

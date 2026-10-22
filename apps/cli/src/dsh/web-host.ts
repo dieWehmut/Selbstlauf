@@ -217,6 +217,11 @@ export class DshHostClient {
     return this.sessionOrigin;
   }
 
+  /** An address found by a read-only probe is not an authenticated write session. */
+  get authenticated(): boolean {
+    return this.session !== null && this.sessionOrigin !== null;
+  }
+
   /**
    * Admit one prompt into a harness session.
    * @param sessionId - harness session identity.

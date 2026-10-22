@@ -137,6 +137,7 @@ test('DshHostClient adopts only an origin that answers as the harness', async ()
     const client = new DshHostClient({ homeDirectory: root, fetchImpl: host.fetchImpl, now: () => 1_000 });
     assert.equal(await client.adopt('http://127.0.0.1:3080'), true);
     assert.equal(client.origin, 'http://127.0.0.1:3080');
+    assert.equal(client.authenticated, true);
     assert.equal(host.calls.length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -149,6 +150,7 @@ test('DshHostClient refuses to adopt when the credential is unusable', async () 
     const client = new DshHostClient({ homeDirectory: root, fetchImpl: fakeHost().fetchImpl });
     assert.equal(await client.adopt('http://127.0.0.1:3080'), false);
     assert.equal(client.origin, null);
+    assert.equal(client.authenticated, false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -163,6 +165,10 @@ test('probe locates the harness without reading the credential', async () => {
     const client = new DshHostClient({ homeDirectory: root, fetchImpl: host.fetchImpl });
     assert.equal(await client.probe('http://127.0.0.1:3080'), true);
     assert.equal(client.origin, 'http://127.0.0.1:3080');
+    assert.equal(client.authenticated, false);
+    const transport = new DshWebTransport({ pid: HOST_PID, sessionId: SESSION_ID, client, isIdle: () => true });
+    const probed = await transport.probe(HOST_PID);
+    assert.equal(probed.ok, false, 'a read-only address probe must not advertise a writable transport');
 
     // Probing never authenticates: a prompt still needs a real credential.
     const result = await client.prompt(SESSION_ID, '继续');

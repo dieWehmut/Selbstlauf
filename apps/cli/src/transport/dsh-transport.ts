@@ -61,7 +61,7 @@ export class DshWebTransport implements SessionTransport {
   async probe(pid: number): Promise<ProbeResult> {
     const rejection = this.#validate(pid);
     if (rejection !== null) return rejection;
-    if (this.#client.origin === null) {
+    if (!this.#client.authenticated) {
       return cannotInject(pid, 'attach-failed', 'No authenticated DeepSeek Harness origin is available.');
     }
     return { ok: true, kind: KIND, pid };
