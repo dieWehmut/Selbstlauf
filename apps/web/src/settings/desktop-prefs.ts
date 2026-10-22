@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Tiny local-preference layer for the desktop settings sections.
@@ -51,14 +51,35 @@ export function readPref<T>(key: string, fallback: T, validate: (value: unknown)
   }
 }
 
-/** Writes a JSON-encoded preference. Silent when storage is unavailable or full. */
-export function writePref(key: string, value: unknown): void {
+/** Listen for a preference written by another component or another same-origin window. */
+const PREF_CHANGE_EVENT = 'selbstlauf-preference-change';
+
+export function subscribePref(key: string, listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  const localChange = (event: Event) => {
+    if ((event as CustomEvent<string>).detail === key) listener();
+  };
+  const storageChange = (event: StorageEvent) => {
+    if (event.key === key || event.key === null) listener();
+  };
+  window.addEventListener(PREF_CHANGE_EVENT, localChange);
+  window.addEventListener('storage', storageChange);
+  return () => {
+    window.removeEventListener(PREF_CHANGE_EVENT, localChange);
+    window.removeEventListener('storage', storageChange);
+  };
+}
+
+/** Writes a JSON-encoded preference and reports whether it was persisted. */
+export function writePref(key: string, value: unknown): boolean {
   const store = storage();
-  if (!store) return;
+  if (!store) return false;
   try {
     store.setItem(key, JSON.stringify(value));
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(PREF_CHANGE_EVENT, { detail: key }));
+    return true;
   } catch {
-    // Quota exceeded or storage disabled: preferences are best-effort.
+    return false;
   }
 }
 
@@ -67,16 +88,26 @@ export function usePref<T>(
   key: string,
   fallback: T,
   validate: (value: unknown) => value is T,
-): readonly [T, (next: T) => void] {
+): readonly [T, (next: T) => boolean, string | null] {
   const [value, setValue] = useState<T>(() => readPref(key, fallback, validate));
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => subscribePref(key, () => {
+    setValue(readPref(key, fallback, validate));
+    setError(null);
+  }), [key, fallback, validate]);
   const update = useCallback(
     (next: T) => {
+      if (!writePref(key, next)) {
+        setError('保存失败：浏览器存储不可用或空间不足，请释放空间后重试');
+        return false;
+      }
       setValue(next);
-      writePref(key, next);
+      setError(null);
+      return true;
     },
     [key],
   );
-  return [value, update] as const;
+  return [value, update, error] as const;
 }
 
 /* ------------------------------------------------------------------ */
@@ -154,7 +185,9 @@ export function isNotificationsPref(value: unknown): value is NotificationsPref 
     && typeof value.onSuccess === 'boolean'
     && typeof value.onError === 'boolean'
     && typeof value.timelineLimit === 'number'
-    && Number.isFinite(value.timelineLimit);
+    && Number.isInteger(value.timelineLimit)
+    && value.timelineLimit >= 1
+    && value.timelineLimit <= TIMELINE_LIMIT_MAX;
 }
 
 export function isProfilePref(value: unknown): value is ProfilePref {

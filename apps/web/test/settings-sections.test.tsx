@@ -52,6 +52,10 @@ describe('desktop-prefs', () => {
     expect(readPref(PREF_KEYS.notifications, fallback, isNotificationsPref)).toEqual(value);
   });
 
+  it.each([-1, 0, 0.5, 1001, Infinity])('rejects invalid retained event limits: %s', (timelineLimit) => {
+    expect(isNotificationsPref({ inPanel: true, onSuccess: true, onError: true, timelineLimit })).toBe(false);
+  });
+
   it('hashes a PIN deterministically without exposing the plaintext', () => {
     expect(hashPin('1234')).toBe(hashPin('1234'));
     expect(hashPin('1234')).not.toBe(hashPin('1235'));
@@ -61,6 +65,30 @@ describe('desktop-prefs', () => {
 });
 
 describe('NotificationsSection', () => {
+  it('keeps the persisted value and reports a rejected storage write', () => {
+    const onChange = vi.fn();
+    render(<NotificationsSection onChange={onChange} />);
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError'); });
+    fireEvent.click(screen.getByLabelText('面板内通知'));
+    expect(screen.getByLabelText('面板内通知')).toBeChecked();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('保存失败');
+    write.mockRestore();
+    fireEvent.click(screen.getByLabelText('面板内通知'));
+    expect(screen.getByLabelText('面板内通知')).not.toBeChecked();
+    expect(screen.queryByText(/保存失败/)).toBeNull();
+  });
+
+  it('refreshes a mounted preference when another window changes or clears storage', () => {
+    render(<NotificationsSection />);
+    localStorage.setItem(PREF_KEYS.notifications, JSON.stringify({ inPanel: false, onSuccess: true, onError: true, timelineLimit: 20 }));
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key: PREF_KEYS.notifications })));
+    expect(screen.getByLabelText('面板内通知')).not.toBeChecked();
+    expect(screen.getByLabelText('保留最近事件条数')).toHaveValue(20);
+    localStorage.clear();
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key: null })));
+    expect(screen.getByLabelText('面板内通知')).toBeChecked();
+  });
   it('persists a toggle across an unmount and remount', () => {
     const first = render(<NotificationsSection />);
     const toggle = screen.getByLabelText('面板内通知');
@@ -383,6 +411,14 @@ describe('PetSection', () => {
 });
 
 describe('PluginsSection', () => {
+  it('refuses prompts that would exceed the service limit before storing them', () => {
+    writePref(PREF_KEYS.plugins, { prompts: ['x'.repeat(4090)] });
+    render(<PluginsSection />);
+    fireEvent.change(screen.getByLabelText('手动续写提示词'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: '添加' }));
+    expect(screen.getByRole('status')).toHaveTextContent('超过 4096');
+    expect(JSON.parse(localStorage.getItem(PREF_KEYS.plugins)!).prompts).toHaveLength(1);
+  });
   it('rejects empty entries, adds and removes prompts, and joins them', async () => {
     render(<PluginsSection />);
     fireEvent.click(screen.getByRole('button', { name: '添加' }));

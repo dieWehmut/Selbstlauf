@@ -135,6 +135,21 @@
   flex: 1 1 auto;
 }
 
+.goal-status-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 22px;
+  margin: 20px 0 0;
+  padding: 14px;
+  border: 1px solid var(--line-whisper);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+.goal-status-settings legend { color: var(--text); font-size: 12px; }
+.goal-status-settings .section-hint { flex-basis: 100%; margin: 0; }
+.goal-status-settings label { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+.goal-status-settings input { accent-color: var(--accent); }
+
 .pref-links {
   display: flex;
   flex-wrap: wrap;

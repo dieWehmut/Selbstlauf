@@ -1968,3 +1968,100 @@ describe('window title bar', () => {
     expect(forward()).toBeDisabled();
   });
 });
+
+describe('working settings integration', () => {
+  afterEach(() => { Reflect.deleteProperty(window, 'selbstlaufDesktop'); });
+
+  it('saves the automatic continuation and per-tool switches with only resumable Goal states', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    openSettings();
+    for (const label of ['启用自动续写', '监控 Claude', '监控 Codex', '监控 DeepSeek Harness']) {
+      fireEvent.click(await screen.findByRole('checkbox', { name: label }));
+    }
+    expect(screen.queryByRole('checkbox', { name: 'Goal 状态 complete' })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Goal 状态 paused' }));
+    expect(screen.getByRole('checkbox', { name: 'Goal 状态 active' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: false,
+      tools: expect.objectContaining({
+        claude: expect.objectContaining({ enabled: false }),
+        codex: expect.objectContaining({ enabled: false, goalStatuses: ['active'] }),
+        dsh: expect.objectContaining({ enabled: false }),
+      }),
+    })));
+  });
+
+  it('keeps the current density, pet and palette after rejected storage writes', async () => {
+    render(<App api={api()} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '外观' }));
+    const previousAccent = document.documentElement.style.getPropertyValue('--accent');
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    try {
+      fireEvent.change(screen.getByRole('combobox', { name: '界面密度' }), { target: { value: 'compact' } });
+      expect(screen.getByRole('alert')).toHaveTextContent('保存失败');
+      expect(screen.getByRole('combobox', { name: '界面密度' })).toHaveValue('comfortable');
+      fireEvent.change(screen.getByRole('combobox', { name: '强调色' }), { target: { value: '#e05c93' } });
+      expect(document.documentElement.style.getPropertyValue('--accent')).toBe(previousAccent);
+      fireEvent.click(screen.getByRole('tab', { name: '宠物' }));
+      fireEvent.click(screen.getByRole('checkbox', { name: '桌面宠物' }));
+      expect(screen.getByRole('checkbox', { name: '桌面宠物' })).not.toBeChecked();
+      expect(document.querySelector('.workspace-pet')).toBeNull();
+    } finally { write.mockRestore(); }
+  });
+
+  it('disables unavailable desktop settings and reports their real read error', async () => {
+    Object.assign(window, { selbstlaufDesktop: { settings: {
+      get: async () => { throw new Error('设置文件无法读取'); }, set: vi.fn(),
+    } } });
+    render(<App api={api()} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '启动与托盘' }));
+    expect(await screen.findByText('读取桌面设置失败：设置文件无法读取')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '关闭时最小化到托盘' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '首选终端' })).toBeDisabled();
+  });
+
+  it('waits for desktop writes, retains the old value on failure and adopts changes from another window', async () => {
+    const saving = deferred<unknown>();
+    let receive: ((value: { closeToTray: boolean; preferredTerminal: string | null }) => void) | undefined;
+    const set = vi.fn(() => saving.promise);
+    const unsubscribe = vi.fn();
+    Object.assign(window, { selbstlaufDesktop: { platform: 'linux', settings: {
+      get: async () => ({ closeToTray: true, preferredTerminal: 'system' }), set,
+      onChange: (listener: typeof receive) => { receive = listener; return unsubscribe; },
+    } } });
+    const rendered = render(<App api={api()} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '启动与托盘' }));
+    const toggle = screen.getByRole('checkbox', { name: '关闭时最小化到托盘' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+    expect(screen.queryByRole('option', { name: 'PowerShell' })).toBeNull();
+    expect(screen.getByRole('option', { name: 'GNOME Terminal' })).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
+    act(() => saving.reject(new Error('磁盘写入失败')));
+    expect(await screen.findByText('保存桌面设置失败：磁盘写入失败')).toBeInTheDocument();
+    expect(toggle).toBeChecked();
+    act(() => receive?.({ closeToTray: false, preferredTerminal: 'konsole' }));
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByRole('combobox', { name: '首选终端' })).toHaveValue('konsole');
+    rendered.unmount();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('opens the selected session through the desktop terminal action and reports a real refusal', async () => {
+    const openTerminal = vi.fn().mockResolvedValueOnce({ ok: true, terminal: 'konsole' }).mockResolvedValueOnce({ ok: false, reason: '终端应用未安装' });
+    Object.assign(window, { selbstlaufDesktop: { shell: { openTerminal } } });
+    render(<App api={api()} />);
+    const button = (await screen.findAllByRole('button', { name: '打开终端 PID 13' }))[0];
+    fireEvent.click(button);
+    await waitFor(() => expect(openTerminal).toHaveBeenCalledWith('dsh:hosted'));
+    expect(await screen.findByText('已打开终端：konsole')).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(await screen.findByText('终端应用未安装')).toBeInTheDocument();
+  });
+});

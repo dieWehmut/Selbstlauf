@@ -103,6 +103,7 @@ import {
   isProfilePref,
   isTrustedContactPref,
   readPref,
+  subscribePref,
   writePref,
   type Density,
   type NotificationsPref,
@@ -225,6 +226,7 @@ interface DesktopShellBridge {
    */
   windowType?(sessionId: string, text: string, submit: boolean): Promise<WindowTypeResult>;
   openAgentWindow?(sessionId: string): Promise<void>;
+  openTerminal?(sessionId: string): Promise<{ ok: boolean; reason?: string; terminal?: string }>;
 }
 
 /** The outcome of typing into a session's window. */
@@ -260,10 +262,12 @@ export type WindowPreviewResult =
   | { readonly state: 'unsupported'; readonly reason?: string };
 
 interface DesktopBridge {
+  readonly platform?: string;
   readonly shell?: Partial<DesktopShellBridge>;
   readonly settings?: {
     get(): Promise<{ closeToTray?: boolean; preferredTerminal?: string | null }>;
     set(patch: { closeToTray?: boolean; preferredTerminal?: string }): Promise<unknown>;
+    onChange?(listener: (prefs: { closeToTray: boolean; preferredTerminal: string | null }) => void): () => void;
   };
   /** Named commands from the menu bar and the tray. */
   onCommand?(listener: (payload: { command?: string; section?: string }) => void): () => void;
@@ -779,9 +783,10 @@ interface SessionActionsProps {
   onFocus: (session: SessionView) => void;
   /** 电脑操控 can switch the reveal action off for the whole app. */
   allowReveal?: boolean;
+  onOpenTerminal?: (session: SessionView) => void;
 }
 
-function SessionActions({ session, busy, onPause, onInject, onFocus, allowReveal = true }: SessionActionsProps) {
+function SessionActions({ session, busy, onPause, onInject, onFocus, allowReveal = true, onOpenTerminal }: SessionActionsProps) {
   const waiting = busy === session.id;
   return (
     <div className="row-actions">
@@ -795,6 +800,7 @@ function SessionActions({ session, busy, onPause, onInject, onFocus, allowReveal
       >
         <SquareArrowOutUpRight size={17} />
       </button>
+      {onOpenTerminal !== undefined && <button className="icon-button" type="button" title="在首选终端中打开工作目录" aria-label={`打开终端 PID ${session.rootPid}`} disabled={waiting || !allowReveal || !session.alive || !session.sessionCwd} onClick={() => onOpenTerminal(session)}><Terminal size={17} /></button>}
       <button
         className="icon-button"
         type="button"
@@ -858,6 +864,7 @@ function ProcessTable(props: {
   onInject: (session: SessionView) => void;
   onFocus: (session: SessionView) => void;
   allowReveal?: boolean;
+  onOpenTerminal?: (session: SessionView) => void;
 }) {
   /**
    * With nothing discovered, there is nothing to tabulate.
@@ -896,7 +903,7 @@ function ProcessTable(props: {
                 <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle conversation-id">{session.conversationId ?? '未关联'}</span></td>
                 <td><strong>{formatDuration(quietMs(session))}</strong><DecisionChip decision={session.lastDecision} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
-                <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} /></td>
+                <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} onOpenTerminal={props.onOpenTerminal} /></td>
               </tr>
             ))}
           </tbody>
@@ -912,7 +919,7 @@ function ProcessTable(props: {
               <div><dt>静默</dt><dd>{formatDuration(quietMs(session))}</dd></div>
               <div className="session-card__prompt"><dt>下一输入</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
             </dl>
-            <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} /></footer>
+            <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} onOpenTerminal={props.onOpenTerminal} /></footer>
           </article>
         ))}
       </div>
@@ -938,6 +945,7 @@ function ProcessDetail(props: {
   readonly onInject: (session: SessionView) => void;
   readonly onFocus: (session: SessionView) => void;
   readonly allowReveal: boolean;
+  readonly onOpenTerminal?: (session: SessionView) => void;
   /** Absent outside the desktop shell, where no window can be captured. */
   readonly requestPreview?: (sessionId: string) => Promise<WindowPreviewResult>;
   readonly requestOutput?: (sessionId: string) => Promise<SessionOutputView>;
@@ -1042,6 +1050,7 @@ function ProcessDetail(props: {
           onInject={props.onInject}
           onFocus={props.onFocus}
           allowReveal={props.allowReveal}
+          onOpenTerminal={props.onOpenTerminal}
         />
       </footer>
 
@@ -1716,6 +1725,10 @@ function SettingsPanel(props: {
   preferredTerminal: string | null;
   onPreferredTerminalChange: (value: string) => void;
   desktopBridgeAvailable: boolean;
+  desktopPlatform?: string;
+  desktopSettingsBusy?: boolean;
+  desktopSettingsError?: string | null;
+  staticDemo: boolean;
   /** Origin this WebUI is served from. */
   origin: string;
 }) {
@@ -1756,6 +1769,7 @@ function SettingsPanel(props: {
           which restarts the CSS enter animation: switching sections then reads as a change of
           place rather than as text silently swapping under the cursor. */}
       <div className="settings-content" key={activeSection}>
+      {props.staticDemo && <p className="section-hint settings-section--wide" role="note">演示模式：设置保存在此浏览器。Watchdog、启动项、Stop Hook、Codex 端点与工具安装操作仅模拟，不会操作本机进程或文件。</p>}
       {activeSection === 'appearance' && (
         <>
           <AppearancePanel
@@ -1796,6 +1810,8 @@ function SettingsPanel(props: {
       <section className="settings-section settings-section--wide">
         <div className="section-title"><div><span className="eyebrow">Watchdog</span><h2>常规</h2></div><Gauge size={20} /></div>
         <p className="section-hint">检测节奏、续写提示词与进程范围，保存后立即生效。</p>
+        <div className="switch-row"><div><strong>启用自动续写</strong><span>关闭后继续发现进程和记录事件，停止自动发送续写提示词</span></div><label className="switch"><input aria-label="启用自动续写" type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span /></label></div>
+        {(['claude', 'codex', 'dsh'] as const).map((tool) => <div className="switch-row" key={tool}><div><strong>监控 {toolLabel(tool)}</strong><span>控制该工具的自动续写；进程仍显示以便查看</span></div><label className="switch"><input aria-label={`监控 ${toolLabel(tool)}`} type="checkbox" checked={draft.tools[tool].enabled} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, [tool]: { ...draft.tools[tool], enabled: event.target.checked } } })} /><span /></label></div>)}
       </section>
       <section className="settings-section">
         <div className="section-title"><div><span className="eyebrow">Timing</span><h2>检测节奏</h2></div><Gauge size={20} /></div>
@@ -1817,6 +1833,7 @@ function SettingsPanel(props: {
         </div>
         <div className="switch-row"><div><strong>允许续写 DeepSeek Harness</strong><span>通过 Harness 自己的本机会话接口写入，仅在会话已停止且能完成本机认证时生效</span></div><label className="switch"><input aria-label="允许续写 DeepSeek Harness" type="checkbox" checked={draft.tools.dsh.allowApiInput} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, allowApiInput: event.target.checked } } })} /><span /></label></div>
         <div className="switch-row"><div><strong>Dry run</strong><span>只记录决策，不写入进程</span></div><label className="switch"><input aria-label="Dry run" type="checkbox" checked={draft.dryRun} onChange={(event) => setDraft({ ...draft, dryRun: event.target.checked })} /><span /></label></div>
+        <fieldset className="goal-status-settings"><legend>Codex Goal 续写状态</legend><p className="section-hint">选中的 active / paused 状态使用 Goal 提示词；至少保留一个状态。其他状态使用普通对话提示词。</p>{(['active', 'paused'] as const).map((status) => <label key={status}><input type="checkbox" aria-label={`Goal 状态 ${status}`} disabled={draft.tools.codex.goalStatuses.length === 1 && draft.tools.codex.goalStatuses.includes(status)} checked={draft.tools.codex.goalStatuses.includes(status)} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, goalStatuses: event.target.checked ? [...draft.tools.codex.goalStatuses, status] : draft.tools.codex.goalStatuses.filter((entry) => entry !== status) } } })} /><span>{status === 'active' ? 'active（进行中）' : 'paused（已暂停）'}</span></label>)}</fieldset>
       </section>
       <section className="settings-section settings-section--wide">
         <div className="section-title"><div><span className="eyebrow">Processes</span><h2>进程范围</h2></div><ShieldAlert size={20} /></div>
@@ -1918,12 +1935,14 @@ function SettingsPanel(props: {
         <StartupSection
           startupInstalled={props.startupInstalled}
           onToggleStartup={props.onToggleStartup}
-          busy={props.saving}
+          busy={props.saving || props.desktopSettingsBusy}
           closeToTray={props.closeToTray}
           onCloseToTrayChange={props.onCloseToTrayChange}
           preferredTerminal={props.preferredTerminal}
           onPreferredTerminalChange={props.onPreferredTerminalChange}
           desktopBridgeAvailable={props.desktopBridgeAvailable}
+          platform={props.desktopPlatform}
+          error={props.desktopSettingsError}
         />
       )}
       {activeSection === 'computer-control' && (
@@ -2092,6 +2111,7 @@ function TitleBar(props: {
                 type="button"
                 aria-haspopup="menu"
                 aria-expanded={openMenu === label}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => setOpenMenu((current) => (current === label ? null : label))}
               >
                 {label}
@@ -2115,6 +2135,7 @@ function TitleBar(props: {
                         disabled={disabled}
                         aria-disabled={disabled}
                         title={needsBridge ? '仅在桌面应用中可用' : undefined}
+                        onMouseDown={(event) => event.preventDefault()}
                         onClick={() => {
                           setOpenMenu(null);
                           props.onAction(entry);
@@ -2199,7 +2220,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
     setSidebarOpen(false);
   };
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
-    const stored = localStorage.getItem('watchdog-theme');
+    let stored: string | null = null;
+    try { stored = localStorage.getItem('watchdog-theme'); } catch { /* Unavailable storage uses the default theme. */ }
     return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark';
   });
   // Per-scheme palette overrides, so a custom dark palette survives a switch
@@ -2242,6 +2264,10 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   /** Desktop-shell preferences, mirrored from the main process when available. */
   const [closeToTray, setCloseToTray] = useState<boolean | null>(null);
   const [preferredTerminal, setPreferredTerminal] = useState<string | null>(null);
+  const [desktopSettingsReady, setDesktopSettingsReady] = useState(false);
+  const [desktopSettingsBusy, setDesktopSettingsBusy] = useState(false);
+  const [desktopSettingsError, setDesktopSettingsError] = useState<string | null>(null);
+  const [preferenceError, setPreferenceError] = useState<string | null>(null);
   /**
    * The window-preview request, or null outside the desktop shell.
    *
@@ -2363,35 +2389,72 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
    */
   useEffect(() => {
     const settings = bridge?.settings;
-    if (settings === undefined) return undefined;
+    if (typeof settings?.get !== 'function' || typeof settings.set !== 'function') return undefined;
     let active = true;
+    const apply = (current: { closeToTray?: boolean; preferredTerminal?: string | null }) => {
+      if (!active) return;
+      if (typeof current.closeToTray !== 'boolean') {
+        setDesktopSettingsError('桌面应用未提供可用的窗口设置');
+        return;
+      }
+      setCloseToTray(current.closeToTray);
+      setPreferredTerminal(current.preferredTerminal ?? null);
+      setDesktopSettingsReady(true);
+      setDesktopSettingsError(null);
+    };
+    const unsubscribe = settings.onChange?.(apply);
     void (async () => {
       try {
         const current = await settings.get();
-        if (!active) return;
-        setCloseToTray(current.closeToTray ?? null);
-        setPreferredTerminal(current.preferredTerminal ?? null);
-      } catch {
-        // An older bridge without these fields leaves the rows disabled.
+        apply(current);
+      } catch (error) {
+        if (active) setDesktopSettingsError(`读取桌面设置失败：${error instanceof Error ? error.message : String(error)}`);
       }
     })();
-    return () => { active = false; };
+    return () => { active = false; unsubscribe?.(); };
   }, [bridge]);
 
-  const changeCloseToTray = (value: boolean) => {
-    setCloseToTray(value);
-    void bridge?.settings?.set({ closeToTray: value }).catch(() => setNotice('关闭行为保存失败', 'error'));
+  const changeDesktopSettings = async (patch: { closeToTray?: boolean; preferredTerminal?: string }) => {
+    if (!desktopSettingsReady || desktopSettingsBusy || bridge?.settings === undefined) return;
+    setDesktopSettingsBusy(true);
+    setDesktopSettingsError(null);
+    try {
+      await bridge.settings.set(patch);
+      if (patch.closeToTray !== undefined) setCloseToTray(patch.closeToTray);
+      if (patch.preferredTerminal !== undefined) setPreferredTerminal(patch.preferredTerminal);
+    } catch (error) {
+      setDesktopSettingsError(`保存桌面设置失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally { setDesktopSettingsBusy(false); }
   };
 
-  const changePreferredTerminal = (value: string) => {
-    setPreferredTerminal(value);
-    void bridge?.settings?.set({ preferredTerminal: value }).catch(() => setNotice('首选终端保存失败', 'error'));
-  };
+  const changeCloseToTray = (value: boolean) => { void changeDesktopSettings({ closeToTray: value }); };
+  const changePreferredTerminal = (value: string) => { void changeDesktopSettings({ preferredTerminal: value }); };
 
   const changeAllowReveal = (allowed: boolean) => {
+    if (!persistPreference(PREF_KEYS.computerControl, { allowReveal: allowed })) return;
     setAllowReveal(allowed);
-    writePref(PREF_KEYS.computerControl, { allowReveal: allowed });
   };
+
+  const persistPreference = (key: string, value: unknown): boolean => {
+    if (!writePref(key, value)) {
+      setPreferenceError('保存失败：浏览器存储不可用或空间不足，请释放空间后重试');
+      return false;
+    }
+    setPreferenceError(null);
+    return true;
+  };
+
+  const openSessionTerminal = typeof bridge?.shell?.openTerminal === 'function'
+    ? async (session: SessionView) => {
+      if (!allowReveal || !session.alive) return;
+      setBusy(session.id);
+      try {
+        const result = await bridge.shell!.openTerminal!(session.id);
+        if (!result.ok) throw new Error(result.reason ?? '终端无法打开');
+        setNotice(`已打开终端${result.terminal ? `：${result.terminal}` : ''}`);
+      } catch (error) { setNotice(error instanceof Error ? error.message : String(error), 'error'); }
+      finally { setBusy(null); }
+    } : undefined;
 
   /**
    * Keyboard shortcuts, exactly the set the 键盘快捷键 section documents.
@@ -2472,8 +2535,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   }, [personalization.density]);
   const changeDensity = (density: Density) => {
     const next = { ...personalization, density };
+    if (!persistPreference(PREF_KEYS.personalization, next)) return;
     setPersonalization(next);
-    writePref(PREF_KEYS.personalization, next);
   };
 
   /**
@@ -2486,9 +2549,27 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
    */
   const [pet, setPet] = useState(() => readPref(PREF_KEYS.pet, PET_DEFAULTS, isPetPref));
   const changePet = (next: PetPref) => {
+    if (!persistPreference(PREF_KEYS.pet, next)) return;
     setPet(next);
-    writePref(PREF_KEYS.pet, next);
   };
+
+  useEffect(() => {
+    const unsubscribe = [
+      subscribePref(PREF_KEYS.notifications, () => setNotifications(readPref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref))),
+      subscribePref(PREF_KEYS.profile, () => setDisplayName(readPref(PREF_KEYS.profile, PROFILE_DEFAULTS, isProfilePref).displayName)),
+      subscribePref(PREF_KEYS.personalization, () => setPersonalization(readPref(PREF_KEYS.personalization, PERSONALIZATION_DEFAULTS, isPersonalizationPref))),
+      subscribePref(PREF_KEYS.pet, () => setPet(readPref(PREF_KEYS.pet, PET_DEFAULTS, isPetPref))),
+      subscribePref(PREF_KEYS.computerControl, () => setAllowReveal(readPref(PREF_KEYS.computerControl, { allowReveal: true }, isRevealPref).allowReveal)),
+      subscribePref(PREF_KEYS.pinnedSessions, () => setPinnedIds(readPref(PREF_KEYS.pinnedSessions, PINNED_SESSIONS_DEFAULTS, isPinnedSessionsPref).ids)),
+      subscribePref('watchdog-theme', () => {
+        let stored: string | null = null;
+        try { stored = localStorage.getItem('watchdog-theme'); } catch { /* Default below. */ }
+        setThemePreference(stored === 'light' || stored === 'system' ? stored : 'dark');
+      }),
+      subscribePref(PALETTE_STORAGE_KEY, () => setPaletteOverrides(loadPaletteOverrides())),
+    ];
+    return () => unsubscribe.forEach((dispose) => dispose());
+  }, []);
 
   /**
    * Run a title bar menu item.
@@ -2658,15 +2739,14 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
     });
   }, [bridge, palette, theme]);
 
-  useEffect(() => {
-    localStorage.setItem(PALETTE_STORAGE_KEY, JSON.stringify(paletteOverrides));
-  }, [paletteOverrides]);
-
-  // The stored value is the preference, so "system" survives a reload and
-  // re-resolves against whatever the OS reports then.
-  useEffect(() => {
-    localStorage.setItem('watchdog-theme', themePreference);
-  }, [themePreference]);
+  const changeThemePreference = (next: ThemePreference) => {
+    // The boot script reads this legacy key as a plain string before React mounts.
+    try {
+      localStorage.setItem('watchdog-theme', next);
+      setThemePreference(next);
+      setPreferenceError(null);
+    } catch { setPreferenceError('保存失败：浏览器存储不可用或空间不足，请释放空间后重试'); }
+  };
 
   // Follow the OS while "system" is selected, and stop listening otherwise.
   useEffect(() => {
@@ -2851,18 +2931,14 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
    * custom dark accent where it was set.
    */
   const changePalette = (patch: Partial<ThemePalette>) => {
-    setPaletteOverrides((current) => ({
-      ...current,
-      [theme]: { ...(current[theme] ?? DEFAULT_PALETTES[theme]), ...patch },
-    }));
+    const next = { ...paletteOverrides, [theme]: { ...(paletteOverrides[theme] ?? DEFAULT_PALETTES[theme]), ...patch } };
+    if (persistPreference(PALETTE_STORAGE_KEY, next)) setPaletteOverrides(next);
   };
 
   const resetPalette = () => {
-    setPaletteOverrides((current) => {
-      const next = { ...current };
-      delete next[theme];
-      return next;
-    });
+    const next = { ...paletteOverrides };
+    delete next[theme];
+    if (persistPreference(PALETTE_STORAGE_KEY, next)) setPaletteOverrides(next);
   };
 
   const importTheme = async () => {
@@ -2871,9 +2947,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       const text = await navigator.clipboard.readText();
       const parsed = JSON.parse(text) as unknown;
       if (!isThemePalette(parsed)) throw new TypeError('剪贴板里不是有效的主题配置');
-      const imported = normalizePalette(parsed, DEFAULT_PALETTES[theme]);
-      setPaletteOverrides((current) => ({ ...current, [theme]: imported }));
-      setNotice('主题已导入');
+      await importThemeText(text);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '导入失败', 'error');
     }
@@ -2893,7 +2967,9 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const importThemeText = async (text: string) => {
     const parsed = JSON.parse(text) as unknown;
     if (!isThemePalette(parsed)) throw new TypeError('剪贴板里不是有效的主题配置');
-    setPaletteOverrides((current) => ({ ...current, [theme]: normalizePalette(parsed, DEFAULT_PALETTES[theme]) }));
+    const next = { ...paletteOverrides, [theme]: normalizePalette(parsed, DEFAULT_PALETTES[theme]) };
+    if (!persistPreference(PALETTE_STORAGE_KEY, next)) throw new Error('浏览器存储不可用或空间不足，主题未保存');
+    setPaletteOverrides(next);
     setNotice('主题已导入');
   };
 
@@ -3195,7 +3271,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
                 </div>
 
                 <div className="account-menu" role="menu" aria-label="账户与状态菜单">
-                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setThemePreference(theme === 'dark' ? 'light' : 'dark'); setAccountMenuOpen(false); }}>
+                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { changeThemePreference(theme === 'dark' ? 'light' : 'dark'); setAccountMenuOpen(false); }}>
                     {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
                     <span>切换到{theme === 'dark' ? '亮色' : '暗色'}主题</span>
                   </button>
@@ -3248,6 +3324,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       )}
 
       <main className="workspace">
+        {preferenceError && <p className="notice notice--error" role="alert">{preferenceError}</p>}
         <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'process' ? '进程详情' : page === 'agents' ? '智能体窗口' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><button className="button button--primary agent-launch-button" type="button" aria-label="启动智能体" onClick={() => setLauncherOpen(true)}><CirclePlay size={16} />启动智能体</button><span className="poll-age"><Activity size={14} />{health.lastPollAtMs === null ? '尚未轮询' : `轮询 ${formatDuration(Math.max(0, Date.now() - health.lastPollAtMs))} 前`}</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>
 
         {notice !== null
@@ -3257,7 +3334,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
 
         {page === 'overview' && <div className="page-content">
           <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{liveSessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>Watchdog</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : live ? '已停止' : '离线'}</strong></div></section>
-          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${live ? 'is-online' : ''}`} />{live ? '实时同步' : staticDemo ? '离线预览' : '等待连接'}</span></div><ProcessTable sessions={liveSessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} /></section>
+          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${live ? 'is-online' : ''}`} />{live ? '实时同步' : staticDemo ? '离线预览' : '等待连接'}</span></div><ProcessTable sessions={liveSessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} onOpenTerminal={openSessionTerminal} /></section>
           <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => navigate('timeline')}>查看全部</button></div><Timeline events={visibleEvents.slice(0, 5)} /></section>
         </div>}
 
@@ -3278,6 +3355,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
             onFocus={(session) => void focusSession(session)}
             onSendPrompt={(session, prompt) => mutateSession(session, 'inject', prompt)}
             {...(staticDemo || api.output === undefined ? {} : { requestOutput: api.output })}
+            onOpenTerminal={openSessionTerminal}
             {...(previewWindow === null ? {} : { requestPreview: previewWindow })}
             {...(typeIntoWindow === null ? {} : { onTypeIntoWindow: typeIntoWindow })}
             windowSharedBy={
@@ -3299,7 +3377,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         }} /></div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={setThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={bridge !== null} origin={window.location.origin} connected={live} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={changeThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={desktopSettingsReady} desktopPlatform={bridge?.platform} desktopSettingsBusy={desktopSettingsBusy} desktopSettingsError={desktopSettingsError} staticDemo={staticDemo} origin={`${window.location.origin}${import.meta.env.BASE_URL}`} connected={live} /></div>}
       </main>
 
       {launcherOpen && <AgentLauncher api={agentsApi} demo={staticDemo} onClose={() => setLauncherOpen(false)} onLaunch={(session) => {

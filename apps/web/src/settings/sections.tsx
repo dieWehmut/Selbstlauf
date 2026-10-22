@@ -142,11 +142,10 @@ export function NotificationsSection(props: {
   /** The app holds these preferences, so a change has to reach it: the notice strip filters on them. */
   readonly onChange?: (pref: NotificationsPref) => void;
 }) {
-  const [pref, setPref] = usePref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref);
+  const [pref, setPref, error] = usePref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref);
   const patch = (next: Partial<NotificationsPref>) => {
     const updated = { ...pref, ...next };
-    setPref(updated);
-    props.onChange?.(updated);
+    if (setPref(updated)) props.onChange?.(updated);
   };
 
   const setLimit = (raw: number) => {
@@ -191,6 +190,7 @@ export function NotificationsSection(props: {
           onChange={(event) => setLimit(Number(event.target.value))}
         />
       </div>
+      {error && <ResultChip tone="error">{error}</ResultChip>}
     </Section>
   );
 }
@@ -302,12 +302,11 @@ export function ImportSection(props: {
 export function ProfileSection(props: {
   readonly onDisplayNameChange?: (name: string) => void;
 }) {
-  const [pref, setPref] = usePref(PREF_KEYS.profile, PROFILE_DEFAULTS, isProfilePref);
+  const [pref, setPref, error] = usePref(PREF_KEYS.profile, PROFILE_DEFAULTS, isProfilePref);
   const patch = (next: Partial<ProfilePref>) => setPref({ ...pref, ...next });
 
   const rename = (displayName: string) => {
-    patch({ displayName });
-    props.onDisplayNameChange?.(displayName);
+    if (patch({ displayName })) props.onDisplayNameChange?.(displayName);
   };
 
   /**
@@ -326,6 +325,7 @@ export function ProfileSection(props: {
           <input value={pref.displayName} onChange={(event) => rename(event.target.value)} />
         </Field>
       </div>
+      {error && <ResultChip tone="error">{error}</ResultChip>}
     </Section>
   );
 }
@@ -602,14 +602,21 @@ export function StartupSection(props: {
   readonly preferredTerminal: string | null;
   readonly onPreferredTerminalChange: (value: string) => void;
   readonly desktopBridgeAvailable: boolean;
+  readonly platform?: string;
+  readonly error?: string | null;
 }) {
   const bridge = props.desktopBridgeAvailable;
   const terminal = props.preferredTerminal ?? 'system';
-  const knownTerminals = TERMINAL_OPTIONS.map((option) => option.value as string);
+  const platformTerminals = props.platform === 'linux'
+    ? [{ value: 'system', label: '系统默认' }, { value: 'x-terminal-emulator', label: '系统终端（x-terminal-emulator）' }, { value: 'gnome-terminal', label: 'GNOME Terminal' }, { value: 'konsole', label: 'Konsole' }, { value: 'xterm', label: 'XTerm' }]
+    : props.platform === 'darwin'
+      ? [{ value: 'system', label: '系统默认' }, { value: 'terminal', label: 'Terminal' }, { value: 'iterm', label: 'iTerm' }]
+      : TERMINAL_OPTIONS;
+  const knownTerminals = platformTerminals.map((option) => option.value as string);
   // An unknown stored value is still shown honestly rather than silently replaced.
   const terminalOptions = knownTerminals.includes(terminal)
-    ? TERMINAL_OPTIONS
-    : [...TERMINAL_OPTIONS, { value: terminal, label: terminal }];
+    ? platformTerminals
+    : [...platformTerminals, { value: terminal, label: terminal }];
 
   return (
     <Section
@@ -629,7 +636,7 @@ export function StartupSection(props: {
         label="关闭时最小化到托盘"
         hint="勾选后点击关闭按钮会隐藏到系统托盘，取消则直接退出应用"
         checked={props.closeToTray === true}
-        disabled={!bridge}
+        disabled={!bridge || props.busy === true}
         chip={!bridge && (
           <span className="state-chip state-chip--limited">
             <span className="state-chip__dot" />需要桌面应用
@@ -638,11 +645,11 @@ export function StartupSection(props: {
         onChange={props.onCloseToTrayChange}
       />
       <div className="field-stack">
-        <p className="section-hint">选择点击终端按钮时使用的终端应用（当前仅保存偏好）</p>
+        <p className="section-hint">进程详情或进程列表中的终端按钮会在工作目录打开这里选择的应用。</p>
         <Field label="首选终端">
           <select
             aria-label="首选终端"
-            disabled={!bridge}
+            disabled={!bridge || props.busy === true}
             value={terminal}
             onChange={(event) => props.onPreferredTerminalChange(event.target.value)}
           >
@@ -652,6 +659,7 @@ export function StartupSection(props: {
           </select>
         </Field>
       </div>
+      {props.error && <ResultChip tone="error">{props.error}</ResultChip>}
     </Section>
   );
 }
@@ -674,7 +682,7 @@ export interface UsageSnapshot {
 /* ------------------------------------------------------------------ */
 
 export function PluginsSection() {
-  const [pref, setPref] = usePref(PREF_KEYS.plugins, PLUGINS_DEFAULTS, isPluginsPref);
+  const [pref, setPref, storageError] = usePref(PREF_KEYS.plugins, PLUGINS_DEFAULTS, isPluginsPref);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
 
@@ -684,9 +692,17 @@ export function PluginsSection() {
       setError('提示词不能为空');
       return;
     }
+    if (/[\0\r\n]/u.test(value)) {
+      setError('提示词必须为单行文本');
+      return;
+    }
+    const prompts = [...pref.prompts, value];
+    if (prompts.join(' ').length > 4096) {
+      setError('合并后的提示词超过 4096 字符，请缩短或移除已有内容');
+      return;
+    }
     setError('');
-    setPref({ prompts: [...pref.prompts, value] });
-    setDraft('');
+    if (setPref({ prompts })) setDraft('');
   };
 
   const remove = (index: number) => {
@@ -711,6 +727,7 @@ export function PluginsSection() {
         <button className="button button--secondary" type="button" onClick={add}>添加</button>
       </div>
       {error && <ResultChip tone="error">{error}</ResultChip>}
+      {storageError && <ResultChip tone="error">{storageError}</ResultChip>}
       {pref.prompts.length === 0
         ? <p className="settings-rail-note">暂无提示词</p>
         : (
@@ -756,7 +773,7 @@ export function BrowserSection(props: {
     <Section
       eyebrow="Browser"
       title="浏览器访问"
-      hint="在浏览器中打开同一个本机面板。"
+      hint="在浏览器中打开当前面板。"
       icon={<ExternalLink size={20} />}
     >
       <div className="pref-rows">
