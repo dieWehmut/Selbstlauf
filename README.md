@@ -324,6 +324,18 @@ npm --workspace apps/desktop run smoke         # 无界面校验内置服务
 `resources\scripts\continuation\start-watchdog.ps1`，并回退到随包提供的
 `service-dist` 入口，因此不依赖仓库源码。
 
+### 智能体窗口：真实输入输出
+
+侧栏的「智能体窗口」为每个窗口启动一个真实 PTY 进程，页面里显示的就是该进程自己写出的字节；键盘、多行粘贴和输入框发送都写回同一个 PTY。点「启动智能体」可以选择本机已安装的 Claude Code、OpenCode、Codex、Gemini CLI 或终端，也可以填任意可执行文件；工作目录、窗口名称和每个参数都原样传入。
+
+```bash
+npm install
+npm start          # 构建并启动服务与 WebUI：http://127.0.0.1:48920
+npm run verify:agent-windows   # 用真实浏览器启动真实 CLI 并验证输入输出
+```
+
+`scripts/verify/agent-windows-live.mjs` 会起一个使用一次性状态目录的服务，用 Chromium 走完「点启动 → 看到 CLI 自己的界面 → 输入 → 读到回复」整条路。真机记录见 [2026-10-22 验证](docs/verification/2026-10-22-agent-windows-live.md)：Claude Code 2.1.278、OpenCode 1.19.3、Codex 0.163.0 三个 TUI 都在窗口里画出来了，多行中文输入得到回显，codex 还完成了一次真实模型往返。加 `--no-model` 可跳过花 token 的那一步。
+
 ### Claude Stop Hook
 
 Claude 的 Stop Hook 默认关闭。打开本机 WebUI 的“设置”页，确认 `dryRun` 状态，

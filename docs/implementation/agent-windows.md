@@ -36,6 +36,19 @@
 - 本机浏览器实际启动 PATH 中的 Claude Code、OpenCode、Codex，`--version` 均正常显示并以退出码 0 结束。这里验证真实 CLI 启动，不把测试用 Node 进程当成模型回复。
 - CLI：287 项通过、11 项 Windows 专用测试跳过；前端：264 项通过；两项浏览器终端测试通过。
 
+## 任务 5 验证
+
+这一轮补的是「真的能用」的证据，而不是又一层单元测试。完整记录见
+[2026-10-22 真机验证](../verification/2026-10-22-agent-windows-live.md)。
+
+- 新增 `scripts/verify/agent-windows-live.mjs`：启动真实服务（一次性状态目录），用真实 Chromium 打开真实 WebUI，像人一样点「启动智能体」、选工具、命名窗口、按「启动」，然后断言浏览器收到的字节。
+- 三个预设在本机各自画出了自己的 TUI：Claude Code 2.1.278（`Welcome to Claude Code`）、OpenCode 1.19.3（wordmark 与 `Ask anything`）、Codex 0.163.0（`› Ask Codex to do anything`）。
+- 输入输出往返：在窗口输入框里发多行中文，PTY 收到两行并回显，xterm 把回复渲染在屏幕上。
+- 真实模型往返：在 codex 窗口里发一句指令，要求只回 `SELBSTLAUF_WINDOW_OK`。断言要求**第二次**独立出现（提示词本身含标记、TUI 也会回显提示词，只出现一次什么都证明不了），实测 marker occurrences: 2。
+- 启动入口：根 `package.json` 增加 `verify:agent-windows`，CLI 工作区增加 `start`，`npm start` 直接起服务。
+- 回归：CLI 306 项（295 通过 / 11 项 Windows 专用跳过）、前端 270 项、浏览器 93 项、智能体浏览器 6 项、桌面 149 项。
+- 本机限制如实记录：Claude Code 在这台机器上连不上 `api.anthropic.com`（TLS 校验失败），窗口本身正常；Electron 端到端需要显示器，这台 WSL 没有，桌面版只跑了 149 项工作区测试。
+
 ## 任务 4 验证
 
 - 原有进程详情页读取该进程唯一关联的 Claude JSONL、Codex rollout 或 DeepSeek Harness projection，展示真实输入、回复及工具输出。读取范围有上限，不接收客户端提供的文件路径；关联失败显示实际原因。
