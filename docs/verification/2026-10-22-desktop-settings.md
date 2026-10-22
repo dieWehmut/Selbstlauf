@@ -86,5 +86,19 @@ terminal success is not claimed. Cmd, Windows Terminal, macOS terminal applicati
 arguments are covered by command/quoting checks, not by a graphical native run
 of every terminal application.
 
-No installer or live user configuration was changed by this script. Packaging
-and reinstalling the same local version are separate final checks.
+## Packaged Windows application
+
+The same full check also passed against
+`C:/Users/han/AppData/Local/Temp/selbstlauf-settings-package-20261022/win-unpacked/Selbstlauf.exe`
+(version 0.9.5). The managed shell and independent viewer are started by that
+packaged app's native node-pty dependency, resolved from the app's asar/unpacked
+layout. The UI, service, preload and terminal action come from the package.
+
+The external PowerShell in this run was PID 35852. Its real environment block
+confirmed the run's own `terminal cwd 项目 空格` directory. Closing the package's
+main window hid it with close-to-tray enabled and terminated it after that
+setting was turned off. All eleven checks passed with no page errors; the
+package's nine screenshots and full log live under `app/packaged/`.
+
+No installer or live user configuration was changed by this script. Reinstalling
+the same local version remains a separate final check.
