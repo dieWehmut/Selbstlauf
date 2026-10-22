@@ -516,8 +516,13 @@ The repository's `.github/workflows/deploy-pages.yml` builds the static demo on
 pushes to `main` and publishes it through GitHub Actions. Enable **GitHub
 Actions** as the Pages source once in repository Settings. The public project
 site is [https://dieWehmut.github.io/Selbstlauf/](https://dieWehmut.github.io/Selbstlauf/).
-Pages uses in-memory sample data and cannot install a local Hook or inject into
-processes; those actions are available only from the localhost watchdog.
+Pages resets sample processes on reload and saves settings in this browser's
+local storage. Installation, startup, Hook, endpoint and upgrade actions change
+demo state only; real actions are available from the localhost watchdog.
+`npm --workspace apps/web run test:pages` verifies the production demo at
+`/Selbstlauf/`, including responsive settings and persistence after reload, before
+the workflow deploys `apps/web/dist-pages`. The live desktop bundle uses
+`apps/web/dist`.
 
 ## Upstream documentation
 

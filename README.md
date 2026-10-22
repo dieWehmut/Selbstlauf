@@ -594,11 +594,18 @@ uses local sample data and never connects to or injects input into local CLI
 processes.
 
 The project-site URL is
-`https://dieWehmut.github.io/Selbstlauf/`. The Pages demo uses in-memory sample
-data and never touches local CLI processes; local installation and Hook actions
-are available only from the watchdog served on `127.0.0.1`. Pushes to `main`
+`https://dieWehmut.github.io/Selbstlauf/`. The Pages demo resets sample processes
+on reload and saves settings in this browser's local storage. Installation,
+startup, Hook, endpoint and upgrade buttons change demo state only; real local
+actions are available from the watchdog served on `127.0.0.1`. Pushes to `main`
 run `.github/workflows/deploy-pages.yml`, build the static demo, and publish it
 through GitHub Actions.
+
+`npm --workspace apps/web run test:pages` builds the production demo into
+`apps/web/dist-pages`, serves it under `/Selbstlauf/`, and verifies settings at
+desktop, tablet and mobile widths, including persistence after reload. The Pages
+workflow requires this check before deploying; the live desktop bundle remains
+in `apps/web/dist`.
 
 ## 上游文档
 

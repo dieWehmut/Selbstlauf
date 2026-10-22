@@ -438,8 +438,12 @@ npm --workspace apps/web run dev
 `.github/workflows/deploy-pages.yml` 會在推送 `main` 時建置靜態展示並透過
 GitHub Actions 發佈；請先在儲存庫 Settings 將 Pages 來源設為 **GitHub Actions**。
 公開網址是 [https://dieWehmut.github.io/Selbstlauf/](https://dieWehmut.github.io/Selbstlauf/)。
-Pages 使用記憶體內範例資料，不會安裝本機 Hook 或對程序輸入；這些操作只在
+Pages 在重新載入時重設範例程序，並將設定儲存在此瀏覽器的本機儲存空間。
+安裝、啟動項、Hook、端點及升級按鈕只改變展示狀態；實際操作只在
 `127.0.0.1` 的 watchdog 介面提供。
+`npm --workspace apps/web run test:pages` 會驗證 `/Selbstlauf/` 正式建置的
+桌面、平板、手機設定畫面及重新載入後的持久化；工作流程通過後才部署
+`apps/web/dist-pages`，桌面版仍使用 `apps/web/dist`。
 
 ## 上游文件
 
