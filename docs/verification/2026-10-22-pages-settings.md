@@ -85,10 +85,11 @@ corresponding service or installed desktop evidence.
 | Computer control | Reveal permission disables all process reveal buttons and guards the action. | App tests inspect disabling; Pages proves preference reload. Hosted demo focus rejects explicitly. |
 | Plugins | Add/remove validated single-line prompts, combined length ≤4096; one-click continuation sends the joined list. | App tests inspect actual supplied API prompt, section tests validate input; Pages proves reload of joined list. |
 | Browser | Displays current entry and resolved theme; opens the full repository subpath in a new window. | Production Pages directly checks displayed `/Selbstlauf/` and loaded popup. Desktop `file:` entry still needs installed-app browser-action evidence. |
-| About | Project/release links, version/service/loop facts; environment refresh, per-outdated-tool upgrade, bulk upgrades, manual-command expansion/copy. | Pages proves a simulated upgrade survives reload; App/service tests cover refresh/error/copy/upgrade. Tool cards now offer installation for missing tools and upgrade for outdated tools; managed-agent launch errors and manual command guidance are translated. Current cards describe their installed state. Upgrade buttons use `@latest`; no upgrade was invoked on the actual machine during this work. |
+| About | Project/release links, version/service/loop facts; environment refresh, per-outdated-tool upgrade, bulk upgrades, manual-command expansion/copy. | Pages proves a simulated upgrade survives reload; App/service tests cover refresh/error/copy/upgrade. Tool-card action buttons remain limited to outdated tools; missing tools have manual installation commands in the environment section. Managed-agent launch errors and that guidance are translated. A missing-tool installation button remains an implementation gap. Upgrade buttons use `@latest`; no upgrade was invoked on the actual machine during this work. |
 
 The later language and endpoint stages close the previously disabled-language
-and endpoint-clearing gaps. Shortcuts remain fixed bindings. Installed native
+and endpoint-clearing gaps. Shortcuts remain fixed bindings, and missing-tool installation still relies on
+manual commands. Installed native
 behavior and the final same-version reinstall remain the root task’s gates;
 new remote deployment is outside the authorized local work. The Pages checks
 retain their explicit browser-demo boundaries.
