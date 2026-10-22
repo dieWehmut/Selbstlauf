@@ -79,6 +79,41 @@ as `• SELBSTLAUF_WINDOW_OK` followed by `Worked for 20s`.
 Two screenshots are retained: `live-codex-model.png` (the model reply inside the window) and
 `live-round-trip.png` (multiline Chinese input, both lines answered, rendered by xterm).
 
+## The same check on Windows (ConPTY)
+
+Windows is the platform the desktop app ships on, and it does not use a POSIX pty: node-pty talks to ConPTY.
+scripts/verify/agent-windows-conpty.mjs repeats the exercise natively on Windows, driving the same REST
+surface the WebUI drives (no browser needed):
+
+```
+ok    the service runs natively on Windows (ConPTY host)
+ok    claude is discoverable on the Windows PATH (claude.ps1)
+ok    opencode is discoverable on the Windows PATH (opencode.ps1)
+ok    codex is discoverable on the Windows PATH (codex.ps1)
+ok    claude: PID 19088 running C:/Users/han/AppData/Roaming/npm/claude.ps1
+ok    claude: its own TUI reached the output stream
+ok    opencode: PID 14040 running C:/Users/han/AppData/Roaming/npm/opencode.ps1
+ok    opencode: its own TUI reached the output stream
+ok    codex: PID 13376 running C:/Users/han/AppData/Roaming/npm/codex.ps1
+ok    codex: its own TUI reached the output stream
+ok    a shell window started on ConPTY
+ok    typed text reached the process and its output came back (2 occurrences)
+
+windows ConPTY verification: PASS
+```
+
+The three TUIs painted themselves through ConPTY exactly as they did through the POSIX pty: Welcome to
+Claude Code v2.1.278, the OpenCode wordmark with Ask anything, and OpenAI Codex (v0.163.0) with Ask Codex
+to do anything. The echo window shows the typed line and its result:
+PS C:/Users/han> echo SELBSTLAUF_INPUT_OK, then SELBSTLAUF_INPUT_OK.
+
+This also exercises the Windows argument path: the presets resolve to .ps1 shims on this machine, and the
+launcher hands them to PowerShell through -EncodedCommand instead of passing a script path as a literal
+argument. Those shims started and rendered, which is what that code path exists for.
+
+Run it with node scripts/verify/agent-windows-conpty.mjs, or npm run verify:agent-windows:conpty.
+It exits 2 off Windows rather than pretending to pass.
+
 ## What this run does not claim
 
 - **Claude Code cannot reach its API on this machine.** The claude window paints

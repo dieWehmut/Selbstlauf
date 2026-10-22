@@ -332,6 +332,7 @@ npm --workspace apps/desktop run smoke         # 无界面校验内置服务
 npm install
 npm start          # 构建并启动服务与 WebUI：http://127.0.0.1:48920
 npm run verify:agent-windows   # 用真实浏览器启动真实 CLI 并验证输入输出
+npm run verify:agent-windows:conpty   # Windows 原生：用 ConPTY 复核同一件事
 ```
 
 `scripts/verify/agent-windows-live.mjs` 会起一个使用一次性状态目录的服务，用 Chromium 走完「点启动 → 看到 CLI 自己的界面 → 输入 → 读到回复」整条路。真机记录见 [2026-10-22 验证](docs/verification/2026-10-22-agent-windows-live.md)：Claude Code 2.1.278、OpenCode 1.19.3、Codex 0.163.0 三个 TUI 都在窗口里画出来了，多行中文输入得到回显，codex 还完成了一次真实模型往返。加 `--no-model` 可跳过花 token 的那一步。

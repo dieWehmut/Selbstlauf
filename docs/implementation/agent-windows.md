@@ -47,6 +47,9 @@
 - 真实模型往返：在 codex 窗口里发一句指令，要求只回 `SELBSTLAUF_WINDOW_OK`。断言要求**第二次**独立出现（提示词本身含标记、TUI 也会回显提示词，只出现一次什么都证明不了），实测 marker occurrences: 2。
 - 启动入口：根 `package.json` 增加 `verify:agent-windows`，CLI 工作区增加 `start`，`npm start` 直接起服务。
 - 回归：CLI 306 项（295 通过 / 11 项 Windows 专用跳过）、前端 270 项、浏览器 93 项、智能体浏览器 6 项、桌面 149 项。
+- Windows 原生复核：新增 scripts/verify/agent-windows-conpty.mjs，在 Windows 上用 ConPTY 跑同样的流程，
+  三个预设各自画出 TUI（Claude Code 2.1.278、OpenCode、Codex 0.163.0），终端窗口输入 echo 后回显两处标记，
+  说明输入真的到达了进程、输出真的回到了窗口。
 - 本机限制如实记录：Claude Code 在这台机器上连不上 `api.anthropic.com`（TLS 校验失败），窗口本身正常；Electron 端到端需要显示器，这台 WSL 没有，桌面版只跑了 149 项工作区测试。
 
 ## 任务 4 验证
