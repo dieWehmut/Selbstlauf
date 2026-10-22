@@ -131,3 +131,46 @@ monitoring state (nine processes, five writable). The image and owner/bounds
 metadata are under `app/installed-readonly/installed-window-current.*`.
 CopyFromScreen was unavailable in the WSL-launched Windows helper, so PrintWindow
 is the capture method recorded in the metadata.
+
+## Four-language native settings
+
+Desktop preferences now include `locale` (`zh-CN`, `zh-TW`, `en`, `ja`). An old
+file without that field reads as `zh-CN` while preserving its other preferences.
+Invalid locale patches retain the currently saved language. A successful save
+rebuilds the real application menu and tray context menu before notifying all
+desktop viewers. Native menu labels and readable terminal, session, agent,
+capture and typing errors use a desktop-only catalog; helper/OS error details,
+protocol reason codes and user-created window titles keep their original values.
+
+The desktop unit run passes 171 tests through the conda wrapper. The real Windows
+check, `apps/desktop/scripts/verify-locale.mjs`, passes 34 checks on the independent
+Windows checkout with Electron 44.4.1 and app version 0.9.5. Main PID 628 and the
+restarted main PID 30152 each owned their temporary service record and browser
+profile; the explicitly selected service port was 52407, separate from the user's
+48920 service.
+
+For each language, the check selects the actual language control, confirms the
+saved file and independent agent viewer, reads `Menu.getApplicationMenu()`, and
+observes the real `Tray.setContextMenu()` call without replacing Electron's
+behavior. Copy reaches the OS clipboard, the translated fullscreen item enters
+and leaves real OS fullscreen, and a closed-session terminal request returns the
+saved language's readable error. Thirty successful screenshots cover each
+language's dark/light appearance, the 960-pixel minimum window width, language
+control, editing menu, fullscreen and separate viewer, plus save failure and
+restart. They and the native menu JSON are under `app/locale-native/`.
+
+The save failure is real: replacing the temporary preferences destination with
+a directory makes Windows reject the atomic rename with EPERM. The control,
+native menu and both viewers remain English and expose the actual error. Reload
+and a new main process then restore the saved English language. No renderer
+errors occurred. The real user's configuration SHA-256 remains
+`b9423f6297145f859cba41845d80ae20d25208524b286f378a358082af46229c`.
+
+Initial harness failures are not product failures or passes: a service record
+stores its port as a string; newly opened child windows change BrowserWindow
+enumeration order; and Playwright keyboard injection does not trigger the
+native F11 accelerator in this Windows runtime. The finished harness normalizes
+the port, identifies the main window by its actual ID, and exercises the real
+translated fullscreen menu. Native roles and accelerator definitions remain
+covered by the menu behavior checks. The initial failed screenshot is retained
+in `app/locale-native/initial-failures/`.
