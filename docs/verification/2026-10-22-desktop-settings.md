@@ -69,14 +69,20 @@ The screenshot names identify UI states, while the log proves behavior. The
 terminal screenshot depicts the app after opening the terminal; its cwd proof
 comes from the launched process, not from pixels.
 
-## Coverage limits
+## Linux application and coverage limits
+
+The Linux 44.4.1 runtime was confirmed by `process.versions`. Its actual application
+also passes the Copy/Paste, zoom, native fullscreen and no-renderer-error checks,
+with four screenshots under `app/linux/`. Reusing a previously packaged runtime
+requires copying the current bundled service, WebUI and preload into that
+runtime's resources directory, because its `app.isPackaged` flag remains true
+when launching the checkout. The initial missing-resource logs are retained.
+The harness waits for React's initial command subscription before navigating to
+settings, and checks that the real menu command opens the rail.
 
 Linux state resolution and terminal failure/selection paths have unit coverage.
-The Linux 44.4.1 runtime is available and was confirmed by `process.versions`,
-but attempting this host's Linux Electron display run timed out before a window
-was exposed to Playwright. Its failure log is retained under `app/linux/`.
-The Windows settings checks above succeeded; a Linux screenshot pass is still
-outstanding. Cmd, Windows Terminal, macOS terminal applications and WSL terminal
+This WSL image has no installed graphical terminal executable, so a Linux external
+terminal success is not claimed. Cmd, Windows Terminal, macOS terminal applications and WSL terminal
 arguments are covered by command/quoting checks, not by a graphical native run
 of every terminal application.
 

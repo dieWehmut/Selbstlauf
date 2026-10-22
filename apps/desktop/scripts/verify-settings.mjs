@@ -33,7 +33,12 @@ const mainWindow = (callback, argument) => desktop.evaluate(({ BrowserWindow }, 
   return window[data.method](...(data.args ?? []));
 }, { method: callback, args: argument });
 const openSection = async (name) => {
+  await page.getByRole('heading', { name: /进程监控|Watchdog 设置/u }).first().waitFor();
+  await page.waitForTimeout(250);
   await page.keyboard.press('Control+,');
+  if (!await page.getByRole('tablist', { name: '设置分区' }).isVisible()) {
+    await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('selbstlauf:command', { command: 'open-settings' }));
+  }
   await page.getByRole('tablist', { name: '设置分区' }).getByRole('tab', { name, exact: true }).click();
 };
 try {
