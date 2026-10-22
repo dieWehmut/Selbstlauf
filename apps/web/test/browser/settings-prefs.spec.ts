@@ -5,7 +5,9 @@ import { mkdir } from 'node:fs/promises';
 const evidence = resolve(process.cwd(), '../../tmp/settings-verification-20261022/webui');
 
 async function section(page: Page, label: string) {
-  if (await page.getByRole('button', { name: '打开菜单' }).isVisible()) {
+  await expect(page.locator('.settings-content')).toBeVisible();
+  const drawer = page.locator('.sidebar--settings');
+  if ((page.viewportSize()?.width ?? 1280) <= 960 && !await drawer.evaluate((node) => node.classList.contains('is-open'))) {
     await page.getByRole('button', { name: '打开菜单' }).click();
   }
   await page.getByRole('tab', { name: label, exact: true }).click();
@@ -22,11 +24,13 @@ for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 900 });
       await page.addInitScript((theme) => { if (!localStorage.getItem('watchdog-theme')) localStorage.setItem('watchdog-theme', theme); }, theme);
       await page.goto('/');
+      await expect(page.getByRole('heading', { name: '进程监控', exact: true })).toBeVisible();
       await page.keyboard.press('Control+,');
       await section(page, '通知');
       const other = await context.newPage();
       await other.setViewportSize({ width, height: 900 });
       await other.goto('/');
+      await expect(other.getByRole('heading', { name: '进程监控', exact: true })).toBeVisible();
       await other.keyboard.press('Control+,');
       await section(other, '通知');
       await page.getByRole('checkbox', { name: '面板内通知' }).uncheck();
@@ -49,6 +53,7 @@ for (const theme of ['light', 'dark']) {
       await expect(other.locator('.workspace-pet--ring')).toHaveCount(1);
       await page.screenshot({ path: resolve(evidence, `02-pet-sync-${theme}-${width}.png`), fullPage: true });
       await other.reload();
+      await expect(other.getByRole('heading', { name: '进程监控', exact: true })).toBeVisible();
       await other.keyboard.press('Control+,');
       await section(other, '通知');
       await expect(other.getByRole('checkbox', { name: '面板内通知' })).not.toBeChecked();

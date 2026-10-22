@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 type I18n = typeof import('../src/i18n');
 let i18n: I18n;
@@ -150,5 +152,20 @@ describe('locale persistence and synchronization', () => {
     fireEvent.click(screen.getByRole('button', { name: 'English' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Interface language' })).toBeVisible());
     expect(screen.queryByRole('status')).toBeNull();
+  });
+});
+
+describe('language before the application bundle loads', () => {
+  const boot = readFileSync(resolve('public/theme-boot.js'), 'utf8');
+  it.each(['zh-CN', 'zh-TW', 'en', 'ja'] as const)('applies saved %s to the first paint', (locale) => {
+    localStorage.setItem(i18n.LOCALE_KEY, JSON.stringify(locale));
+    Function(boot)();
+    expect(document.documentElement.lang).toBe(locale);
+  });
+  it('sets the default language even if browser storage access fails', () => {
+    document.documentElement.lang = 'en';
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
+    Function(boot)();
+    expect(document.documentElement.lang).toBe('zh-CN');
   });
 });
