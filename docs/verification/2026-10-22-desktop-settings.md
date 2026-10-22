@@ -210,3 +210,28 @@ The 37 successful screenshots and native menu/process evidence are in
 including its native PTY dependency and bundled Web app. The real user's config
 SHA-256 remains
 `b9423f6297145f859cba41845d80ae20d25208524b286f378a358082af46229c`.
+
+## Final installed-directory verification — 2026-10-23
+
+After the final same-version reinstall, the exact current installed directory
+`C:/Users/han/AppData/Local/Programs/Selbstlauf` was copied to
+`C:/Users/han/AppData/Local/Temp/selbstlauf-locale-installed-copy-final-20261023`.
+The copy's app.asar matches the actual installation's SHA-256
+`5d2f4fbb365ff6a02a85038c9b958c0aa87f494939196b30713628b9b08329f1`.
+The full expanded locale/local-preferences harness passes all 44 checks against
+that installed copy with 37 screenshots and no renderer errors.
+
+Electron reports version 44.4.1 and app version 0.9.5. The actual main process
+16244 and restarted main process 33588 each own their temporary state/profile
+`selbstlauf-locale-Xv4Imu` and service on port 55769. They do not share the user's
+port 48920 or saved preferences. This avoids the installed executable's normal
+single-instance behavior while verifying the installed package's own resources.
+
+The user's config SHA-256 before and after this full run is identical:
+`b9423f6297145f859cba41845d80ae20d25208524b286f378a358082af46229c`.
+The user's desktop-settings.json is absent before and after.
+`app/locale-installed-final/installed-evidence.json` records those hashes,
+the source/copy executable paths and `userStateUnchanged: true`.
+The same directory contains all 37 screenshots and native menu/process JSON;
+`app/locale-installed-final-run.log` records orchestration by the explicitly
+selected conda Node 22.23.2 and the 44 successful behavioral checks.
