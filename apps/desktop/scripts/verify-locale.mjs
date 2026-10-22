@@ -4,8 +4,9 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
+import { createHash } from 'node:crypto';
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const artifacts = process.env.SELBSTLAUF_SETTINGS_ARTIFACTS ?? resolve(appRoot, '../../tmp/settings-verification-20261022/app/locale');
@@ -34,6 +35,8 @@ let isolated = false;
 await mkdir(artifacts, { recursive: true });
 await mkdir(stateDirectory, { recursive: true });
 await writeFile(preferencesPath, JSON.stringify({ closeToTray: true, preferredTerminal: 'system' }));
+const { defaultConfig } = await import(pathToFileURL(resolve(appRoot, '../cli/dist/src/domain/config.js')).href);
+await writeFile(join(stateDirectory, 'config.json'), JSON.stringify({ ...defaultConfig, enabled: false, dryRun: true }));
 const check = (condition, label) => { if (!condition) throw new Error(label); notes.push(`PASS ${label}`); };
 const mainWindow = (method, args = []) => desktop.evaluate(({ BrowserWindow }, data) => BrowserWindow.fromId(data.id)[data.method](...data.args), { id: mainWindowId, method, args });
 const screenshot = (name) => page.screenshot({ path: join(artifacts, `${name}.png`), fullPage: true });
@@ -51,7 +54,8 @@ const launch = async () => {
     try { return JSON.parse(await readFile(join(stateDirectory, 'watchdog.pid.json'), 'utf8')).pid; } catch { return null; }
   }, { timeout: 30_000 }).not.toBeNull();
   const record = JSON.parse(await readFile(join(stateDirectory, 'watchdog.pid.json'), 'utf8'));
-  const actual = await desktop.evaluate(({ app }) => ({ pid: process.pid, localAppData: process.env.LOCALAPPDATA, stateHome: process.env.XDG_STATE_HOME, userData: app.getPath('userData'), version: app.getVersion(), electron: process.versions.electron }));
+  const actual = await desktop.evaluate(({ app }) => ({ pid: process.pid, localAppData: process.env.LOCALAPPDATA, stateHome: process.env.XDG_STATE_HOME, userData: app.getPath('userData'), version: app.getVersion(), electron: process.versions.electron, applicationPath: app.getAppPath(), resourcesPath: process.resourcesPath }));
+  if (actual.applicationPath.endsWith('.asar')) actual.applicationSha256 = createHash('sha256').update(await readFile(actual.applicationPath)).digest('hex');
   check(record.pid === actual.pid && actual.userData === join(root, 'electron') && (process.platform === 'win32' ? actual.localAppData === root : actual.stateHome === root), 'the real main process owns the temporary service, state and profile');
   evidence.push({ process: actual, service: record });
   check(Number(record.port) === port && Number(record.port) !== Number(process.env.SELBSTLAUF_SETTINGS_USER_PORT ?? 48920), 'the verification service has its own explicitly selected origin');
@@ -95,6 +99,77 @@ try {
   child = await opening;
   child.on('pageerror', (error) => pageErrors.push(String(error)));
   await expect(child.locator('html')).toHaveAttribute('lang', 'zh-CN');
+
+  // Local renderer settings must change app behavior and synchronize real viewers.
+  await section('notifications');
+  await expect(page.getByRole('checkbox', { name: '面板内通知', exact: true })).toBeChecked();
+  await screenshot('preferences-notifications-before');
+  await page.getByRole('checkbox', { name: '面板内通知', exact: true }).uncheck();
+  await page.getByRole('spinbutton', { name: '保留最近事件条数', exact: true }).fill('2');
+  await expect.poll(() => child.evaluate(() => JSON.parse(localStorage.getItem('watchdog-notifications')))).toMatchObject({ inPanel: false, timelineLimit: 2 });
+  // Saving an unchanged isolated config creates real audit events without changing behavior.
+  const configUrl = new URL('/api/config', page.url()).href;
+  const config = await (await page.request.get(configUrl)).json();
+  for (let index = 0; index < 4; index++) {
+    const saved = await page.request.put(configUrl, { headers: { origin: new URL(page.url()).origin }, data: config });
+    check(saved.ok(), `isolated config save ${index + 1} generates a real audit event`);
+  }
+  await desktop.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).webContents.send('selbstlauf:command', { command: 'back-to-app' }), mainWindowId);
+  await expect(page.getByRole('heading', { name: '进程监控', exact: true })).toBeVisible();
+  await page.locator('.nav-button').filter({ hasText: '事件' }).click();
+  await expect(page.locator('.timeline__item')).toHaveCount(2);
+  check(true, 'the saved notification event limit changes the real timeline to two items');
+  await screenshot('preferences-timeline-limit-two');
+  await section('appearance');
+  await page.getByRole('button', { name: '复制主题', exact: true }).click();
+  await expect(page.getByRole('button', { name: '已复制', exact: true })).toBeVisible();
+  await expect(page.locator('.notice[role="status"]')).toHaveCount(0);
+  check(true, 'turning panel notifications off hides an actual successful operation notice');
+  await section('notifications');
+  await page.getByRole('checkbox', { name: '面板内通知', exact: true }).check();
+  await expect(page.locator('.notice[role="status"]')).toContainText('主题已复制');
+  await page.getByRole('checkbox', { name: '操作成功时提示', exact: true }).uncheck();
+  await expect(page.locator('.notice[role="status"]')).toHaveCount(0);
+  await page.getByRole('checkbox', { name: '操作成功时提示', exact: true }).check();
+  await expect(page.locator('.notice[role="status"]')).toContainText('主题已复制');
+  check(true, 'the success notification switch filters the actual notice immediately');
+  await section('appearance');
+  await desktop.evaluate(({ clipboard }) => clipboard.writeText('invalid theme JSON'));
+  await page.locator('.appearance-panel__actions').getByRole('button', { name: '导入', exact: true }).click();
+  await expect(page.locator('.notice[role="status"]')).toBeVisible();
+  await section('notifications');
+  await page.getByRole('checkbox', { name: '出现错误时提示', exact: true }).uncheck();
+  await expect(page.locator('.notice[role="status"]')).toHaveCount(0);
+  await page.getByRole('checkbox', { name: '出现错误时提示', exact: true }).check();
+  await expect(page.locator('.notice[role="status"]')).toBeVisible();
+  check(true, 'the error notification switch filters an actual rejected theme import');
+  await screenshot('preferences-notifications-after');
+  await section('pet');
+  await expect(page.locator('.workspace-pet')).toHaveCount(0);
+  await screenshot('preferences-pet-before');
+  await page.getByRole('checkbox', { name: '桌面宠物', exact: true }).check();
+  await page.getByRole('combobox', { name: '形象', exact: true }).selectOption('ring');
+  await expect(page.locator('.workspace-pet--ring')).toBeVisible();
+  await expect(child.locator('.workspace-pet--ring')).toBeVisible();
+  await desktop.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).webContents.send('selbstlauf:command', { command: 'back-to-app' }), mainWindowId);
+  await expect(page.getByRole('heading', { name: '进程监控', exact: true })).toBeVisible();
+  await expect(page.locator('.workspace-pet--ring')).toBeVisible();
+  check(true, 'the pet switch and ring form change the real main app and independent viewer');
+  await screenshot('preferences-pet-after-overview');
+  await child.screenshot({ path: join(artifacts, 'preferences-pet-independent-viewer.png'), fullPage: true });
+  await page.reload();
+  await expect(page.locator('.workspace-pet--ring')).toBeVisible();
+  await section('notifications');
+  await expect(page.getByRole('spinbutton', { name: '保留最近事件条数', exact: true })).toHaveValue('2');
+  await expect(page.getByRole('checkbox', { name: '面板内通知', exact: true })).toBeChecked();
+  await desktop.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id).webContents.send('selbstlauf:command', { command: 'back-to-app' }), mainWindowId);
+  await expect(page.getByRole('heading', { name: '进程监控', exact: true })).toBeVisible();
+  await page.locator('.nav-button').filter({ hasText: '事件' }).click();
+  await expect(page.locator('.timeline__item')).toHaveCount(2);
+  await screenshot('preferences-timeline-restored-after-reload');
+  await child.reload();
+  await expect(child.locator('.workspace-pet--ring')).toBeVisible();
+  check(true, 'notification and pet preferences survive reload in both real app viewers');
 
   const languages = [
     { locale: 'en', menu: ['File', 'Edit', 'View', 'Help'], tray: ['Open main window', 'Settings', 'Start at login', 'About Selbstlauf', 'Quit'], copy: 'Copy', fullscreen: 'Toggle fullscreen', closed: 'That session is no longer running.' },

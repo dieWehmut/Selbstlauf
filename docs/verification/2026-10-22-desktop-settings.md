@@ -174,3 +174,39 @@ the port, identifies the main window by its actual ID, and exercises the real
 translated fullscreen menu. Native roles and accelerator definitions remain
 covered by the menu behavior checks. The initial failed screenshot is retained
 in `app/locale-native/initial-failures/`.
+
+## Final packaged runtime and local preferences
+
+The final Windows package at
+`C:/Users/han/AppData/Local/Temp/selbstlauf-settings-package-runtime-final-20261023/win-unpacked/Selbstlauf.exe`
+passes all 44 checks in the expanded native harness. It reports app version
+0.9.5, Electron 44.4.1 and app.asar SHA-256
+`5d2f4fbb365ff6a02a85038c9b958c0aa87f494939196b30713628b9b08329f1`.
+Both actual main processes (9652 and 16976 after restart) own the same temporary
+state/profile and explicitly selected service port 50713. The temporary config
+starts with automation disabled and dry-run enabled. No user preferences or
+automation settings are written.
+
+The check now exercises notification and pet controls against real application
+content. An unchanged config PUT creates four real audit events; a timeline
+limit of two displays exactly two and still displays two after renderer reload.
+Turning panel notifications off suppresses a real theme-copy success notice;
+the success and error switches immediately filter that notice and a rejected
+theme import. Enabling the pet and selecting the ring form displays the ring
+in both the main window and an independent agent viewer, including after reload.
+The notification preferences also persist and synchronize to that viewer.
+
+The reload check originally exposed missing saved-history loading. The Web app
+now reads the real audit endpoint independently of health, merges events arriving
+through SSE during the read by ID and timestamp, and rejects stale responses.
+Regression coverage includes concurrent arrivals, empty authoritative history,
+late older responses and history-fetch failure without losing service health.
+The final package includes that fix and the configuration-draft/runtime fixes
+from the other settings work.
+
+The 37 successful screenshots and native menu/process evidence are in
+`app/locale-runtime-final/`; the conda orchestration log is
+`app/locale-runtime-final-run.log`. This run uses the final packaged resources,
+including its native PTY dependency and bundled Web app. The real user's config
+SHA-256 remains
+`b9423f6297145f859cba41845d80ae20d25208524b286f378a358082af46229c`.
