@@ -1452,7 +1452,6 @@ describe('watchdog dashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'https://second.example/v1' }));
     await waitFor(() => expect(fake.applyCodexProfile).toHaveBeenCalledWith([
       { key: 'base_url', value: 'https://second.example/v1' },
-      { key: 'model', value: 'gpt-6-astra' },
     ]));
     expect(await screen.findByText('Codex 端点已切换')).toBeInTheDocument();
   });
@@ -1476,6 +1475,136 @@ describe('watchdog dashboard', () => {
     await waitFor(() => expect(fake.applyCodexProfile).toHaveBeenCalledWith([
       { key: 'base_url', value: 'https://third.example/v1' },
     ]));
+  });
+
+  it('removes a cleared endpoint token and retains its empty draft across service refreshes', async () => {
+    const fake = api();
+    let token: string | undefined = 'saved-token';
+    fake.codexProfiles = vi.fn(async () => ({
+      path: 'C:/demo/config.toml', exists: true,
+      active: { model: 'unchanged-model', ...(token === undefined ? {} : { experimental_bearer_token: token }) },
+      alternatives: {}, current: { name: 'current', fields: [{ key: 'model', value: 'unchanged-model' }, ...(token === undefined ? [] : [{ key: 'experimental_bearer_token', value: token }])] },
+    }));
+    fake.applyCodexProfile = vi.fn(async () => { token = undefined; return { ok: true, changes: [{ key: 'experimental_bearer_token', value: null, action: 'removed' }] }; });
+    render(<App api={fake} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '续写与进程' }));
+    const input = await screen.findByRole('textbox', { name: '访问令牌' });
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await waitFor(() => expect(fake.codexProfiles).toHaveBeenCalledTimes(2));
+    expect(input).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: '应用端点配置' }));
+    await waitFor(() => expect(fake.applyCodexProfile).toHaveBeenCalledWith([{ key: 'experimental_bearer_token', value: null }]));
+    await waitFor(() => expect(screen.getByRole('button', { name: '应用端点配置' })).toBeDisabled());
+    expect(input).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: '模型' })).toHaveValue('unchanged-model');
+  });
+
+  it('retains failed endpoint edits for retry and submits pending removals with a selected alternative', async () => {
+    const fake = api();
+    fake.codexProfiles = vi.fn(async () => ({
+      path: 'C:/demo/config.toml', exists: true,
+      active: { base_url: 'https://first.example/v1', experimental_bearer_token: 'saved-token' },
+      alternatives: { base_url: ['https://second.example/v1'] },
+      current: { name: 'first.example', fields: [{ key: 'base_url', value: 'https://first.example/v1' }, { key: 'experimental_bearer_token', value: 'saved-token' }] },
+    }));
+    vi.mocked(fake.applyCodexProfile).mockRejectedValueOnce(new Error('磁盘不可写'));
+    render(<App api={fake} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '续写与进程' }));
+    fireEvent.change(await screen.findByRole('textbox', { name: '访问令牌' }), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: '应用端点配置' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('端点保存失败：磁盘不可写');
+    expect(screen.getByRole('textbox', { name: '访问令牌' })).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'https://second.example/v1' }));
+    await waitFor(() => expect(fake.applyCodexProfile).toHaveBeenLastCalledWith([
+      { key: 'experimental_bearer_token', value: null },
+      { key: 'base_url', value: 'https://second.example/v1' },
+    ]));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('does not submit absent fields left blank or values restored to their saved value', async () => {
+    const fake = api();
+    fake.codexProfiles = vi.fn(async () => ({ path: 'C:/demo/config.toml', exists: true, active: { model: 'saved-model' }, alternatives: {}, current: null }));
+    render(<App api={fake} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '续写与进程' }));
+    const save = await screen.findByRole('button', { name: '应用端点配置' });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: '评审模型' }), { target: { value: '  ' } });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: '模型' }), { target: { value: 'changed-model' } });
+    expect(save).toBeEnabled();
+    fireEvent.change(screen.getByRole('textbox', { name: '模型' }), { target: { value: 'saved-model' } });
+    expect(save).toBeDisabled();
+    expect(fake.applyCodexProfile).not.toHaveBeenCalled();
+  });
+
+  it('keeps endpoint controls busy until readback and preserves a deletion when readback fails', async () => {
+    const fake = api();
+    const original = { path: 'C:/demo/config.toml', exists: true, active: { experimental_bearer_token: 'saved-token' }, alternatives: {}, current: null };
+    let resolveApply!: () => void;
+    const applied = new Promise<void>((resolve) => { resolveApply = resolve; });
+    fake.codexProfiles = vi.fn().mockResolvedValueOnce(original).mockRejectedValueOnce(new Error('回读失败')).mockResolvedValue({ ...original, active: {} });
+    fake.applyCodexProfile = vi.fn(async () => { await applied; return { ok: true, changes: [{ key: 'experimental_bearer_token', value: null, action: 'removed' }] }; });
+    render(<App api={fake} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '续写与进程' }));
+    const token = await screen.findByRole('textbox', { name: '访问令牌' });
+    const save = screen.getByRole('button', { name: '应用端点配置' });
+    fireEvent.change(token, { target: { value: '' } });
+    fireEvent.click(save);
+    expect(token).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: '接口地址' })).toBeDisabled();
+    expect(save).toBeDisabled();
+    resolveApply();
+    expect(await screen.findByRole('alert')).toHaveTextContent('端点保存失败：回读失败');
+    expect(token).toHaveValue('');
+    expect(token).toBeEnabled();
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(fake.applyCodexProfile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(token).toHaveValue('');
+    expect(save).toBeDisabled();
+  });
+
+  it('can remove an existing empty assignment after the user explicitly clears its draft', async () => {
+    const fake = api();
+    fake.codexProfiles = vi.fn(async () => ({ path: 'C:/demo/config.toml', exists: true, active: { experimental_bearer_token: '' }, alternatives: {}, current: null }));
+    render(<App api={fake} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '续写与进程' }));
+    const token = await screen.findByRole('textbox', { name: '访问令牌' });
+    const save = screen.getByRole('button', { name: '应用端点配置' });
+    expect(save).toBeDisabled();
+    fireEvent.change(token, { target: { value: 'temporary-draft' } });
+    fireEvent.change(token, { target: { value: '' } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(fake.applyCodexProfile).toHaveBeenCalledWith([{ key: 'experimental_bearer_token', value: null }]));
+  });
+
+  it('ignores a refresh response started before an endpoint deletion was saved', async () => {
+    const fake = api();
+    const original = { path: 'C:/demo/config.toml', exists: true, active: { experimental_bearer_token: 'saved-token' }, alternatives: {}, current: null };
+    const stale = deferred<typeof original>();
+    fake.codexProfiles = vi.fn().mockResolvedValueOnce(original).mockReturnValueOnce(stale.promise).mockResolvedValue({ ...original, active: {} });
+    render(<App api={fake} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '续写与进程' }));
+    const token = await screen.findByRole('textbox', { name: '访问令牌' });
+    fireEvent.change(token, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    await waitFor(() => expect(fake.codexProfiles).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: '应用端点配置' }));
+    await waitFor(() => expect(fake.codexProfiles).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(token).toBeEnabled());
+    await act(async () => { stale.resolve(original); await stale.promise; });
+    expect(token).toHaveValue('');
+    expect(screen.getByRole('button', { name: '应用端点配置' })).toBeDisabled();
   });
 
   it('allows exact-session Stop Hook continuation while monitor-only remains disabled', async () => {

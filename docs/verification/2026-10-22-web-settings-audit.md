@@ -38,3 +38,18 @@ Screenshots and exported configuration files are in `tmp/settings-verification-2
 ## Completion limits
 
 This report proves concrete changes and their scoped checks, not completion of the full user goal. Full three-surface verification, the final local reinstall without changing the application version, and language implementation remain the root task's completion gates. Previously removed parental control, trusted contact, speech, usage statistics and snapshot entries still leave dormant helpers/types in the source; they are outside the current 13-section surface and were not represented as completed settings. They require explicit scope review if the target UI is intended to restore them.
+
+## Codex endpoint removal follow-up
+
+The endpoint editor now distinguishes an untouched field from a cleared field. Only dirty fields are sent: a non-empty value updates its assignment; clearing an existing assignment sends `null` and removes it from the active TOML configuration. Leaving an absent field blank does not submit it. Selecting an alternative applies all pending edits together. Service refreshes update untouched fields while retaining drafts, and responses started before a successful endpoint save cannot restore stale values in the editor.
+
+The apply button, inputs and alternative buttons remain disabled during the write and readback. A failed write or readback displays an endpoint-specific error and retains the pending draft for retry. Successful readback clears the draft. The shared CLI/API work is recorded in `1f80ad4` and its follow-up: removal preserves the original source assignment as a comment and keeps a checksummed backup; known missing-configuration errors return a readable conflict response while unexpected errors retain the generic server response.
+
+Executed checks, using the same unchanged lockfile and Node 22 conda wrapper:
+
+- `scripts/verify/in-conda.sh npm --workspace @ai-cli-bypass/web test -- test/App.test.tsx`: 94 tests passed. New cases cover token deletion, draft retention during refresh, error retry, pending edits with an alternative, no-op fields, readback failure, existing empty assignments, and a deliberately delayed stale response that reproduced the old-value display defect before its fix.
+- `scripts/verify/in-conda.sh npm --workspace @ai-cli-bypass/web exec -- tsc --noEmit`: passed.
+- `scripts/verify/in-conda.sh npm --workspace @ai-cli-bypass/web exec -- vite build --outDir /home/han/project/Selbstlauf/tmp/endpoint-web-build --emptyOutDir`: passed without overwriting the installed app or `apps/web/dist`.
+- `scripts/verify/in-conda.sh node scripts/verify/settings-endpoints-live.mjs tmp/endpoint-testbuild tmp/endpoint-web-build`: passed against the real service and isolated files at 1280/390 in light/dark. It proves token and all-five-field removal, unchanged unrelated/nested configuration, original comments and checksummed backups, a real missing-file write refusal and retry, cross-window synchronization that preserves an observer's dirty model, refresh/reload, alternative restoration, combined edits, unsupported-key rejection without file changes, and persistence after restarting the service.
+
+The final 36 screenshots and runtime/result record are in `tmp/settings-verification-20261022/webui/03-endpoints/`. Screenshots wait until the endpoint inputs are enabled after readback, then wait for fonts and finite animations; top/bottom views are taken when needed. These are production WebUI/real-service evidence. The root task still owns the later packaged desktop/GitHub Pages verification and the separate four-language implementation gate.

@@ -43,7 +43,7 @@ import {
   createApi,
   type AuditEvent,
   type ClaudeHookStatusView,
-  type CodexProfileFieldView,
+  type CodexProfileEditView,
   type CodexProfilesView,
   type EnvironmentToolView,
   type EnvironmentView,
@@ -1266,49 +1266,55 @@ function EnvironmentPanel(props: {
 }
 function CodexEndpointsPanel(props: {
   profiles: CodexProfilesView | null;
-  onApply: (fields: CodexProfileFieldView[]) => Promise<void>;
+  onApply: (fields: CodexProfileEditView[]) => Promise<void>;
   applying: boolean;
 }) {
-  const [draft, setDraft] = useState<CodexProfileFieldView[]>([]);
-  const profileSignature = JSON.stringify(props.profiles?.current?.fields ?? null);
-  useEffect(() => {
-    if (props.profiles !== null) setDraft(props.profiles.current?.fields ?? []);
-  }, [profileSignature]);
+  const [draft, setDraft] = useState<Readonly<Record<string, string>>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const sequence = useRef(0);
+  useEffect(() => () => { sequence.current += 1; }, []);
   if (props.profiles === null) return null;
   const profiles = props.profiles;
   const activeByKey = profiles.active;
-  const update = (key: string, value: string) => {
-    setDraft((current) => {
-      const next = current.filter((field) => field.key !== key);
-      return [...next, { key, value }];
-    });
-  };
-  const valueOf = (key: string) => draft.find((field) => field.key === key)?.value ?? activeByKey[key] ?? '';
-  const apply = async () => {
-    const fields = draft.filter((field) => field.value.trim().length > 0);
+  const busy = props.applying || pending;
+  const valueOf = (key: string) => draft[key] ?? activeByKey[key] ?? '';
+  const edits = (values: Readonly<Record<string, string>>): CodexProfileEditView[] => Object.entries(values).flatMap<CodexProfileEditView>(([key, value]) => {
+    if (value.trim().length === 0) return Object.hasOwn(activeByKey, key) ? [{ key, value: null }] : [];
+    if (value === activeByKey[key]) return [];
+    return [{ key, value }];
+  });
+  const apply = async (values: Readonly<Record<string, string>> = draft) => {
+    if (busy) return;
+    const fields = edits(values);
     if (fields.length === 0) return;
-    await props.onApply(fields);
+    const mine = ++sequence.current;
+    setPending(true);
+    setError(null);
+    try {
+      await props.onApply(fields);
+      if (mine === sequence.current) setDraft({});
+    } catch (cause) {
+      if (mine === sequence.current) setError(`端点保存失败：${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally { if (mine === sequence.current) setPending(false); }
   };
   const switchTo = async (key: string, value: string) => {
-    const fields = draft.filter((field) => field.value.trim().length > 0).map((field) => ({ ...field }));
-    const index = fields.findIndex((field) => field.key === key);
-    if (index === -1) fields.push({ key, value });
-    else fields[index] = { key, value };
-    setDraft(fields);
-    await props.onApply(fields);
+    const next = { ...draft, [key]: value };
+    setDraft(next);
+    await apply(next);
   };
   return (
     <section className="settings-section settings-section--wide codex-endpoints">
       <div className="section-title"><div><span className="eyebrow">Codex</span><h2>端点配置</h2></div><Plug size={20} /></div>
       <div className="codex-endpoints__body">
-        <p className="hook-disclosure"><CircleAlert size={17} /><span>切换会直接改写 <code>{profiles.path}</code>，并把旧值保留为注释；每次写入前都会生成 .bak 备份。</span></p>
+        <p className="hook-disclosure"><CircleAlert size={17} /><span>切换会直接改写 <code>{profiles.path}</code>，并把旧值保留为注释；每次写入前都会生成 .bak 备份。清空字段并应用会移除该设置，旧值仍保留为注释。</span></p>
         <div className="field-grid codex-endpoints__fields">
           {[
             { key: 'model', label: '模型' },
             { key: 'review_model', label: '评审模型' },
             { key: 'model_reasoning_effort', label: '推理强度' },
           ].map((entry) => (
-            <label key={entry.key}><span>{entry.label}</span><input aria-label={entry.label} value={valueOf(entry.key)} onChange={(event) => update(entry.key, event.target.value)} /></label>
+            <label key={entry.key}><span>{entry.label}</span><input aria-label={entry.label} disabled={busy} value={valueOf(entry.key)} onChange={(event) => setDraft((current) => ({ ...current, [entry.key]: event.target.value }))} /></label>
           ))}
         </div>
         {(['base_url', 'experimental_bearer_token'] as const).map((key) => {
@@ -1316,13 +1322,13 @@ function CodexEndpointsPanel(props: {
           const current = valueOf(key);
           return (
             <div className="field-grid codex-endpoints__fields" key={key}>
-              <label><span>{key === 'base_url' ? '接口地址' : '访问令牌'}</span><input aria-label={key === 'base_url' ? '接口地址' : '访问令牌'} value={current} onChange={(event) => update(key, event.target.value)} /></label>
+              <label><span>{key === 'base_url' ? '接口地址' : '访问令牌'}</span><input aria-label={key === 'base_url' ? '接口地址' : '访问令牌'} disabled={busy} value={current} onChange={(event) => setDraft((values) => ({ ...values, [key]: event.target.value }))} /></label>
               {alternatives.length > 0 && (
                 <div className="codex-endpoints__alternatives">
                   <span>已注释的备选</span>
                   <div className="codex-endpoints__chips">
                     {[...new Set([...alternatives, activeByKey[key]].filter((entry): entry is string => typeof entry === 'string' && entry.length > 0))].map((alternative) => (
-                      <button key={alternative} className={alternative === current ? 'chip is-active' : 'chip'} type="button" onClick={() => void switchTo(key, alternative)}>{alternative}</button>
+                      <button key={alternative} className={alternative === current ? 'chip is-active' : 'chip'} type="button" disabled={busy} onClick={() => void switchTo(key, alternative)}>{alternative}</button>
                     ))}
                   </div>
                 </div>
@@ -1330,7 +1336,8 @@ function CodexEndpointsPanel(props: {
             </div>
           );
         })}
-        <div className="settings-actions"><button className="button button--primary" type="button" disabled={props.applying} onClick={() => void apply()}>{props.applying ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}应用端点配置</button></div>
+        <div className="settings-actions"><button className="button button--primary" type="button" disabled={busy || edits(draft).length === 0} onClick={() => void apply()}>{busy ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}应用端点配置</button></div>
+        {error && <p className="hook-error" role="alert">{error}</p>}
       </div>
     </section>
   );
@@ -1691,7 +1698,7 @@ function SettingsPanel(props: {
   onPaletteReset: () => void;
   onImportTheme: () => Promise<void>;
   onCopyTheme: () => Promise<void>;
-  onApplyProfile: (fields: CodexProfileFieldView[]) => Promise<void>;
+  onApplyProfile: (fields: CodexProfileEditView[]) => Promise<void>;
   applyingProfile: boolean;
   saving: boolean;
   running: boolean;
@@ -2298,6 +2305,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const [startupInstalled, setStartupInstalled] = useState(false);
   const [hookStatus, setHookStatus] = useState<ClaudeHookStatusView>(fallbackHookStatus);
   const [codexProfiles, setCodexProfiles] = useState<CodexProfilesView | null>(null);
+  const profileReadSequence = useRef(0);
+  const profileWriteSequence = useRef(0);
   const [environment, setEnvironment] = useState<EnvironmentView | null>(null);
   const [environmentRefreshing, setEnvironmentRefreshing] = useState(false);
   // 'all' while a bulk run is in flight, otherwise the tool id, otherwise null.
@@ -2779,6 +2788,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   }, [sidebarOpen]);
 
   const refresh = async () => {
+    const profileRead = ++profileReadSequence.current;
+    const profileWrite = profileWriteSequence.current;
     try {
       const [nextHealth, nextConfig, nextSessions, nextStartup, nextHookStatus, nextCodexProfiles] = await Promise.all([
         api.health(),
@@ -2793,7 +2804,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       setSessions(nextSessions);
       setStartupInstalled(nextStartup.installed);
       setHookStatus(nextHookStatus);
-      setCodexProfiles(nextCodexProfiles);
+      if (profileRead === profileReadSequence.current && profileWrite === profileWriteSequence.current) setCodexProfiles(nextCodexProfiles);
       setConnected(true);
     } catch {
       setConnected(false);
@@ -3003,14 +3014,18 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
     catch (error) { setNotice(error instanceof Error ? error.message : '保存失败', 'error'); }
   };
 
-  const applyCodexProfile = async (fields: CodexProfileFieldView[]) => {
+  const applyCodexProfile = async (fields: CodexProfileEditView[]) => {
+    const profileWrite = ++profileWriteSequence.current;
     setApplyingProfile(true); setNotice(null);
     try {
       await api.applyCodexProfile(fields);
-      setCodexProfiles(await api.codexProfiles());
+      ++profileReadSequence.current;
+      const nextProfiles = await api.codexProfiles();
+      if (profileWrite === profileWriteSequence.current) setCodexProfiles(nextProfiles);
       setNotice('Codex 端点已切换');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '切换失败', 'error');
+      throw error;
     } finally { setApplyingProfile(false); }
   };
 
