@@ -22,6 +22,10 @@
  */
 (() => {
   try {
+    const locale = JSON.parse(localStorage.getItem('watchdog-locale') ?? 'null');
+    document.documentElement.lang = ['zh-CN', 'zh-TW', 'en', 'ja'].includes(locale) ? locale : 'zh-CN';
+  } catch { document.documentElement.lang = 'zh-CN'; }
+  try {
     const preference = localStorage.getItem('watchdog-theme');
     const chosen = preference === 'light' || preference === 'dark' || preference === 'system' ? preference : 'dark';
     const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
