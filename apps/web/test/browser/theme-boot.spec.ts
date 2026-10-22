@@ -20,6 +20,8 @@ import { expect, test, type Page } from '@playwright/test';
 interface BootState {
   readonly theme: string;
   readonly bg: string;
+  /** The stylesheet may supply a default; bg above records only boot overrides. */
+  readonly computedBg: string;
   readonly text: string;
   readonly accent: string;
   /** What the browser tints its own chrome with, when it has one. */
@@ -42,24 +44,54 @@ async function readBeforeTheBundle(
     if (value.palette !== undefined) localStorage.setItem('watchdog-palette', value.palette);
     if (value.personalization !== undefined) localStorage.setItem('watchdog-personalization', value.personalization);
   }, saved);
-  await page.route('**/src/main.tsx', (route) => route.abort());
-  await page.goto('/');
+  const entryUrls = new Set<string>();
+  const blockedEntries = new Set<string>();
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    if (request.resourceType() === 'document') {
+      const response = await route.fetch();
+      const html = await response.text();
+      entryUrls.clear();
+      blockedEntries.clear();
+      // Vite dev uses /src/main.tsx, while production uses a hashed asset and
+      // Pages prefixes its path. Read actual module entries from unchanged HTML.
+      for (const script of html.matchAll(/<script\b[^>]*>/giu)) {
+        if (!/\btype\s*=\s*["']module["']/iu.test(script[0])) continue;
+        const src = /\bsrc\s*=\s*["']([^"']+)["']/iu.exec(script[0])?.[1];
+        if (src) entryUrls.add(new URL(src, response.url()).href);
+      }
+      await route.fulfill({ response, body: html });
+    } else if (entryUrls.has(request.url())) {
+      blockedEntries.add(request.url());
+      await route.abort();
+    } else await route.continue();
+  });
+  await page.goto('./');
+  expect(entryUrls.size, 'the document must declare a module entry to hold back').toBeGreaterThan(0);
+  expect(blockedEntries.size, 'the actual dev or production module entry must be blocked').toBe(entryUrls.size);
+  await expect(page.locator('#root'), 'React must not render before the bundle runs').toBeEmpty();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.dataset.theme ?? ''), {
       message: 'the theme is not set before the bundle: nothing paints it but the stylesheet',
     })
     .not.toBe('');
-  return page.evaluate(() => {
+  const state = await page.evaluate(() => {
     const style = getComputedStyle(document.documentElement);
     return {
       theme: document.documentElement.dataset.theme ?? '',
-      bg: style.getPropertyValue('--bg').trim(),
+      bg: document.documentElement.style.getPropertyValue('--bg').trim(),
+      computedBg: style.getPropertyValue('--bg').trim(),
       text: style.getPropertyValue('--text').trim(),
       accent: style.getPropertyValue('--accent').trim(),
       meta: document.querySelector('meta[name="theme-color"]')?.getAttribute('content') ?? '',
       density: document.documentElement.dataset.density ?? '',
     };
   });
+  await test.info().attach('pre-bundle-evidence', { contentType: 'application/json', body: JSON.stringify({
+    documentUrl: page.url(), entryUrls: [...entryUrls], blockedEntries: [...blockedEntries], rootEmpty: true, state,
+  }, null, 2) });
+  await page.screenshot({ path: test.info().outputPath('before-bundle.png'), fullPage: true });
+  return state;
 }
 
 test('a saved density is applied before the bundle runs', async ({ page }) => {
@@ -115,7 +147,7 @@ test('the boot script and the app agree once the bundle has run', async ({ page 
   }, JSON.stringify(LIGHT_PALETTE));
 
   await page.setViewportSize({ width: 1249, height: 704 });
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
 
   const after = await page.evaluate(() => {
@@ -130,4 +162,5 @@ test('the boot script and the app agree once the bundle has run', async ({ page 
   expect(after.bg, 'the app disagreed with the first frame about the background').toBe('#fdf6e3');
   // The custom background has to reach the paint, not just the token.
   expect(after.painted).toBe('rgb(253, 246, 227)');
+  await page.screenshot({ path: test.info().outputPath('after-bundle.png'), fullPage: true });
 });
