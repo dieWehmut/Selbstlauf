@@ -21,7 +21,7 @@ import {
   UserRound,
   Volume2,
 } from 'lucide-react';
-import type { AuditEvent, EnvironmentView, SessionView } from '../api/client';
+import type { AuditEvent, EnvironmentView, SessionView, WatchdogConfig } from '../api/client';
 import {
   NOTIFICATIONS_DEFAULTS,
   PARENTAL_DEFAULTS,
@@ -204,24 +204,29 @@ type ImportKind = 'theme' | 'config';
 export function ImportSection(props: {
   readonly onImportTheme: (text: string) => Promise<void> | void;
   readonly onImportConfig: (text: string) => Promise<void> | void;
+  readonly config?: WatchdogConfig;
 }) {
   const [result, setResult] = useState<{ readonly ok: boolean; readonly text: string } | null>(null);
-  const [busy, setBusy] = useState<ImportKind | null>(null);
+  const [busy, setBusy] = useState<ImportKind | 'file' | null>(null);
+  const [draft, setDraft] = useState('');
+  const [kind, setKind] = useState<ImportKind>('config');
 
-  const run = async (kind: ImportKind) => {
+  const run = async (kind: ImportKind, source?: string) => {
     setBusy(kind);
     setResult(null);
     try {
-      const clipboard = navigator.clipboard;
-      if (!clipboard || typeof clipboard.readText !== 'function') {
-        throw new Error('当前环境不支持读取剪贴板');
+      let text = source;
+      if (text === undefined) {
+        const clipboard = navigator.clipboard;
+        if (!clipboard || typeof clipboard.readText !== 'function') {
+          throw new Error('当前环境不支持读取剪贴板，请粘贴到下方 JSON 文本框或读取文件');
+        }
+        text = await clipboard.readText();
       }
-      const text = await clipboard.readText();
       // Parse here so a failure is reported with the real parser message.
-      const parsed: unknown = JSON.parse(text);
+      JSON.parse(text);
       const apply = kind === 'theme' ? props.onImportTheme : props.onImportConfig;
       await apply(text);
-      void parsed;
       setResult({ ok: true, text: kind === 'theme' ? '已导入主题' : '已导入配置' });
     } catch (error) {
       setResult({ ok: false, text: `导入失败：${messageOf(error)}` });
@@ -230,8 +235,33 @@ export function ImportSection(props: {
     }
   };
 
+  const readFile = async (file: File) => {
+    setBusy('file');
+    setResult(null);
+    try {
+      const text = await file.text();
+      JSON.parse(text);
+      setDraft(text);
+      setResult({ ok: true, text: `已读取 ${file.name}，请选择类型后导入文本` });
+    } catch (error) {
+      setResult({ ok: false, text: `读取失败：${messageOf(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const exportConfig = () => {
+    if (props.config === undefined) return;
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(props.config, null, 2)}\n`], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'selbstlauf-config.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <Section eyebrow="Import" title="导入" hint="从剪贴板读取 JSON，交给应用校验并应用。" icon={<Upload size={20} />}>
+    <Section eyebrow="Import" title="导入" hint="从剪贴板、文本或文件读取 JSON，交给应用校验并应用。配置导出为当前已保存的内容。" icon={<Upload size={20} />}>
       <div className="pref-actions">
         <button className="button button--secondary" type="button" disabled={busy !== null} onClick={() => void run('theme')}>
           <ClipboardPaste size={16} />导入主题
@@ -239,7 +269,27 @@ export function ImportSection(props: {
         <button className="button button--secondary" type="button" disabled={busy !== null} onClick={() => void run('config')}>
           <ClipboardPaste size={16} />导入配置
         </button>
+        {props.config !== undefined && <button className="button button--secondary" type="button" disabled={busy !== null} onClick={exportConfig}>导出配置</button>}
       </div>
+      <div className="field-stack">
+        <Field label="JSON 文本">
+          <textarea value={draft} disabled={busy !== null} placeholder="粘贴主题或配置 JSON" onChange={(event) => setDraft(event.target.value)} />
+        </Field>
+        <Field label="导入类型">
+          <select value={kind} disabled={busy !== null} onChange={(event) => setKind(event.target.value as ImportKind)}>
+            <option value="config">配置</option>
+            <option value="theme">主题</option>
+          </select>
+        </Field>
+        <Field label="读取 JSON 文件">
+          <input type="file" accept=".json,application/json" disabled={busy !== null} onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file !== undefined) void readFile(file);
+            event.target.value = '';
+          }} />
+        </Field>
+      </div>
+      <div className="pref-actions"><button className="button button--primary" type="button" disabled={busy !== null || draft.trim().length === 0} onClick={() => void run(kind, draft)}>导入文本</button></div>
       {result && <ResultChip tone={result.ok ? 'ready' : 'error'}>{result.text}</ResultChip>}
     </Section>
   );

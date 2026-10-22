@@ -133,6 +133,38 @@ describe('ImportSection', () => {
     const failure = await screen.findByText(/^导入失败：/);
     expect(failure).toHaveClass('state-chip--error');
   });
+
+  it('imports pasted JSON without requiring the clipboard', async () => {
+    const onImportConfig = vi.fn(async () => undefined);
+    render(<ImportSection onImportTheme={vi.fn()} onImportConfig={onImportConfig} />);
+    fireEvent.change(screen.getByLabelText('JSON 文本'), { target: { value: '{"enabled":false}' } });
+    fireEvent.click(screen.getByRole('button', { name: '导入文本' }));
+    expect(await screen.findByText('已导入配置')).toBeInTheDocument();
+    expect(onImportConfig).toHaveBeenCalledWith('{"enabled":false}');
+  });
+
+  it('keeps a failed save visible and permits retrying the same text', async () => {
+    const onImportConfig = vi.fn().mockRejectedValueOnce(new Error('服务拒绝配置')).mockResolvedValueOnce(undefined);
+    render(<ImportSection onImportTheme={vi.fn()} onImportConfig={onImportConfig} />);
+    fireEvent.change(screen.getByLabelText('JSON 文本'), { target: { value: '{"enabled":false}' } });
+    fireEvent.click(screen.getByRole('button', { name: '导入文本' }));
+    expect(await screen.findByText('导入失败：服务拒绝配置')).toBeInTheDocument();
+    expect(screen.queryByText('已导入配置')).toBeNull();
+    expect(screen.getByLabelText('JSON 文本')).toHaveValue('{"enabled":false}');
+    fireEvent.click(screen.getByRole('button', { name: '导入文本' }));
+    expect(await screen.findByText('已导入配置')).toBeInTheDocument();
+  });
+
+  it('reads a JSON file into the draft without applying it before the import button is pressed', async () => {
+    const onImportConfig = vi.fn();
+    render(<ImportSection onImportTheme={vi.fn()} onImportConfig={onImportConfig} />);
+    const file = new File(['{"enabled":true}'], 'my-config.json', { type: 'application/json' });
+    Object.assign(file, { text: async () => '{"enabled":true}' });
+    fireEvent.change(screen.getByLabelText('读取 JSON 文件'), { target: { files: [file] } });
+    expect(await screen.findByText('已读取 my-config.json，请选择类型后导入文本')).toBeInTheDocument();
+    expect(screen.getByLabelText('JSON 文本')).toHaveValue('{"enabled":true}');
+    expect(onImportConfig).not.toHaveBeenCalled();
+  });
 });
 
 

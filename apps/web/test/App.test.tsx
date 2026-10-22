@@ -355,6 +355,27 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     expect(document.documentElement.style.getPropertyValue('--ui-font')).toBe('var(--mono)');
   });
 
+  it('reports a rejected configuration import and changes app configuration only after a successful retry', async () => {
+    const fake = api();
+    const imported = { ...await fake.config(), dryRun: false };
+    vi.mocked(fake.updateConfig).mockRejectedValueOnce(new Error('配置未写入磁盘'));
+    render(<App api={fake} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '导入' }));
+    fireEvent.change(screen.getByLabelText('JSON 文本'), { target: { value: JSON.stringify(imported) } });
+    fireEvent.click(screen.getByRole('button', { name: '导入文本' }));
+    expect(await screen.findByText('导入失败：配置未写入磁盘')).toBeInTheDocument();
+    expect(screen.queryByText('已导入配置')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: '常规' }));
+    expect(screen.getByRole('checkbox', { name: 'Dry run' })).toBeChecked();
+    fireEvent.click(screen.getByRole('tab', { name: '导入' }));
+    fireEvent.change(screen.getByLabelText('JSON 文本'), { target: { value: JSON.stringify(imported) } });
+    fireEvent.click(screen.getByRole('button', { name: '导入文本' }));
+    expect(await screen.findByText('已导入配置')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: '常规' }));
+    expect(screen.getByRole('checkbox', { name: 'Dry run' })).not.toBeChecked();
+  });
+
   it('reports the local environment and offers the install commands', async () => {
     const fake = api();
     render(<App api={fake} />);

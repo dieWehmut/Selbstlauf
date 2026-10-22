@@ -1894,7 +1894,7 @@ function SettingsPanel(props: {
       )}
       {activeSection === 'notifications' && <NotificationsSection onChange={props.onNotificationsChange} />}
       {activeSection === 'import' && (
-        <ImportSection onImportTheme={props.onImportThemeText} onImportConfig={props.onImportConfigText} />
+        <ImportSection onImportTheme={props.onImportThemeText} onImportConfig={props.onImportConfigText} config={props.config} />
       )}
       {activeSection === 'profile' && (
         <ProfileSection onDisplayNameChange={props.onDisplayNameChange} />
@@ -2899,7 +2899,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
 
   /** Apply a config blob from the clipboard through the normal save path. */
   const importConfigText = async (text: string) => {
-    await saveConfig(JSON.parse(text) as WatchdogConfig);
+    await applyConfig(JSON.parse(text) as WatchdogConfig);
   };
 
   /**
@@ -2911,7 +2911,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
    * still had the preference set would have been asked for a PIN with no section left to
    * change or clear it.
    */
-  const saveConfig = async (nextConfig: WatchdogConfig) => {
+  const applyConfig = async (nextConfig: WatchdogConfig) => {
     setSaving(true); setNotice(null);
     try {
       const saved = await api.updateConfig(nextConfig);
@@ -2919,8 +2919,12 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       setHookStatus((current) => ({ ...current, enabled: saved.tools.claude.stopHook.enabled }));
       setNotice('配置已保存');
     }
-    catch (error) { setNotice(error instanceof Error ? error.message : '保存失败', 'error'); }
     finally { setSaving(false); }
+  };
+
+  const saveConfig = async (nextConfig: WatchdogConfig) => {
+    try { await applyConfig(nextConfig); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '保存失败', 'error'); }
   };
 
   const applyCodexProfile = async (fields: CodexProfileFieldView[]) => {

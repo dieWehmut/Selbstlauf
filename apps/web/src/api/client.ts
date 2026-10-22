@@ -265,7 +265,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
   });
   if (!response.ok) {
-    throw new Error(`API ${response.status}`);
+    let message = `API ${response.status}`;
+    try {
+      const body: unknown = await response.json();
+      if (body !== null && typeof body === 'object') {
+        const entry = body as { error?: unknown; message?: unknown };
+        const detail = typeof entry.error === 'string' ? entry.error : entry.message;
+        if (typeof detail === 'string' && detail.trim().length > 0) message = detail;
+      }
+    } catch {
+      // Proxies may return HTML or an empty body: the HTTP status still explains the failure.
+    }
+    throw new Error(message);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;

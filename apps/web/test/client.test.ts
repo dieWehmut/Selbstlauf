@@ -7,6 +7,16 @@ afterEach(() => {
 });
 
 describe('local service API client', () => {
+  it('preserves the service validation error when a save is rejected', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'pollIntervalMs must be positive' }), { status: 400 })));
+    await expect(createApi().updateConfig({} as Parameters<ReturnType<typeof createApi>['updateConfig']>[0])).rejects.toThrow('pollIntervalMs must be positive');
+  });
+
+  it('retains the HTTP status when a proxy response contains no structured error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>Bad Gateway</html>', { status: 502 })));
+    await expect(createApi().config()).rejects.toThrow('API 502');
+  });
+
   it('normalizes health, unwraps sessions, and uses the service lifecycle routes', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
