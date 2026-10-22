@@ -108,5 +108,8 @@ describe('pure helper locale arguments', () => {
     expect(result).toBe('Action: Enable startup · Result: Failure · custom: 用户数据');
     expect(componentError('智能体服务请求失败（503）', 'en')).toBe('Agent service request failed (503)');
     expect(componentError('OS 外部诊断', 'ja')).toBe('OS 外部诊断');
+    expect(componentError('工作目录不存在或无法访问：/用户/项目', 'en')).toBe('The working directory does not exist or cannot be accessed: /用户/项目');
+    expect(componentError('最多保留 12 个窗口，请先关闭已结束的窗口。', 'ja')).toContain('12');
+    expect(componentError('找不到命令 /用户/智能体，请安装该工具或填写可执行文件的完整路径。', 'en')).toContain('Command /用户/智能体 was not found');
   });
 });
