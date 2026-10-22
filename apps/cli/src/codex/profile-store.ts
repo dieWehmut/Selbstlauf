@@ -30,6 +30,17 @@ export interface ApplyProfileOutcome {
   readonly changes: readonly { key: string; action: string; value: string | null }[];
 }
 
+/** An expected refusal that the HTTP/UI may explain without exposing values. */
+export class CodexProfileStoreError extends Error {
+  public readonly status = 409;
+  public readonly code = 'codex-config-missing';
+
+  public constructor() {
+    super('config.toml does not exist; restore or create the Codex configuration before applying endpoint changes');
+    this.name = 'CodexProfileStoreError';
+  }
+}
+
 /**
  * Owns the user config.toml for endpoint switching. Every write is serialized,
  * validated, and preceded by a checksummed backup so an interrupted switch can
@@ -77,7 +88,7 @@ export class CodexConfigProfiles {
   private async applyNow(fields: readonly CodexProfileEdit[]): Promise<ApplyProfileOutcome> {
     const text = await this.readExisting();
     if (text === null) {
-      throw new Error(`refusing to write ${this.configPath}: config.toml does not exist`);
+      throw new CodexProfileStoreError();
     }
     const result = applyProfile(text, fields);
     if (result.text === text) return { text, backupPath: null, changes: result.changes };

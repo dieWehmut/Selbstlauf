@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpClient } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -614,6 +614,34 @@ test('exposes Codex endpoint profiles and applies a switch through the API', asy
     body: { fields: [] },
   });
   assert.equal(rejected.response.status, 400);
+});
+
+test('explains a missing Codex configuration without exposing unexpected internal errors', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchdog-profile-missing-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const configPath = join(directory, 'config.toml');
+  const profiles = new CodexConfigProfiles({ configPath });
+  const service = new WatchdogHttpServer({
+    configStore: new ConfigStore(join(directory, 'config.json')),
+    auditStore: new AuditStore(join(directory, 'audit.jsonl')),
+    codexProfiles: profiles,
+    sessions: { list: () => [], pause: () => false, resume: () => false, inject: () => ({ ok: false }) },
+    port: 0,
+  });
+  await service.start();
+  t.after(() => service.stop());
+  const base = service.url();
+  const missing = await request(base, '/api/codex/profiles', { method: 'PUT', origin: base, body: { fields: [{ key: 'model', value: null }] } });
+  assert.equal(missing.response.status, 409);
+  assert.match(missing.json.error, /config.toml does not exist/);
+  assert.equal(missing.json.error.includes(directory), false);
+  await writeFile(configPath, 'model = "restored"\n', 'utf8');
+  const retry = await request(base, '/api/codex/profiles', { method: 'PUT', origin: base, body: { fields: [{ key: 'model', value: null }] } });
+  assert.equal(retry.response.status, 200);
+  profiles.apply = async () => { throw new Error('internal sample-token value'); };
+  const unexpected = await request(base, '/api/codex/profiles', { method: 'PUT', origin: base, body: { fields: [{ key: 'model', value: 'retry' }] } });
+  assert.equal(unexpected.response.status, 500);
+  assert.equal(unexpected.json.error, 'internal server error');
 });
 
 /**

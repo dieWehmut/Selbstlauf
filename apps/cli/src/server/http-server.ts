@@ -5,7 +5,7 @@ import { chooseCodexPrompt } from '../domain/policy.js';
 import type { AuditEvent, SessionSnapshot, WatchdogConfig } from '../domain/types.js';
 import type { AuditStore } from '../store/audit-store.js';
 import type { ConfigStore } from '../store/config-store.js';
-import type { CodexConfigProfiles } from '../codex/profile-store.js';
+import { CodexProfileStoreError, type CodexConfigProfiles } from '../codex/profile-store.js';
 import type { EnvironmentCheck } from '../environment/environment-check.js';
 import { isKnownToolId, type ToolUpgrader } from '../environment/upgrade.js';
 import type { ManagedAgentSessions } from '../agents/managed-sessions.js';
@@ -642,7 +642,7 @@ export class WatchdogHttpServer {
 
   private handleError(response: ServerResponse, error: unknown): void {
     if (response.writableEnded) return;
-    const status = error instanceof HttpError || error instanceof AgentSessionError ? error.status : isValidationError(error) ? 400 : 500;
+    const status = error instanceof HttpError || error instanceof AgentSessionError || error instanceof CodexProfileStoreError ? error.status : isValidationError(error) ? 400 : 500;
     const message = status >= 500 && !(error instanceof AgentSessionError) ? 'internal server error' : error instanceof Error ? error.message : 'bad request';
     this.json(response, status, { ok: false, error: message });
   }
