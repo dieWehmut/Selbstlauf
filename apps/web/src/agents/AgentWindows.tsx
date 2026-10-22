@@ -1,3 +1,5 @@
+import { useI18n, translate, type Locale } from '../i18n';
+import { componentError } from '../i18n/component-errors';
 import { useEffect, useState } from 'react';
 import { CirclePlay, RefreshCw, Square, SquareArrowOutUpRight, X } from 'lucide-react';
 import type { AgentApi, AgentSession } from '../api/agents';
@@ -5,8 +7,8 @@ import { ToolIcon } from '../sidebar/ToolIcon';
 import { AgentTerminal } from './AgentTerminal';
 import './agents.css';
 
-export function agentStatus(session: AgentSession): string {
-  return session.status === 'running' ? '运行中' : session.status === 'stopping' ? '正在退出' : `已结束 · 退出码 ${session.exitCode ?? '未知'}`;
+export function agentStatus(session: AgentSession, locale?: Locale): string {
+  return session.status === 'running' ? translate('运行中', {}, locale) : session.status === 'stopping' ? translate('正在退出', {}, locale) : translate('已结束 · 退出码 {code}', { code: session.exitCode ?? translate('未知', {}, locale) }, locale);
 }
 
 export function AgentWindows(props: {
@@ -17,6 +19,7 @@ export function AgentWindows(props: {
   onLaunch: () => void;
   onOpenWindow?: (session: AgentSession) => void;
 }) {
+  const { t, locale } = useI18n();
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -59,12 +62,12 @@ export function AgentWindows(props: {
     finally { setBusy(null); }
   };
 
-  if (props.demo) return <div className="empty-state">智能体窗口需要本地服务或桌面版。在线演示不会启动进程。</div>;
+  if (props.demo) return <div className="empty-state">{t("智能体窗口需要本地服务或桌面版。在线演示不会启动进程。")}</div>;
 
   return (
-    <section className="agent-windows" aria-label="智能体窗口">
-      {error && <p className="agent-error" role="alert">{error}</p>}
-      <div className="agent-windows__tabbar"><div className="agent-windows__tabs" role="tablist" aria-label="已启动的智能体">
+    <section className="agent-windows" aria-label={t("智能体窗口")}>
+      {error && <p className="agent-error" role="alert">{componentError(error, locale)}</p>}
+      <div className="agent-windows__tabbar"><div className="agent-windows__tabs" role="tablist" aria-label={t("已启动的智能体")}>
         {sessions.map((session) => (
           <button key={session.id} id={`tab-${session.id}`} type="button" role="tab" aria-selected={selected?.id === session.id}
             aria-controls={`panel-${session.id}`} tabIndex={selected?.id === session.id || (selected === null && sessions[0]?.id === session.id) ? 0 : -1}
@@ -78,22 +81,22 @@ export function AgentWindows(props: {
             <ToolIcon tool={session.tool} size={16} /><span>{session.title}</span><span className={`agent-dot agent-dot--${session.status}`} aria-hidden="true" />
           </button>
         ))}
-      </div><button className="button button--ghost" type="button" onClick={props.onLaunch}><CirclePlay size={16} />新建窗口</button></div>
-      {selected === null && <div className="empty-state"><p>{loaded ? sessions.length === 0 ? '还没有智能体窗口' : '所选窗口不存在或已被关闭，请选择其他窗口。' : '正在读取窗口…'}</p><p className="subtle">选择 Claude、OpenCode 或其他智能体即可启动。</p></div>}
+      </div><button className="button button--ghost" type="button" onClick={props.onLaunch}><CirclePlay size={16} />{t("新建窗口")}</button></div>
+      {selected === null && <div className="empty-state"><p>{loaded ? sessions.length === 0 ? t("还没有智能体窗口") : t("所选窗口不存在或已被关闭，请选择其他窗口。") : t("正在读取窗口…")}</p><p className="subtle">{t("选择 Claude、OpenCode 或其他智能体即可启动。")}</p></div>}
       {sessions.map((session) => (
         <section key={session.id} className="agent-window" role="tabpanel" hidden={selected?.id !== session.id} id={`panel-${session.id}`} aria-labelledby={`tab-${session.id}`}>
           <header className="agent-window__header">
-            <div><strong>{session.title}</strong><span className="subtle">PID {session.pid} · {agentStatus(session)}</span></div>
+            <div><strong>{session.title}</strong><span className="subtle">PID {session.pid} · {agentStatus(session, locale)}</span></div>
             <div className="agent-window__actions">
-              {props.onOpenWindow && <button className="button button--ghost" type="button" onClick={() => props.onOpenWindow?.(session)}><SquareArrowOutUpRight size={15} />独立窗口</button>}
+              {props.onOpenWindow && <button className="button button--ghost" type="button" onClick={() => props.onOpenWindow?.(session)}><SquareArrowOutUpRight size={15} />{t("独立窗口")}</button>}
               <button className="button button--secondary" type="button" disabled={busy === session.id || session.status === 'stopping'}
                 onClick={() => void action(session, session.status === 'exited')}>
                 {busy === session.id ? <RefreshCw size={15} className="spin" /> : session.status === 'exited' ? <X size={15} /> : <Square size={15} />}
-                {session.status === 'exited' ? '关闭窗口' : '结束进程'}
+                {session.status === 'exited' ? t("关闭窗口") : t("结束进程")}
               </button>
             </div>
           </header>
-          <dl className="agent-window__metadata"><div><dt>工作目录</dt><dd>{session.cwd}</dd></div><div><dt>启动命令</dt><dd>{session.command}{session.args.length > 0 ? ` ${session.args.join(' ')}` : ''}</dd></div></dl>
+          <dl className="agent-window__metadata"><div><dt>{t("工作目录")}</dt><dd>{session.cwd}</dd></div><div><dt>{t("启动命令")}</dt><dd>{session.command}{session.args.length > 0 ? ` ${session.args.join(' ')}` : ''}</dd></div></dl>
           <AgentTerminal api={props.api} session={session} visible={selected?.id === session.id}
             onSession={(updated) => setSessions((current) => current.map((entry) => entry.id === updated.id ? updated : entry))} />
         </section>

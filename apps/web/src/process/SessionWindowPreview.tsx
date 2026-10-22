@@ -1,3 +1,4 @@
+import { useI18n, translate, type Locale } from '../i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppWindow, ImageOff, Loader, Minimize2, RefreshCw } from 'lucide-react';
 
@@ -25,6 +26,7 @@ export function SessionWindowPreview(props: {
   readonly onOpenWindow?: (session: SessionView) => void;
   readonly busy?: boolean;
 }) {
+  const { t, locale } = useI18n();
   const [result, setResult] = useState<WindowPreviewResult | null>(null);
   const [pending, setPending] = useState(false);
   // A capture can outlive the session it was for, so a stale answer must not overwrite a newer
@@ -63,40 +65,37 @@ export function SessionWindowPreview(props: {
   const captured = result?.state === 'captured' ? result : null;
 
   return (
-    <section className="window-preview" aria-label="窗口预览">
+    <section className="window-preview" aria-label={t("窗口预览")}>
       <div className="window-preview__head">
-        <span className="eyebrow">Window</span>
+        <span className="eyebrow">{t("窗口")}</span>
         <h3 className="window-preview__title">
           <AppWindow size={15} aria-hidden="true" />
-          窗口内容
-        </h3>
+          {t("窗口内容")}</h3>
         <div className="window-preview__actions">
           <button
             type="button"
             className="button"
             disabled={pending}
             onClick={() => void load()}
-            aria-label="刷新窗口预览"
+            aria-label={t("刷新窗口预览")}
           >
             <RefreshCw size={15} aria-hidden="true" />
-            刷新
-          </button>
+            {t("刷新")}</button>
           <button
             type="button"
             className="button"
             disabled={props.busy === true || result?.state === 'no-window'}
             onClick={() => props.onOpenWindow?.(props.session)}
-            aria-label={`切换到该窗口 PID ${props.session.rootPid}`}
+            aria-label={t('切换到该窗口 PID {pid}', { pid: props.session.rootPid })}
           >
             <AppWindow size={15} aria-hidden="true" />
-            切换到该窗口
-          </button>
+            {t("切换到该窗口")}</button>
         </div>
       </div>
 
       <div className="window-preview__frame">
         {pending && state === null && (
-          <p className="window-preview__note"><Loader size={15} aria-hidden="true" />正在抓取窗口画面…</p>
+          <p className="window-preview__note"><Loader size={15} aria-hidden="true" />{t("正在抓取窗口画面…")}</p>
         )}
 
         {state === 'captured' && captured !== null && (
@@ -104,7 +103,7 @@ export function SessionWindowPreview(props: {
             <img
               className="window-preview__image"
               src={captured.dataUrl}
-              alt={`PID ${props.session.rootPid} 所在窗口的画面`}
+              alt={t('PID {pid} 所在窗口的画面', { pid: props.session.rootPid })}
               width={captured.width}
               height={captured.height}
             />
@@ -112,12 +111,12 @@ export function SessionWindowPreview(props: {
               {captured.sharedBy > 1
                 // Two Codex sessions can run inside one Tabby window, so the picture is of the
                 // window rather than of this process alone. Saying so prevents a wrong reading.
-                ? `此窗口内有 ${captured.sharedBy} 个受监控进程，画面为整个窗口`
-                : `PID ${props.session.rootPid} 所在窗口`}
+                ? t('此窗口内有 {count} 个受监控进程，画面为整个窗口', { count: captured.sharedBy })
+                : t('PID {pid} 所在窗口', { pid: props.session.rootPid })}
               {props.session.host?.windowTitle ? ` · ${props.session.host.windowTitle}` : ''}
               {/* The window was minimized, so it was shown for a moment to capture it and put straight
                   back. Saying so explains why it may have blinked, and reassures that its state was kept. */}
-              {captured.restoredFromMinimized === true ? '（该窗口原本最小化，已临时显示后还原）' : ''}
+              {captured.restoredFromMinimized === true ? t("（该窗口原本最小化，已临时显示后还原）") : ''}
             </p>
           </>
         )}
@@ -130,8 +129,7 @@ export function SessionWindowPreview(props: {
                 refuses to appear are indistinguishable here. The wording therefore says what is known
                 rather than asserting the minimized case, which would give advice that cannot be followed
                 once the window is gone. It also names the retry, which is what actually helps. */}
-            这一会儿抓不到该窗口的画面：它可能刚刚关闭，或无法被唤到画面上。点“刷新”再试一次。
-          </p>
+            {t("这一会儿抓不到该窗口的画面：它可能刚刚关闭，或无法被唤到画面上。点“刷新”再试一次。")}</p>
         )}
 
         {state === 'no-window' && (
@@ -143,14 +141,14 @@ export function SessionWindowPreview(props: {
                 whose window lookup failed. That claim happens to be right for every session on this
                 machine and is still wrong as a general statement: a Codex session in a bare console
                 would have been told it was DeepSeek Harness. */}
-            {noWindowReason(props.session)}
+            {noWindowReason(props.session, locale)}
           </p>
         )}
 
         {state === 'unsupported' && (
           <p className="window-preview__note">
             <ImageOff size={15} aria-hidden="true" />
-            {result?.state === 'unsupported' && result.reason ? describeShellReason(result.reason) : '当前环境不支持窗口预览。'}
+            {result?.state === 'unsupported' && result.reason ? describeShellReason(result.reason, locale) : t("当前环境不支持窗口预览。")}
           </p>
         )}
       </div>
@@ -166,22 +164,22 @@ export function SessionWindowPreview(props: {
  * DeepSeek Harness, which is wrong for a session running in a bare console or an unrecognised host —
  * and a message about the wrong application is worse than a plain "there is nothing to show here".
  */
-export function noWindowReason(session: SessionView): string {
+export function noWindowReason(session: SessionView, locale?: Locale): string {
   const host = session.host;
   const label = host?.label?.trim() ?? '';
   // A WSL session cannot have a window at all, which is a fact about Linux pids rather than a failure to
   // identify anything: the process runs in another kernel's pid namespace, so Windows has no window for it.
   if (session.distribution) {
-    return `该进程运行在 WSL（${session.distribution}）里，Windows 没有它的窗口，因此没有可预览的画面。`;
+    return translate('该进程运行在 WSL（{distribution}）里，Windows 没有它的窗口，因此没有可预览的画面。', { distribution: session.distribution }, locale);
   }
   // A harness session's interface is the browser page showing its WebUI, which is why it has no
   // window of its own.
   if (session.tool === 'dsh') {
-    return '该进程没有自己的窗口（DeepSeek Harness 的界面是浏览器里的网页），因此没有可预览的画面。';
+    return translate('该进程没有自己的窗口（DeepSeek Harness 的界面是浏览器里的网页），因此没有可预览的画面。', {}, locale);
   }
   if (host === null || host === undefined || label.length === 0) {
-    return '未识别出该进程所在的窗口，因此没有可预览的画面。';
+    return translate('未识别出该进程所在的窗口，因此没有可预览的画面。', {}, locale);
   }
   // Name the host that was identified instead of guessing which kind it is.
-  return `该进程没有可预览的窗口（运行位置：${label}）。`;
+  return translate('该进程没有可预览的窗口（运行位置：{host}）。', { host: label }, locale);
 }

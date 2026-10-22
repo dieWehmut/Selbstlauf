@@ -1,3 +1,5 @@
+import { useI18n } from '../i18n';
+import { componentError } from '../i18n/component-errors';
 import { useEffect, useId, useRef, useState } from 'react';
 import { CirclePlay, RefreshCw, X } from 'lucide-react';
 import type { AgentApi, AgentCatalog, AgentSession, AgentTool } from '../api/agents';
@@ -11,6 +13,7 @@ export function AgentLauncher(props: {
   onLaunch: (session: AgentSession) => void;
   onInstall: () => void;
 }) {
+  const { t, locale } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [catalog, setCatalog] = useState<AgentCatalog | null>(null);
@@ -70,41 +73,36 @@ export function AgentLauncher(props: {
       if (!busy) props.onClose();
     }}>
       <div className="agent-launcher__head">
-        <h2 id={titleId}>启动智能体</h2>
-        <button className="icon-button" type="button" aria-label="关闭启动面板" disabled={busy} onClick={props.onClose}><X size={18} /></button>
+        <h2 id={titleId}>{t("启动智能体")}</h2>
+        <button className="icon-button" type="button" aria-label={t("关闭启动面板")} disabled={busy} onClick={props.onClose}><X size={18} /></button>
       </div>
-      {props.demo ? <p className="agent-help">在线演示无法启动本机进程。请运行本地服务或桌面版后使用智能体窗口。</p> : (
+      {props.demo ? <p className="agent-help">{t("在线演示无法启动本机进程。请运行本地服务或桌面版后使用智能体窗口。")}</p> : (
         <form className="agent-launcher__form" onSubmit={(event) => { event.preventDefault(); void launch(); }}>
-          <label>智能体
-            <select aria-label="智能体" value={tool} disabled={busy || catalog === null} onChange={(event) => { setTool(event.target.value as AgentTool); setCommand(''); setError(null); }}>
+          <label>{t("智能体")}<select aria-label={t("智能体")} value={tool} disabled={busy || catalog === null} onChange={(event) => { setTool(event.target.value as AgentTool); setCommand(''); setError(null); }}>
               {(catalog?.tools ?? [{ id: tool, label: '正在检测本机工具…', available: false }]).map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.label}{entry.available ? '' : '（未找到）'}</option>
+                <option key={entry.id} value={entry.id}>{t(entry.label)}{entry.available ? '' : t("（未找到）")}</option>
               ))}
             </select>
           </label>
-          <label>工作目录
-            <input value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder="要让智能体工作的项目目录" maxLength={4096} disabled={busy} required />
+          <label>{t("工作目录")}<input value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder={t("要让智能体工作的项目目录")} maxLength={4096} disabled={busy} required />
           </label>
-          <label>窗口名称（可选）<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} disabled={busy} placeholder={selected?.label ?? '智能体窗口'} /></label>
+          <label>{t("窗口名称（可选）")}<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} disabled={busy} placeholder={t(selected?.label ?? '智能体窗口')} /></label>
           <details className="agent-launcher__advanced" open={tool === 'custom' || missing ? true : undefined}>
-            <summary>启动命令与参数</summary>
-            <label>启动命令
-              <input value={command} onChange={(event) => setCommand(event.target.value)} disabled={busy} maxLength={4096} placeholder={selected?.command ?? '可执行文件的完整路径，例如 /usr/local/bin/opencode'} />
+            <summary>{t("启动命令与参数")}</summary>
+            <label>{t("启动命令")}<input value={command} onChange={(event) => setCommand(event.target.value)} disabled={busy} maxLength={4096} placeholder={selected?.command ?? t("可执行文件的完整路径，例如 /usr/local/bin/opencode")} />
             </label>
-            <label>额外启动参数（每行一个）
-              <textarea value={args} onChange={(event) => setArgs(event.target.value)} disabled={busy} maxLength={32768} rows={3} placeholder={'例如：\n--model\n模型名称'} />
+            <label>{t("额外启动参数（每行一个）")}<textarea value={args} onChange={(event) => setArgs(event.target.value)} disabled={busy} maxLength={32768} rows={3} placeholder={t("例如：\n--model\n模型名称")} />
             </label>
-            <p className="agent-help">每行作为一个参数原样传入，包含空格也无需加引号。</p>
+            <p className="agent-help">{t("每行作为一个参数原样传入，包含空格也无需加引号。")}</p>
           </details>
           {missing && <div className="agent-help" role="status">
-            没有在本机找到 {selected?.label}。可填写完整路径，或先到环境设置中安装。
-            {selected?.installCommand && <code>{selected.installCommand}</code>}
-            <button className="text-button" type="button" onClick={props.onInstall}>打开环境设置</button>
+            {t('没有在本机找到 {tool}。可填写完整路径，或先到环境设置中安装。', { tool: t(selected?.label ?? '智能体') })}{selected?.installCommand && <code>{selected.installCommand}</code>}
+            <button className="text-button" type="button" onClick={props.onInstall}>{t("打开环境设置")}</button>
           </div>}
-          {error && <p className="agent-error" role="alert">{error}</p>}
-          <p className="agent-help">启动后，每个窗口连接自己的进程。工具的登录、模型选择和交互提示会显示在窗口中。</p>
+          {error && <p className="agent-error" role="alert">{componentError(error, locale)}</p>}
+          <p className="agent-help">{t("启动后，每个窗口连接自己的进程。工具的登录、模型选择和交互提示会显示在窗口中。")}</p>
           <button className="button button--primary" type="submit" disabled={disabled}>
-            {busy ? <RefreshCw size={16} className="spin" /> : <CirclePlay size={16} />} {busy ? '正在启动…' : '启动'}
+            {busy ? <RefreshCw size={16} className="spin" /> : <CirclePlay size={16} />} {busy ? t("正在启动…") : t("启动")}
           </button>
         </form>
       )}

@@ -1,3 +1,5 @@
+import { useI18n, translate, type Locale } from '../i18n';
+import { FormattedMessage } from '../i18n/FormattedMessage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, CornerDownLeft, Keyboard, TriangleAlert } from 'lucide-react';
 
@@ -27,11 +29,11 @@ import { describeShellReason } from './shell-reasons';
 export const WINDOW_TYPE_MAX_LENGTH = 4096;
 
 /** Why the current draft cannot be typed, or null when it can. */
-export function typingProblem(draft: string): string | null {
+export function typingProblem(draft: string, locale?: Locale): string | null {
   const trimmed = draft.trim();
-  if (trimmed.length === 0) return '请输入要写入的内容';
-  if (/[\r\n]/u.test(draft)) return '只能写入一行；换行请用「提交」逐条发送';
-  if (draft.length > WINDOW_TYPE_MAX_LENGTH) return `不超过 ${WINDOW_TYPE_MAX_LENGTH} 个字符（当前 ${draft.length}）`;
+  if (trimmed.length === 0) return translate('请输入要写入的内容', {}, locale);
+  if (/[\r\n]/u.test(draft)) return translate('只能写入一行；换行请用「提交」逐条发送', {}, locale);
+  if (draft.length > WINDOW_TYPE_MAX_LENGTH) return translate('不超过 {max} 个字符（当前 {count}）', { max: WINDOW_TYPE_MAX_LENGTH, count: draft.length }, locale);
   return null;
 }
 
@@ -51,6 +53,7 @@ export function WindowTypePanel(props: {
    */
   readonly defaultOpen?: boolean;
 }) {
+  const { t, locale } = useI18n();
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WindowTypeResult | null>(null);
@@ -70,7 +73,7 @@ export function WindowTypePanel(props: {
   const hasWindow = (props.session.host?.windowHandle ?? null) !== null;
   const sharedBy = props.sharedBy ?? 1;
   const shared = sharedBy > 1;
-  const problem = typingProblem(draft);
+  const problem = typingProblem(draft, locale);
   const canType = hasWindow && !shared && props.onType !== undefined;
   const disabled = !canType || problem !== null || busy;
 
@@ -97,7 +100,7 @@ export function WindowTypePanel(props: {
   }, [disabled, draft, props]);
 
   return (
-    <section className="window-type" aria-label="写入窗口">
+    <section className="window-type" aria-label={t("写入窗口")}>
       {/*
         A disclosure, not a second input box.
 
@@ -115,15 +118,15 @@ export function WindowTypePanel(props: {
       >
         <Keyboard size={16} aria-hidden="true" />
         <span className="window-type__summaryText">
-          <strong>模拟键盘写入窗口</strong>
+          <strong>{t("模拟键盘写入窗口")}</strong>
           {/* The cost and the refusal are both visible while collapsed, so nothing is hidden that would change a
               decision to open it. */}
           <span className="window-type__summaryMeta">
             {!hasWindow
-              ? '该会话没有窗口，无法使用'
+              ? t("该会话没有窗口，无法使用")
               : shared
-                ? `窗口内有 ${sharedBy} 个会话，无法确定写入哪一个`
-                : '会短暂切到前台，把这一行作为真实按键输入'}
+                ? t('窗口内有 {count} 个会话，无法确定写入哪一个', { count: sharedBy })
+                : t("会短暂切到前台，把这一行作为真实按键输入")}
           </span>
         </span>
         <ChevronDown className={open ? 'window-type__chevron is-open' : 'window-type__chevron'} size={16} aria-hidden="true" />
@@ -137,13 +140,12 @@ export function WindowTypePanel(props: {
       */}
       {open && (
       <div className="window-type__body" id="window-type-body">
-      <h3 className="window-type__title">把这一行写进窗口</h3>
+      <h3 className="window-type__title">{t("把这一行写进窗口")}</h3>
 
       <p className="window-type__cost">
         <TriangleAlert size={14} aria-hidden="true" />
         {/* The cost is stated before the act, not after it. */}
-        发送时会把该窗口切到前台约 1 秒（Windows 不允许后台程序发送键盘输入），随后自动切回原来的窗口。
-      </p>
+        {t("发送时会把该窗口切到前台约 1 秒（Windows 不允许后台程序发送键盘输入），随后自动切回原来的窗口。")}</p>
 
       <form
         className="window-type__form"
@@ -153,12 +155,12 @@ export function WindowTypePanel(props: {
         }}
       >
         <label className="window-type__field">
-          <span className="sr-only">要写入该窗口的文字</span>
+          <span className="sr-only">{t("要写入该窗口的文字")}</span>
           <input
             type="text"
             value={draft}
             maxLength={WINDOW_TYPE_MAX_LENGTH}
-            placeholder={canType ? '例如：继续，并按上面的计划做完' : '该会话当前不可写入'}
+            placeholder={canType ? t("例如：继续，并按上面的计划做完") : t("该会话当前不可写入")}
             disabled={!canType || busy}
             aria-invalid={problem !== null && draft.length > 0}
             aria-describedby="window-type-hint"
@@ -180,39 +182,36 @@ export function WindowTypePanel(props: {
             }}
           />
         </label>
-        <button className="button" type="submit" disabled={disabled} aria-label={`写入窗口（不提交）PID ${props.session.rootPid}`}>
+        <button className="button" type="submit" disabled={disabled} aria-label={t('写入窗口（不提交）PID {pid}', { pid: props.session.rootPid })}>
           <Keyboard size={16} aria-hidden="true" />
-          写入
-        </button>
+          {t("写入")}</button>
         <button
           className="button button--primary"
           type="button"
           disabled={disabled}
           onClick={() => void send(true)}
-          aria-label={`写入并回车 PID ${props.session.rootPid}`}
+          aria-label={t('写入并回车 PID {pid}', { pid: props.session.rootPid })}
         >
           <CornerDownLeft size={16} aria-hidden="true" />
-          写入并回车
-        </button>
+          {t("写入并回车")}</button>
       </form>
 
       <p className="window-type__hint" id="window-type-hint">
         {!hasWindow
-          ? '该会话没有可写入的窗口。'
+          ? t("该会话没有可写入的窗口。")
           : shared
             // The refusal is stated as a reason, not as a disabled button with no explanation.
-            ? <>该窗口内有 <strong>{sharedBy}</strong> 个受监控会话，写入会送到其中当前获得焦点的那个，无法确定是你选的那个，因此不允许写入。</>
-            : <>将写入 <strong>PID {props.session.rootPid}</strong> 的窗口{props.session.host?.windowTitle ? `（${props.session.host.windowTitle}）` : ''}。</>}
+            ? <FormattedMessage source="该窗口内有 {count} 个受监控会话，写入会送到其中当前获得焦点的那个，无法确定是你选的那个，因此不允许写入。" params={{ count: <strong>{sharedBy}</strong> }} />
+            : <FormattedMessage source="将写入 PID {pid} 的窗口{title}。" params={{ pid: <strong>{props.session.rootPid}</strong>, title: props.session.host?.windowTitle ? `（${props.session.host.windowTitle}）` : '' }} />}
       </p>
 
       {result !== null && !result.ok && (
-        <p className="window-type__problem" role="alert">未能写入：{describeShellReason(result.reason)}</p>
+        <p className="window-type__problem" role="alert">{t('未能写入：{error}', { error: describeShellReason(result.reason, locale) })}</p>
       )}
       {result !== null && result.ok && (
         <p className="window-type__done" role="status">
-          已写入 {result.typed ?? 0} 个字符{result.submitted === true ? '，并已回车' : ''}
+          {t('已写入 {count} 个字符{submit}{focus}。', { count: result.typed ?? 0, submit: result.submitted === true ? t('，并已回车') : '', focus: result.focusRestored === true ? t('，焦点已切回') : t('，焦点未切回（可能是原来的窗口已关闭）') })}
           {/* Whether focus came back is part of the outcome, because taking it was the cost. */}
-          {result.focusRestored === true ? '，焦点已切回' : '，焦点未切回（可能是原来的窗口已关闭）'}。
         </p>
       )}
       </div>

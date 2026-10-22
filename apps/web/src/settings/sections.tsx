@@ -1,3 +1,4 @@
+import { useI18n, translate, type Locale } from '../i18n';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Bell,
@@ -65,17 +66,18 @@ function Section(props: {
   readonly icon?: ReactNode;
   readonly children: ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <section className="settings-section settings-section--wide">
       <div className="section-title">
         <div>
-          <span className="eyebrow">{props.eyebrow}</span>
+          <span className="eyebrow">{t(props.eyebrow)}</span>
           <h2>{props.title}</h2>
         </div>
         {props.icon}
       </div>
       <p className="section-hint">{props.hint}</p>
-      {props.children}
+      {typeof props.children === 'string' ? t(props.children) : props.children}
     </section>
   );
 }
@@ -89,6 +91,7 @@ function SwitchRow(props: {
   readonly chip?: ReactNode;
   readonly onChange: (next: boolean) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="switch-row">
       <div>
@@ -112,10 +115,11 @@ function SwitchRow(props: {
 
 /** An inline outcome line, always paired with the real message. */
 function ResultChip(props: { readonly tone: 'ready' | 'error'; readonly children: ReactNode }) {
+  const { t } = useI18n();
   return (
     <p className={`pref-result state-chip state-chip--${props.tone}`} role="status">
       <span className="state-chip__dot" />
-      {props.children}
+      {typeof props.children === 'string' ? t(props.children) : props.children}
     </p>
   );
 }
@@ -142,6 +146,7 @@ export function NotificationsSection(props: {
   /** The app holds these preferences, so a change has to reach it: the notice strip filters on them. */
   readonly onChange?: (pref: NotificationsPref) => void;
 }) {
+  const { t } = useI18n();
   const [pref, setPref, error] = usePref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref);
   const patch = (next: Partial<NotificationsPref>) => {
     const updated = { ...pref, ...next };
@@ -156,32 +161,32 @@ export function NotificationsSection(props: {
   };
 
   return (
-    <Section eyebrow="Notifications" title="通知" hint="控制面板内提示，以及事件时间线保留的条数。" icon={<Bell size={20} />}>
+    <Section eyebrow="通知" title={t("通知")} hint={t("控制面板内提示，以及事件时间线保留的条数。")} icon={<Bell size={20} />}>
       <SwitchRow
-        label="面板内通知"
-        hint="在面板内显示状态变化提示"
+        label={t("面板内通知")}
+        hint={t("在面板内显示状态变化提示")}
         checked={pref.inPanel}
         onChange={(inPanel) => patch({ inPanel })}
       />
       <SwitchRow
-        label="操作成功时提示"
-        hint="成功完成一次操作后给出提示"
+        label={t("操作成功时提示")}
+        hint={t("成功完成一次操作后给出提示")}
         checked={pref.onSuccess}
         onChange={(onSuccess) => patch({ onSuccess })}
       />
       <SwitchRow
-        label="出现错误时提示"
-        hint="写入失败或传输异常时给出提示"
+        label={t("出现错误时提示")}
+        hint={t("写入失败或传输异常时给出提示")}
         checked={pref.onError}
         onChange={(onError) => patch({ onError })}
       />
       <div className="switch-row">
         <div>
-          <strong>保留最近事件条数</strong>
-          <span>超出后只保留最近的记录（1 - 1000）</span>
+          <strong>{t("保留最近事件条数")}</strong>
+          <span>{t("超出后只保留最近的记录（1 - 1000）")}</span>
         </div>
         <input
-          aria-label="保留最近事件条数"
+          aria-label={t("保留最近事件条数")}
           className="pref-number"
           type="number"
           min={1}
@@ -206,7 +211,8 @@ export function ImportSection(props: {
   readonly onImportConfig: (text: string) => Promise<void> | void;
   readonly config?: WatchdogConfig;
 }) {
-  const [result, setResult] = useState<{ readonly ok: boolean; readonly text: string } | null>(null);
+  const { t } = useI18n();
+  const [result, setResult] = useState<{ readonly ok: boolean; readonly text: string; readonly params?: Record<string, string> } | null>(null);
   const [busy, setBusy] = useState<ImportKind | 'file' | null>(null);
   const [draft, setDraft] = useState('');
   const [kind, setKind] = useState<ImportKind>('config');
@@ -229,7 +235,7 @@ export function ImportSection(props: {
       await apply(text);
       setResult({ ok: true, text: kind === 'theme' ? '已导入主题' : '已导入配置' });
     } catch (error) {
-      setResult({ ok: false, text: `导入失败：${messageOf(error)}` });
+      setResult({ ok: false, text: '导入失败：{error}', params: { error: messageOf(error) } });
     } finally {
       setBusy(null);
     }
@@ -242,9 +248,9 @@ export function ImportSection(props: {
       const text = await file.text();
       JSON.parse(text);
       setDraft(text);
-      setResult({ ok: true, text: `已读取 ${file.name}，请选择类型后导入文本` });
+      setResult({ ok: true, text: '已读取 {file}，请选择类型后导入文本', params: { file: file.name } });
     } catch (error) {
-      setResult({ ok: false, text: `读取失败：${messageOf(error)}` });
+      setResult({ ok: false, text: '读取失败：{error}', params: { error: messageOf(error) } });
     } finally {
       setBusy(null);
     }
@@ -261,27 +267,25 @@ export function ImportSection(props: {
   };
 
   return (
-    <Section eyebrow="Import" title="导入" hint="从剪贴板、文本或文件读取 JSON，交给应用校验并应用。配置导出为当前已保存的内容。" icon={<Upload size={20} />}>
+    <Section eyebrow="导入" title={t("导入")} hint={t("从剪贴板、文本或文件读取 JSON，交给应用校验并应用。配置导出为当前已保存的内容。")} icon={<Upload size={20} />}>
       <div className="pref-actions">
         <button className="button button--secondary" type="button" disabled={busy !== null} onClick={() => void run('theme')}>
-          <ClipboardPaste size={16} />导入主题
-        </button>
+          <ClipboardPaste size={16} />{t("导入主题")}</button>
         <button className="button button--secondary" type="button" disabled={busy !== null} onClick={() => void run('config')}>
-          <ClipboardPaste size={16} />导入配置
-        </button>
-        {props.config !== undefined && <button className="button button--secondary" type="button" disabled={busy !== null} onClick={exportConfig}>导出配置</button>}
+          <ClipboardPaste size={16} />{t("导入配置")}</button>
+        {props.config !== undefined && <button className="button button--secondary" type="button" disabled={busy !== null} onClick={exportConfig}>{t("导出配置")}</button>}
       </div>
       <div className="field-stack">
-        <Field label="JSON 文本">
-          <textarea value={draft} disabled={busy !== null} placeholder="粘贴主题或配置 JSON" onChange={(event) => setDraft(event.target.value)} />
+        <Field label={t("JSON 文本")}>
+          <textarea value={draft} disabled={busy !== null} placeholder={t("粘贴主题或配置 JSON")} onChange={(event) => setDraft(event.target.value)} />
         </Field>
-        <Field label="导入类型">
+        <Field label={t("导入类型")}>
           <select value={kind} disabled={busy !== null} onChange={(event) => setKind(event.target.value as ImportKind)}>
-            <option value="config">配置</option>
-            <option value="theme">主题</option>
+            <option value="config">{t("配置")}</option>
+            <option value="theme">{t("主题")}</option>
           </select>
         </Field>
-        <Field label="读取 JSON 文件">
+        <Field label={t("读取 JSON 文件")}>
           <input type="file" accept=".json,application/json" disabled={busy !== null} onChange={(event) => {
             const file = event.target.files?.[0];
             if (file !== undefined) void readFile(file);
@@ -289,8 +293,8 @@ export function ImportSection(props: {
           }} />
         </Field>
       </div>
-      <div className="pref-actions"><button className="button button--primary" type="button" disabled={busy !== null || draft.trim().length === 0} onClick={() => void run(kind, draft)}>导入文本</button></div>
-      {result && <ResultChip tone={result.ok ? 'ready' : 'error'}>{result.text}</ResultChip>}
+      <div className="pref-actions"><button className="button button--primary" type="button" disabled={busy !== null || draft.trim().length === 0} onClick={() => void run(kind, draft)}>{t("导入文本")}</button></div>
+      {result && <ResultChip tone={result.ok ? 'ready' : 'error'}>{t(result.text, result.params && Object.fromEntries(Object.entries(result.params).map(([key, value]) => [key, key === 'error' ? t(value) : value])))}</ResultChip>}
     </Section>
   );
 }
@@ -302,6 +306,7 @@ export function ImportSection(props: {
 export function ProfileSection(props: {
   readonly onDisplayNameChange?: (name: string) => void;
 }) {
+  const { t } = useI18n();
   const [pref, setPref, error] = usePref(PREF_KEYS.profile, PROFILE_DEFAULTS, isProfilePref);
   const patch = (next: Partial<ProfilePref>) => setPref({ ...pref, ...next });
 
@@ -319,9 +324,9 @@ export function ProfileSection(props: {
    * value with those keys still validates, since only the fields that matter are checked.
    */
   return (
-    <Section eyebrow="Profile" title="个人资料" hint="只保存在本机浏览器中，不会上传；账户弹窗的标题显示的即是这个名称。" icon={<UserRound size={20} />}>
+    <Section eyebrow="个人资料" title={t("个人资料")} hint={t("只保存在本机浏览器中，不会上传；账户弹窗的标题显示的即是这个名称。")} icon={<UserRound size={20} />}>
       <div className="field-grid">
-        <Field label="显示名称">
+        <Field label={t("显示名称")}>
           <input value={pref.displayName} onChange={(event) => rename(event.target.value)} />
         </Field>
       </div>
@@ -407,28 +412,29 @@ export function PetSection(props: {
   readonly pet: PetPref;
   readonly onChange: (next: PetPref) => void;
 }) {
+  const { t } = useI18n();
   return (
     <Section
-      eyebrow="Pet"
-      title="桌面宠物"
-      hint="在窗口右下角显示一个小小的状态装饰。"
+      eyebrow="宠物"
+      title={t("桌面宠物")}
+      hint={t("在窗口右下角显示一个小小的状态装饰。")}
       icon={<Cat size={20} />}
     >
       <SwitchRow
-        label="桌面宠物"
-        hint="会话数量变化时轻轻跳动一下"
+        label={t("桌面宠物")}
+        hint={t("会话数量变化时轻轻跳动一下")}
         checked={props.pet.enabled}
         onChange={(enabled) => props.onChange({ ...props.pet, enabled })}
       />
       <div className="field-stack">
-        <Field label="形象">
+        <Field label={t("形象")}>
           <select
-            aria-label="形象"
+            aria-label={t("形象")}
             value={props.pet.form}
             onChange={(event) => props.onChange({ ...props.pet, form: event.target.value as PetForm })}
           >
             {PET_FORMS.map((form) => (
-              <option key={form.value} value={form.value}>{form.label}</option>
+              <option key={form.value} value={form.value}>{t(form.label)}</option>
             ))}
           </select>
         </Field>
@@ -451,20 +457,21 @@ export const SHORTCUTS = Object.freeze([
 ] as const);
 
 export function ShortcutsSection() {
+  const { t } = useI18n();
   return (
-    <Section eyebrow="Shortcuts" title="快捷键" hint="当前版本支持的键盘快捷键。" icon={<Keyboard size={20} />}>
+    <Section eyebrow="快捷键" title={t("快捷键")} hint={t("当前版本支持的键盘快捷键。")} icon={<Keyboard size={20} />}>
       <table className="shortcuts-table">
         <thead>
           <tr>
-            <th scope="col">按键</th>
-            <th scope="col">作用</th>
+            <th scope="col">{t("按键")}</th>
+            <th scope="col">{t("作用")}</th>
           </tr>
         </thead>
         <tbody>
           {SHORTCUTS.map((shortcut) => (
             <tr key={shortcut.keys}>
               <td><kbd className="shortcut-keys">{shortcut.keys}</kbd></td>
-              <td>{shortcut.description}</td>
+              <td>{t(shortcut.description)}</td>
             </tr>
           ))}
         </tbody>
@@ -478,14 +485,14 @@ export function ShortcutsSection() {
 /* ------------------------------------------------------------------ */
 
 /** A coarse, honest age: minutes under an hour, hours under a day, then days. */
-export function relativeAge(timestampMs: number, nowMs: number): string {
+export function relativeAge(timestampMs: number, nowMs: number, locale?: Locale): string {
   const deltaMs = Math.max(0, nowMs - timestampMs);
   const minutes = Math.floor(deltaMs / 60_000);
-  if (minutes < 1) return '刚刚';
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 1) return translate('刚刚', {}, locale);
+  if (minutes < 60) return translate('{count} 分钟前', { count: minutes }, locale);
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
+  if (hours < 24) return translate('{count} 小时前', { count: hours }, locale);
+  return translate('{count} 天前', { count: Math.floor(hours / 24) }, locale);
 }
 
 export function isWritableSession(session: SessionView): boolean {
@@ -497,11 +504,11 @@ export function isWritableSession(session: SessionView): boolean {
  * decision in `details.decision`; other events only have a kind, and an event
  * with neither is reported as `未记录` rather than guessed at.
  */
-export function eventDecision(event: AuditEvent): string {
+export function eventDecision(event: AuditEvent, locale?: Locale): string {
   const recorded = event.details?.decision;
   if (typeof recorded === 'string' && recorded.trim().length > 0) return recorded;
   if (typeof event.type === 'string' && event.type.trim().length > 0) return event.type;
-  return '未记录';
+  return translate('未记录', {}, locale);
 }
 
 
@@ -516,35 +523,34 @@ export function AccountSection(props: {
   readonly running: boolean;
   readonly version: string;
 }) {
+  const { t } = useI18n();
   return (
-    <Section eyebrow="About" title="关于" hint="版本信息与本地服务状态。" icon={<Info size={20} />}>
+    <Section eyebrow="关于" title={t("关于")} hint={t("版本信息与本地服务状态。")} icon={<Info size={20} />}>
       <div className="about-card">
         <div className="about-card__id">
           <strong>Selbstlauf</strong>
           <span className="state-chip state-chip--ready">
-            <span className="state-chip__dot" />版本 {props.version}
+            <span className="state-chip__dot" />{t('版本 {version}', { version: props.version })}
           </span>
         </div>
       </div>
       <div className="pref-links">
         <a className="button button--secondary" href={PROJECT_URL} target="_blank" rel="noreferrer">
-          <Globe size={16} />官方网站
-        </a>
+          <Globe size={16} />{t("官方网站")}</a>
         <a className="button button--secondary" href={PROJECT_URL} target="_blank" rel="noreferrer">
           <Github size={16} />GitHub
         </a>
         <a className="button button--secondary" href={`${PROJECT_URL}/releases`} target="_blank" rel="noreferrer">
-          <ScrollText size={16} />更新日志
-        </a>
+          <ScrollText size={16} />{t("更新日志")}</a>
       </div>
       <div className="pref-rows">
         <div className="pref-row">
-          <span>本地服务</span>
-          <span className="pref-row__value">{props.connected ? '已连接' : '未连接'}</span>
+          <span>{t("本地服务")}</span>
+          <span className="pref-row__value">{props.connected ? t("已连接") : t("未连接")}</span>
         </div>
         <div className="pref-row">
-          <span>监控循环</span>
-          <span className="pref-row__value">{props.running ? '运行中' : '已停止'}</span>
+          <span>{t("监控循环")}</span>
+          <span className="pref-row__value">{props.running ? t("运行中") : t("已停止")}</span>
         </div>
       </div>
     </Section>
@@ -566,16 +572,17 @@ export function ComputerControlSection(props: {
   readonly allowReveal: boolean;
   readonly onAllowRevealChange: (allowed: boolean) => void;
 }) {
+  const { t } = useI18n();
   return (
     <Section
-      eyebrow="Desktop"
-      title="电脑操控"
-      hint="控制本应用能对这台电脑做什么。"
+      eyebrow="桌面"
+      title={t("电脑操控")}
+      hint={t("控制本应用能对这台电脑做什么。")}
       icon={<MonitorCog size={20} />}
     >
       <SwitchRow
-        label="允许打开运行位置"
-        hint="关闭后进程表里的“打开运行位置”按钮将被禁用"
+        label={t("允许打开运行位置")}
+        hint={t("关闭后进程表里的“打开运行位置”按钮将被禁用")}
         checked={props.allowReveal}
         onChange={props.onAllowRevealChange}
       />
@@ -605,6 +612,7 @@ export function StartupSection(props: {
   readonly platform?: string;
   readonly error?: string | null;
 }) {
+  const { t } = useI18n();
   const bridge = props.desktopBridgeAvailable;
   const terminal = props.preferredTerminal ?? 'system';
   const platformTerminals = props.platform === 'linux'
@@ -620,41 +628,40 @@ export function StartupSection(props: {
 
   return (
     <Section
-      eyebrow="Desktop"
-      title="启动与托盘"
-      hint="开机自启、关闭窗口的行为，以及终端按钮使用的应用。"
+      eyebrow="桌面"
+      title={t("启动与托盘")}
+      hint={t("开机自启、关闭窗口的行为，以及终端按钮使用的应用。")}
       icon={<Power size={20} />}
     >
       <SwitchRow
-        label="开机自启"
-        hint="随系统启动自动运行 Selbstlauf"
+        label={t("开机自启")}
+        hint={t("随系统启动自动运行 Selbstlauf")}
         checked={props.startupInstalled}
         disabled={props.busy === true}
         onChange={() => void props.onToggleStartup()}
       />
       <SwitchRow
-        label="关闭时最小化到托盘"
-        hint="勾选后点击关闭按钮会隐藏到系统托盘，取消则直接退出应用"
+        label={t("关闭时最小化到托盘")}
+        hint={t("勾选后点击关闭按钮会隐藏到系统托盘，取消则直接退出应用")}
         checked={props.closeToTray === true}
         disabled={!bridge || props.busy === true}
         chip={!bridge && (
           <span className="state-chip state-chip--limited">
-            <span className="state-chip__dot" />需要桌面应用
-          </span>
+            <span className="state-chip__dot" />{t("需要桌面应用")}</span>
         )}
         onChange={props.onCloseToTrayChange}
       />
       <div className="field-stack">
-        <p className="section-hint">进程详情或进程列表中的终端按钮会在工作目录打开这里选择的应用。</p>
-        <Field label="首选终端">
+        <p className="section-hint">{t("进程详情或进程列表中的终端按钮会在工作目录打开这里选择的应用。")}</p>
+        <Field label={t("首选终端")}>
           <select
-            aria-label="首选终端"
+            aria-label={t("首选终端")}
             disabled={!bridge || props.busy === true}
             value={terminal}
             onChange={(event) => props.onPreferredTerminalChange(event.target.value)}
           >
             {terminalOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
+              <option key={option.value} value={option.value}>{t(option.label)}</option>
             ))}
           </select>
         </Field>
@@ -682,6 +689,7 @@ export interface UsageSnapshot {
 /* ------------------------------------------------------------------ */
 
 export function PluginsSection() {
+  const { t } = useI18n();
   const [pref, setPref, storageError] = usePref(PREF_KEYS.plugins, PLUGINS_DEFAULTS, isPluginsPref);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
@@ -711,36 +719,36 @@ export function PluginsSection() {
 
   return (
     <Section
-      eyebrow="Plugins"
-      title="续写插件"
-      hint="这些提示词会依次拼接成一行，作为“立即续写”发送的提示；超过 4096 字符时不会发送。"
+      eyebrow="插件"
+      title={t("续写插件")}
+      hint={t("这些提示词会依次拼接成一行，作为“立即续写”发送的提示；超过 4096 字符时不会发送。")}
       icon={<Plug size={20} />}
     >
       <div className="pref-inline">
         <input
-          aria-label="手动续写提示词"
+          aria-label={t("手动续写提示词")}
           value={draft}
-          placeholder="输入一条提示词"
+          placeholder={t("输入一条提示词")}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); add(); } }}
         />
-        <button className="button button--secondary" type="button" onClick={add}>添加</button>
+        <button className="button button--secondary" type="button" onClick={add}>{t("添加")}</button>
       </div>
       {error && <ResultChip tone="error">{error}</ResultChip>}
       {storageError && <ResultChip tone="error">{storageError}</ResultChip>}
       {pref.prompts.length === 0
-        ? <p className="settings-rail-note">暂无提示词</p>
+        ? <p className="settings-rail-note">{t("暂无提示词")}</p>
         : (
           <>
             <div className="pref-list">
               {pref.prompts.map((prompt, index) => (
                 <div className="pref-list__item" key={`${index}-${prompt}`}>
                   <span>{prompt}</span>
-                  <button className="text-button" type="button" onClick={() => remove(index)}>移除</button>
+                  <button className="text-button" type="button" onClick={() => remove(index)}>{t("移除")}</button>
                 </div>
               ))}
             </div>
-            <p className="settings-rail-note" data-testid="plugins-effective">合并后的提示词：{pref.prompts.join(' ')}</p>
+            <p className="settings-rail-note" data-testid="plugins-effective">{t('合并后的提示词：{prompt}', { prompt: pref.prompts.join(' ') })}</p>
           </>
         )}
     </Section>
@@ -764,6 +772,7 @@ export function BrowserSection(props: {
   readonly theme: 'light' | 'dark';
   readonly origin: string;
 }) {
+  const { t } = useI18n();
   const open = () => {
     if (props.origin.length === 0) return;
     window.open(props.origin, '_blank', 'noreferrer');
@@ -771,19 +780,18 @@ export function BrowserSection(props: {
 
   return (
     <Section
-      eyebrow="Browser"
-      title="浏览器访问"
-      hint="在浏览器中打开当前面板。"
+      eyebrow="浏览器"
+      title={t("浏览器访问")}
+      hint={t("在浏览器中打开当前面板。")}
       icon={<ExternalLink size={20} />}
     >
       <div className="pref-rows">
-        <div className="pref-row"><span>访问地址</span><span className="pref-row__value">{props.origin}</span></div>
-        <div className="pref-row"><span>当前主题</span><span className="pref-row__value">{THEME_NAMES[props.theme]}</span></div>
+        <div className="pref-row"><span>{t("访问地址")}</span><span className="pref-row__value">{props.origin}</span></div>
+        <div className="pref-row"><span>{t("当前主题")}</span><span className="pref-row__value">{t(THEME_NAMES[props.theme])}</span></div>
       </div>
       <div className="pref-actions">
         <button className="button button--secondary" type="button" disabled={props.origin.length === 0} onClick={open}>
-          <ExternalLink size={16} />在浏览器中打开
-        </button>
+          <ExternalLink size={16} />{t("在浏览器中打开")}</button>
       </div>
     </Section>
   );

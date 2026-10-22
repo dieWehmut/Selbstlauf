@@ -1,3 +1,5 @@
+import { useI18n, translate, type Locale } from '../i18n';
+import { FormattedMessage } from '../i18n/FormattedMessage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Send, TriangleAlert } from 'lucide-react';
 
@@ -34,13 +36,13 @@ export function flattenPrompt(value: string): string {
 }
 
 /** Why the current draft cannot be sent, or null when it can. */
-export function promptProblem(draft: string): string | null {
+export function promptProblem(draft: string, locale?: Locale): string | null {
   const trimmed = draft.trim();
-  if (trimmed.length === 0) return '请输入要发送的内容';
+  if (trimmed.length === 0) return translate('请输入要发送的内容', {}, locale);
   // Kept as a guard even though the field cannot hold a newline: the component is also used with a
   // draft set programmatically, and the service would refuse one outright.
-  if (/[\r\n]/u.test(draft)) return '只能发送一行；请删掉换行';
-  if (draft.length > PROMPT_MAX_LENGTH) return `不超过 ${PROMPT_MAX_LENGTH} 个字符（当前 ${draft.length}）`;
+  if (/[\r\n]/u.test(draft)) return translate('只能发送一行；请删掉换行', {}, locale);
+  if (draft.length > PROMPT_MAX_LENGTH) return translate('不超过 {max} 个字符（当前 {count}）', { max: PROMPT_MAX_LENGTH, count: draft.length }, locale);
   return null;
 }
 
@@ -65,6 +67,7 @@ export function SessionPromptComposer(props: {
    */
   readonly onSend?: (session: SessionView, prompt: string) => Promise<{ readonly dryRun: boolean }> | { readonly dryRun: boolean } | void;
 }) {
+  const { t, locale } = useI18n();
   const [draft, setDraft] = useState('');
   const [sent, setSent] = useState<string | null>(null);
   const [dryRun, setDryRun] = useState(false);
@@ -80,7 +83,7 @@ export function SessionPromptComposer(props: {
     setError(null);
   }, [props.session.id]);
 
-  const problem = promptProblem(draft);
+  const problem = promptProblem(draft, locale);
   const disabled = !props.canSend || problem !== null || props.busy === true || props.onSend === undefined;
 
   const submit = useCallback(async () => {
@@ -104,10 +107,10 @@ export function SessionPromptComposer(props: {
   }, [disabled, draft, props]);
 
   return (
-    <section className="prompt-composer" aria-label="写入会话">
+    <section className="prompt-composer" aria-label={t("写入会话")}>
       <div className="prompt-composer__head">
-        <span className="eyebrow">Input</span>
-        <h3 className="prompt-composer__title">写入这一行</h3>
+        <span className="eyebrow">{t("输入")}</span>
+        <h3 className="prompt-composer__title">{t("写入这一行")}</h3>
       </div>
 
       <form
@@ -118,14 +121,14 @@ export function SessionPromptComposer(props: {
         }}
       >
         <label className="prompt-composer__field">
-          <span className="sr-only">要发送到该会话的文字</span>
+          <span className="sr-only">{t("要发送到该会话的文字")}</span>
           <input
             type="text"
             // A single-line field, because the service accepts exactly one line and a textarea would
             // invite a newline the user cannot send.
             value={draft}
             maxLength={PROMPT_MAX_LENGTH}
-            placeholder={props.canSend ? '例如：继续，并按上面的计划做完' : '该会话当前不可写入'}
+            placeholder={props.canSend ? t("例如：继续，并按上面的计划做完") : t("该会话当前不可写入")}
             disabled={!props.canSend || props.busy === true}
             aria-invalid={problem !== null && draft.length > 0}
             aria-describedby="prompt-composer-hint"
@@ -157,31 +160,30 @@ export function SessionPromptComposer(props: {
           className="button button--primary"
           type="submit"
           disabled={disabled}
-          aria-label={`发送到 PID ${props.session.rootPid}`}
+          aria-label={t('发送到 PID {pid}', { pid: props.session.rootPid })}
         >
           {props.busy === true ? <RefreshCwSpinner /> : <Send size={16} aria-hidden="true" />}
-          发送
-        </button>
+          {t("发送")}</button>
       </form>
 
       <p className="prompt-composer__hint" id="prompt-composer-hint">
         {/* Says exactly where the text goes, because this writes into a running session. */}
         {props.canSend
-          ? <>将作为一行输入写入 <strong>PID {props.session.rootPid}</strong>，与“立即续写”走同一条通道。</>
-          : <span className="prompt-composer__blocked"><TriangleAlert size={14} aria-hidden="true" />{props.blockedReason ?? '该会话不可写入，因此无法发送。'}</span>}
+          ? <FormattedMessage source="将作为一行输入写入 PID {pid}，与“立即续写”走同一条通道。" params={{ pid: <strong>{props.session.rootPid}</strong> }} />
+          : <span className="prompt-composer__blocked"><TriangleAlert size={14} aria-hidden="true" />{props.blockedReason ?? t("该会话不可写入，因此无法发送。")}</span>}
       </p>
 
       {problem !== null && draft.length > 0 && (
         <p className="prompt-composer__problem" role="alert">{problem}</p>
       )}
-      {error !== null && <p className="prompt-composer__problem" role="alert">发送失败：{error}</p>}
+      {error !== null && <p className="prompt-composer__problem" role="alert">{t('发送失败：{error}', { error: t(error) })}</p>}
       {sent !== null && (
         <p className={dryRun ? 'prompt-composer__problem' : 'prompt-composer__sent'} role="status">
           {/* A dry run answers successfully and writes nothing, so saying 已发送 would be a false report of
               delivery. It is stated as a skip instead, matching what the service records in its audit. */}
           {dryRun
-            ? <>未真正写入（Dry Run）：<code>{sent}</code>　只记录了跳过，没有发送到会话。</>
-            : <>已发送：<code>{sent}</code></>}
+            ? <FormattedMessage source="未真正写入（Dry Run）：{text}。只记录了跳过，没有发送到会话。" params={{ text: <code>{sent}</code> }} />
+            : <FormattedMessage source="已发送：{text}" params={{ text: <code>{sent}</code> }} />}
         </p>
       )}
     </section>

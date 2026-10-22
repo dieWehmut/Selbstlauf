@@ -1,8 +1,9 @@
+import { useI18n, type Locale } from '../i18n';
 import { Pin, PinOff } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import type { SessionView } from '../api/client';
-import { conversationShortId, formatDuration, groupSessionsByHost, quietMs, sessionTone, sessionToneLabel, toolLabel } from './session-groups';
+import { conversationLabel, conversationShortId, formatDuration, groupSessionsByHost, quietMs, sessionTone, sessionToneLabel, toolLabel } from './session-groups';
 import { ToolIcon } from './ToolIcon';
 
 /**
@@ -33,6 +34,7 @@ export function SidebarProcessList(props: {
   readonly pinnedIds: readonly string[];
   readonly onTogglePin: (session: SessionView) => void;
 }) {
+  const { t, locale } = useI18n();
   const query = props.filter.trim().toLowerCase();
   const visible = query.length === 0
     ? props.sessions
@@ -46,13 +48,13 @@ export function SidebarProcessList(props: {
         session.host?.windowTitle ?? '',
         String(session.rootPid),
         session.conversationId ?? '',
-        conversationLine(session),
+        conversationLine(session, locale),
         session.sessionCwd ?? '',
       ].join(' ').toLowerCase();
       return haystack.includes(query);
     });
 
-  const groups = groupSessionsByHost(visible, props.pinnedIds);
+  const groups = groupSessionsByHost(visible, props.pinnedIds, locale);
   const pinned = new Set(props.pinnedIds);
 
   /**
@@ -84,8 +86,8 @@ export function SidebarProcessList(props: {
       <div className="sidebar-processes__search">
         <input
           type="search"
-          aria-label="搜索进程"
-          placeholder="搜索进程…"
+          aria-label={t("搜索进程")}
+          placeholder={t("搜索进程…")}
           value={props.filter}
           onChange={(event) => props.onFilterChange(event.target.value)}
           // Inside the app shell rather than a form, but Enter must not do anything
@@ -96,10 +98,10 @@ export function SidebarProcessList(props: {
         />
       </div>
 
-      <div className="sidebar-processes__scroll" role="group" aria-label="进程列表">
+      <div className="sidebar-processes__scroll" role="group" aria-label={t("进程列表")}>
         {groups.length === 0 && (
           <p className="sidebar-processes__empty">
-            {query.length === 0 ? '尚未发现进程' : '没有匹配的进程'}
+            {query.length === 0 ? t("尚未发现进程") : t("没有匹配的进程")}
           </p>
         )}
         {groups.map((group) => (
@@ -109,7 +111,7 @@ export function SidebarProcessList(props: {
               const tone = sessionTone(session);
               const selected = session.id === props.selectedId;
               const isPinned = pinned.has(session.id);
-              const line = conversationLine(session);
+              const line = conversationLine(session, locale);
               return (
                 <div
                   key={session.id}
@@ -120,7 +122,7 @@ export function SidebarProcessList(props: {
                     type="button"
                     className="sidebar-row__open"
                     aria-current={selected ? 'true' : undefined}
-                    title={`${toolLabel(session.tool)} · PID ${session.rootPid} · ${sessionToneLabel(tone)} · ${line}`}
+                    title={`${toolLabel(session.tool)} · PID ${session.rootPid} · ${sessionToneLabel(tone, locale)} · ${line}`}
                     onClick={() => props.onSelect(session)}
                   >
                     <span className={`process-dot process-dot--${tone}`} aria-hidden="true" />
@@ -140,8 +142,8 @@ export function SidebarProcessList(props: {
                     type="button"
                     className="sidebar-row__pin"
                     aria-pressed={isPinned}
-                    aria-label={`${isPinned ? '取消置顶' : '置顶'} PID ${session.rootPid}`}
-                    title={isPinned ? '取消置顶' : '置顶'}
+                    aria-label={t(isPinned ? '取消置顶 PID {pid}' : '置顶 PID {pid}', { pid: session.rootPid })}
+                    title={isPinned ? t("取消置顶") : t("置顶")}
                     onClick={() => {
                       // Remember which row to return focus to: pinning moves it, which unmounts the
                       // button being pressed.
@@ -165,10 +167,8 @@ export function SidebarProcessList(props: {
  * The conversation line a row shows: what kind of conversation it is, and a short id so two
  * sessions of one tool in one host stay distinguishable.
  */
-export function conversationLine(session: SessionView): string {
-  const kind = session.tool === 'dsh'
-    ? (session.runningTurn ? '步骤执行中' : '等待输入')
-    : (session.goal ? `Goal · ${session.goal.status}` : '普通对话');
+export function conversationLine(session: SessionView, locale?: Locale): string {
+  const kind = conversationLabel(session, locale);
   const short = conversationShortId(session.conversationId);
   return short === null ? kind : `${kind} · ${short}`;
 }

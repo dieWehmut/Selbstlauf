@@ -1,3 +1,5 @@
+import { translate, type Locale } from '../i18n';
+
 /**
  * The desktop shell's refusal reasons, said in words.
  *
@@ -38,11 +40,11 @@ const PREFIXES: readonly { readonly prefix: string; readonly label: string }[] =
   { prefix: 'type-command-failed: ', label: '写入命令失败' },
 ];
 
-export function describeShellReason(reason: string): string {
+export function describeShellReason(reason: string, locale?: Locale): string {
   const known = REASONS[reason];
-  if (known !== undefined) return known;
+  if (known !== undefined) return translate(known, {}, locale);
   for (const { prefix, label } of PREFIXES) {
-    if (reason.startsWith(prefix)) return `${label}：${reason.slice(prefix.length)}`;
+    if (reason.startsWith(prefix)) return translate('{label}：{detail}', { label: translate(label, {}, locale), detail: reason.slice(prefix.length) }, locale);
   }
-  return reason;
+  return translate(reason, {}, locale);
 }

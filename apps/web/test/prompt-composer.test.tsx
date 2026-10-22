@@ -72,7 +72,7 @@ describe('SessionPromptComposer', () => {
 
   it('says where the text will go, since it lands in a running session', () => {
     render(<SessionPromptComposer session={session()} canSend onSend={async () => ({ dryRun: false })} />);
-    expect(screen.getByText(/PID 4242/u)).toBeInTheDocument();
+    expect(document.getElementById('prompt-composer-hint')).toHaveTextContent('PID 4242');
     expect(screen.getByText(/立即续写/u)).toBeInTheDocument();
   });
 
@@ -166,7 +166,7 @@ describe('SessionPromptComposer', () => {
 
     rerender(<SessionPromptComposer session={session({ id: 'codex:2', rootPid: 5151 })} canSend onSend={async () => ({ dryRun: false })} />);
     expect(screen.getByLabelText('要发送到该会话的文字')).toHaveValue('');
-    expect(screen.getByText(/PID 5151/u)).toBeInTheDocument();
+    expect(document.getElementById('prompt-composer-hint')).toHaveTextContent('PID 5151');
   });
 
   it('submits from the keyboard, since the field holds one line', async () => {

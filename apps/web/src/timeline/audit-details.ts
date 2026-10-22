@@ -1,4 +1,5 @@
 import type { AuditEvent } from '../api/client';
+import { translate, type Locale } from '../i18n';
 
 /**
  * An audit event's `details` payload, said in words.
@@ -71,17 +72,17 @@ const SOURCE_LABELS: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /** A single value, or null when there is nothing worth saying. */
-function detailValue(key: string, value: string | number | boolean, labels: AuditDetailLabels): string | null {
+function detailValue(key: string, value: string | number | boolean, labels: AuditDetailLabels, locale?: Locale): string | null {
   if (key === 'atMs' && typeof value === 'number') return labels.time(value);
   if (typeof value === 'boolean') {
     // `ok` is a verdict rather than a flag, so it gets a verdict's words.
-    if (key === 'ok') return value ? '成功' : '失败';
-    return value ? '是' : '否';
+    if (key === 'ok') return translate(value ? '成功' : '失败', {}, locale);
+    return translate(value ? '是' : '否', {}, locale);
   }
   if (typeof value === 'number') return String(value);
   switch (key) {
-    case 'action': return ACTION_LABELS[value] ?? value;
-    case 'source': return SOURCE_LABELS[value] ?? value;
+    case 'action': return ACTION_LABELS[value] === undefined ? value : translate(ACTION_LABELS[value], {}, locale);
+    case 'source': return SOURCE_LABELS[value] === undefined ? value : translate(SOURCE_LABELS[value], {}, locale);
     case 'tool': return labels.tool(value);
     case 'decision': return labels.decision(value);
     case 'reason': return labels.reason(value);
@@ -98,14 +99,15 @@ function detailValue(key: string, value: string | number | boolean, labels: Audi
 export function describeAuditDetails(
   details: AuditEvent['details'],
   labels: AuditDetailLabels,
+  locale?: Locale,
 ): string {
   if (details === undefined) return '';
   const parts: string[] = [];
   for (const [key, raw] of Object.entries(details)) {
     if (raw === null) continue;
-    const value = detailValue(key, raw, labels);
+    const value = detailValue(key, raw, labels, locale);
     if (value === null) continue;
-    parts.push(`${KEY_LABELS[key] ?? key}：${value}`);
+    parts.push(translate('{label}：{detail}', { label: KEY_LABELS[key] === undefined ? key : translate(KEY_LABELS[key], {}, locale), detail: value }, locale));
   }
   return parts.join(' · ');
 }

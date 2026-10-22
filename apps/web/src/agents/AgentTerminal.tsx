@@ -1,3 +1,5 @@
+import { useI18n } from '../i18n';
+import { componentError } from '../i18n/component-errors';
 import { useEffect, useRef, useState } from 'react';
 import { CornerDownLeft, RefreshCw, Send } from 'lucide-react';
 import type { Terminal, ITheme } from '@xterm/xterm';
@@ -24,6 +26,12 @@ export function AgentTerminal(props: {
   visible?: boolean;
   onSession: (session: AgentSession) => void;
 }) {
+  const { t, locale } = useI18n();
+  const terminalInputLabel = useRef(t('{title} 终端输入', { title: props.session.title }));
+  terminalInputLabel.current = t('{title} 终端输入', { title: props.session.title });
+  const terminalOutputLabel = useRef(t('终端输出过多，无法全部朗读；请逐行浏览以阅读内容'));
+  terminalOutputLabel.current = t('终端输出过多，无法全部朗读；请逐行浏览以阅读内容');
+  const xtermClass = useRef<typeof import('@xterm/xterm').Terminal | null>(null);
   const surface = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const queue = useRef<TerminalInputQueue | null>(null);
@@ -48,6 +56,9 @@ export function AgentTerminal(props: {
     setConnected(false);
     void Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]).then(([xterm, addon]) => {
       if (!active || surface.current === null) return;
+      xtermClass.current = xterm.Terminal;
+      xterm.Terminal.strings.promptLabel = terminalInputLabel.current;
+      xterm.Terminal.strings.tooMuchOutput = terminalOutputLabel.current;
       const element = surface.current;
       const term = new xterm.Terminal({
         cols: props.session.cols, rows: props.session.rows, fontSize: 13, lineHeight: 1.2,
@@ -71,7 +82,7 @@ export function AgentTerminal(props: {
         void input.send(data).catch(report);
       });
       term.attachCustomKeyEventHandler((event) => !(event.ctrlKey && event.key.toLowerCase() === 'c' && term.hasSelection()));
-      element.querySelector('textarea')?.setAttribute('aria-label', `${props.session.title} 终端输入`);
+      element.querySelector('textarea')?.setAttribute('aria-label', terminalInputLabel.current);
       const resize = term.onResize(({ cols, rows }) => {
         if (status !== 'running') return;
         resizeTail = resizeTail.then(async () => {
@@ -123,6 +134,16 @@ export function AgentTerminal(props: {
     return () => { active = false; dispose(); };
   }, [props.api, props.session.id, generation]);
 
+  // xterm owns its input element. Refresh its accessible name without recreating
+  // the terminal, reconnecting the process, or replacing any process output.
+  useEffect(() => {
+    surface.current?.querySelector('textarea')?.setAttribute('aria-label', terminalInputLabel.current);
+    if (xtermClass.current) {
+      xtermClass.current.strings.promptLabel = terminalInputLabel.current;
+      xtermClass.current.strings.tooMuchOutput = terminalOutputLabel.current;
+    }
+  }, [locale, props.session.title]);
+
   const send = async () => {
     const term = terminal.current;
     const input = queue.current;
@@ -142,22 +163,21 @@ export function AgentTerminal(props: {
 
   return (
     <div className="agent-terminal">
-      <div className="agent-terminal__connection"><span>{connected ? '终端已连接' : '正在连接终端…'}</span>
-        <button className="text-button" type="button" onClick={() => { setError(null); setGeneration((value) => value + 1); }}><RefreshCw size={13} />重新连接</button>
+      <div className="agent-terminal__connection"><span>{connected ? t("终端已连接") : t("正在连接终端…")}</span>
+        <button className="text-button" type="button" onClick={() => { setError(null); setGeneration((value) => value + 1); }}><RefreshCw size={13} />{t("重新连接")}</button>
       </div>
-      <div ref={surface} className="agent-terminal__surface" role="region" aria-label={`${props.session.title} 终端`} data-session-id={props.session.id} />
-      {error && <p className="agent-error" role="alert">{error}</p>}
+      <div ref={surface} className="agent-terminal__surface" role="region" aria-label={t('{title} 终端', { title: props.session.title })} data-session-id={props.session.id} />
+      {error && <p className="agent-error" role="alert">{componentError(error, locale)}</p>}
       <form className="agent-terminal__composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
-        <label className="sr-only" htmlFor={`prompt-${props.session.id}`}>发送到 {props.session.title} 的内容</label>
+        <label className="sr-only" htmlFor={`prompt-${props.session.id}`}>{t('发送到 {title} 的内容', { title: props.session.title })}</label>
         <textarea id={`prompt-${props.session.id}`} value={draft} onChange={(event) => changeDraft(event.target.value)} maxLength={32768} rows={3}
-          disabled={props.session.status !== 'running' || busy} placeholder="输入任务或多行内容，也可直接在上方终端操作" onKeyDown={(event) => {
+          disabled={props.session.status !== 'running' || busy} placeholder={t("输入任务或多行内容，也可直接在上方终端操作")} onKeyDown={(event) => {
             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); void send(); }
           }} />
         <button className="button button--primary" type="submit" disabled={!connected || busy || props.session.status !== 'running' || draft.trim().length === 0}>
-          {busy ? <RefreshCw size={16} className="spin" /> : <Send size={16} />}发送
-        </button>
+          {busy ? <RefreshCw size={16} className="spin" /> : <Send size={16} />}{t("发送")}</button>
       </form>
-      <p className="agent-help"><CornerDownLeft size={12} /> Ctrl+Enter 发送。多行内容使用智能体的粘贴模式，方向键、Tab、Ctrl+C 可直接在终端使用。</p>
+      <p className="agent-help"><CornerDownLeft size={12} /> {t("Ctrl+Enter 发送。多行内容使用智能体的粘贴模式，方向键、Tab、Ctrl+C 可直接在终端使用。")}</p>
     </div>
   );
 }

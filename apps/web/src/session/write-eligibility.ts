@@ -1,4 +1,5 @@
 import type { SessionView } from '../api/client';
+import { translate, type Locale } from '../i18n';
 
 /**
  * Whether a session can be written to, and why not.
@@ -49,15 +50,15 @@ export interface WriteEligibility {
  * service's own `transportError` is preferred as the explanation, because it is more precise than the transport
  * name — it says *why* the transport could not be established.
  */
-export function writeEligibility(session: SessionView): WriteEligibility {
-  if (!session.alive) return { writable: false, reason: '该会话已停止' };
-  if (session.paused) return { writable: false, reason: '该会话已被暂停，恢复后才能写入' };
+export function writeEligibility(session: SessionView, locale?: Locale): WriteEligibility {
+  if (!session.alive) return { writable: false, reason: translate('该会话已停止', {}, locale) };
+  if (session.paused) return { writable: false, reason: translate('该会话已被暂停，恢复后才能写入', {}, locale) };
   if (!WRITABLE_TRANSPORTS.includes(session.transport)) {
     return {
       writable: false,
       reason: session.transportError !== undefined && session.transportError.length > 0
-        ? `只能监控，无法写入：${session.transportError}`
-        : '只能监控，无法写入',
+        ? translate('只能监控，无法写入：{reason}', { reason: translate(session.transportError, {}, locale) }, locale)
+        : translate('只能监控，无法写入', {}, locale),
     };
   }
   return { writable: true, reason: null };

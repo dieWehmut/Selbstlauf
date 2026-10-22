@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import { useMemo, useState, type ComponentType } from 'react';
 import {
   ArrowLeft,
@@ -89,6 +90,7 @@ export interface SettingsRailProps {
 }
 
 export function SettingsRail(props: SettingsRailProps) {
+  const { t, locale } = useI18n();
   const [query, setQuery] = useState('');
 
   const needle = query.trim().toLowerCase();
@@ -99,10 +101,10 @@ export function SettingsRail(props: SettingsRailProps) {
     return SETTINGS_CATEGORIES
       .map((category) => ({
         label: category.label,
-        entries: category.entries.filter((entry) => entry.label.toLowerCase().includes(needle)),
+        entries: category.entries.filter((entry) => t(entry.label).toLowerCase().includes(needle)),
       }))
       .filter((category) => category.entries.length > 0);
-  }, [needle]);
+  }, [needle, locale]);
 
   const matches = categories.reduce((total, category) => total + category.entries.length, 0);
   const visibleEntries = categories.flatMap((category) => category.entries);
@@ -113,15 +115,15 @@ export function SettingsRail(props: SettingsRailProps) {
     <div className="settings-rail">
       <button className="settings-rail__back" type="button" onClick={props.onBack}>
         <ArrowLeft size={16} />
-        <span>返回应用</span>
+        <span>{t("返回应用")}</span>
       </button>
 
       <div className="settings-rail__search">
         <Search size={15} />
         <input
           type="search"
-          aria-label="搜索设置"
-          placeholder="搜索设置…"
+          aria-label={t("搜索设置")}
+          placeholder={t("搜索设置…")}
           value={query}
           // Inside the settings form, so Enter must not submit it.
           onKeyDown={(event) => {
@@ -134,7 +136,7 @@ export function SettingsRail(props: SettingsRailProps) {
       <div
         className="settings-rail__list"
         role="tablist"
-        aria-label="设置分区"
+        aria-label={t("设置分区")}
         aria-orientation="vertical"
         /*
           The rail declares itself a tablist, so it owes the WAI-ARIA tabs pattern:
@@ -172,7 +174,7 @@ export function SettingsRail(props: SettingsRailProps) {
       >
         {categories.map((category) => (
           <div className="settings-rail__group" key={category.label}>
-            <span className="settings-rail__category">{category.label}</span>
+            <span className="settings-rail__category">{t(category.label)}</span>
             {category.entries.map((entry) => {
               const Icon = entry.icon;
               const selected = entry.id === props.active;
@@ -190,7 +192,7 @@ export function SettingsRail(props: SettingsRailProps) {
                   onClick={() => props.onSelect(entry.id)}
                 >
                   <Icon size={16} />
-                  <span>{entry.label}</span>
+                  <span>{t(entry.label)}</span>
                 </button>
               );
             })}
@@ -200,7 +202,7 @@ export function SettingsRail(props: SettingsRailProps) {
       {/* Outside the tablist, and a live region. A `role="tablist"` may contain only tabs, so the paragraph that
           said the rail was empty was both invalid there and in the wrong place to be heard: when the filter empties
           the rail, this is the one thing worth announcing. */}
-      {matches === 0 && <p className="settings-rail__empty" role="status">无匹配设置</p>}
+      {matches === 0 && <p className="settings-rail__empty" role="status">{t("无匹配设置")}</p>}
     </div>
   );
 }

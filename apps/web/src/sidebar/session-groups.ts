@@ -1,4 +1,5 @@
 import type { SessionView } from '../api/client';
+import { translate, getLocale, type Locale } from '../i18n';
 import { writeEligibility } from '../session/write-eligibility';
 
 /**
@@ -64,6 +65,7 @@ function categoryRank(category: string): number {
 export function groupSessionsByHost(
   sessions: readonly SessionView[],
   pinnedIds: readonly string[] = [],
+  locale: Locale = getLocale(),
 ): readonly SessionGroup[] {
   const pinnedRank = new Map<string, number>();
   pinnedIds.forEach((id, index) => {
@@ -96,7 +98,7 @@ export function groupSessionsByHost(
     const hasDistribution = session.distribution !== undefined && session.distribution.length > 0;
     const label = hasHost
       ? host.label
-      : hasDistribution ? `WSL: ${session.distribution}` : UNKNOWN_HOST_LABEL;
+      : hasDistribution ? `WSL: ${session.distribution}` : translate(UNKNOWN_HOST_LABEL, {}, locale);
     const category = hasHost ? host.category : hasDistribution ? 'terminal' : 'unknown';
     const existing = groups.get(label);
     if (existing === undefined) {
@@ -116,14 +118,14 @@ export function groupSessionsByHost(
     .sort((a, b) => {
       const byCategory = categoryRank(a.category) - categoryRank(b.category);
       if (byCategory !== 0) return byCategory;
-      return a.label.localeCompare(b.label, 'zh-Hans-CN');
+      return a.label.localeCompare(b.label, locale);
     });
 
   if (pinned.length === 0) return hostGroups;
 
   // Pinned rows keep pin order, so the most recently pinned sits first.
   pinned.sort((a, b) => (pinnedRank.get(a.id) ?? 0) - (pinnedRank.get(b.id) ?? 0));
-  return [{ label: PINNED_GROUP_LABEL, category: 'pinned', sessions: pinned }, ...hostGroups];
+  return [{ label: translate(PINNED_GROUP_LABEL, {}, locale), category: 'pinned', sessions: pinned }, ...hostGroups];
 }
 
 /** The label shown beside a row: the tool name, matching the process table. */
@@ -183,9 +185,13 @@ export function formatDuration(ms: number | null): string {
  * Defined here rather than in the renderer so the sidebar list and the table cannot
  * describe the same session differently — they are two views of one value.
  */
-export function conversationLabel(session: SessionView): string {
-  if (session.tool === 'dsh') return session.runningTurn ? '步骤执行中' : '等待输入';
-  return session.goal ? `Goal · ${session.goal.status}` : '普通对话';
+export function conversationLabel(session: SessionView, locale?: Locale): string {
+  if (session.tool === 'dsh') return translate(session.runningTurn ? '步骤执行中' : '等待输入', {}, locale);
+  const goalLabels: Readonly<Record<string, string>> = {
+    active: '进行中', paused: '已暂停', complete: '已完成', blocked: '受阻',
+    budget_limited: '预算已达上限', usage_limited: '用量已达上限', unknown: '未知',
+  };
+  return session.goal ? `Goal · ${translate(goalLabels[session.goal.status] ?? session.goal.status, {}, locale)}` : translate('普通对话', {}, locale);
 }
 
 /**
@@ -194,9 +200,9 @@ export function conversationLabel(session: SessionView): string {
  * A session with no conversation says 未关联 rather than nothing, because "this process has
  * no conversation yet" is exactly what decides whether it can be continued.
  */
-export function conversationDetail(session: SessionView): string {
+export function conversationDetail(session: SessionView, locale?: Locale): string {
   const id = session.conversationId;
-  return `${conversationLabel(session)} · ${id === null || id.length === 0 ? '未关联' : id}`;
+  return `${conversationLabel(session, locale)} · ${id === null || id.length === 0 ? translate('未关联', {}, locale) : id}`;
 }
 
 /**
@@ -241,12 +247,12 @@ export function sessionTone(session: SessionView): SessionTone {
   return writeEligibility(session).writable ? 'writable' : 'monitor';
 }
 
-export function sessionToneLabel(tone: SessionTone): string {
+export function sessionToneLabel(tone: SessionTone, locale?: Locale): string {
   switch (tone) {
-    case 'writable': return '可写入';
-    case 'monitor': return '仅监控';
-    case 'error': return '已停止';
-    default: return '空闲';
+    case 'writable': return translate('可写入', {}, locale);
+    case 'monitor': return translate('仅监控', {}, locale);
+    case 'error': return translate('已停止', {}, locale);
+    default: return translate('空闲', {}, locale);
   }
 }
 
