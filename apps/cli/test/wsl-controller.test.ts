@@ -34,6 +34,8 @@ async function fixture(initialDistribution: string | null) {
   await store.save({ ...defaultConfig, enabled: true, dryRun: true, wslDistribution: initialDistribution ?? '' });
   const probes: { distribution: string; kind: string }[] = [];
   const snapshots: { distribution: string; directory: string; unc: string }[] = [];
+  let blockedDiscovery: Promise<void> | null = null;
+  let markDiscoveryStarted: (() => void) | null = null;
   const controller = new WatchdogController({
     configStore: store,
     auditStore: new AuditStore(join(root, 'audit.jsonl')),
@@ -42,13 +44,18 @@ async function fixture(initialDistribution: string | null) {
     now: () => 5000,
     codexStatePath: nativeState,
     codexGoalPath: nativeState,
-    provider: { listProcesses: async () => [{
+    provider: { listProcesses: async () => {
+      if (blockedDiscovery !== null) {
+        markDiscoveryStarted?.();
+        await blockedDiscovery;
+      }
+      return [{
       pid: 999, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js',
       executablePath: null, creationTimeMs: 1000, userSid: 'fixture',
     }, {
       pid: 100, parentPid: 1, name: 'node.exe', commandLine: 'node C:\\tools\\codex.js',
       executablePath: null, creationTimeMs: 1000, userSid: 'fixture', workingDirectory: '/native/project',
-    }] },
+    }]; } },
     // Read-only probe responses are isolated from the user's installed WSL distributions.
     wslRun: async (distribution, script) => {
       const home = distribution === 'A' ? '/home/alice' : '/home/bob';
@@ -73,6 +80,12 @@ async function fixture(initialDistribution: string | null) {
   });
   return {
     controller, store, probes, snapshots,
+    blockNextDiscovery() {
+      let release!: () => void;
+      blockedDiscovery = new Promise<void>((resolve) => { release = resolve; });
+      const started = new Promise<void>((resolve) => { markDiscoveryStarted = resolve; });
+      return { started, release: () => { blockedDiscovery = null; release(); } };
+    },
     async switchTo(distribution: string | null, notify = true) {
       const config = await store.save({ ...await store.load(), wslDistribution: distribution ?? '' });
       if (notify) await controller.configChanged(config);
@@ -126,6 +139,10 @@ for (const viaDisabled of [false, true]) {
       assert.equal(f.snapshots[1]?.unc, '\\\\wsl.localhost\\B\\home\\bob\\.codex');
       await f.controller.poll();
       assert.equal(f.snapshots.length, 2, 'unchanged distribution should reuse its current working copy');
+      await f.switchTo(' B ');
+      assert.equal(f.snapshots.length, 2);
+      assert.equal((await f.controller.list()).find((row) => row.distribution === 'B')?.conversationId, 'thread-B');
+      assert.equal(closed.mock.callCount(), 1, 'saving the same trimmed distribution must not close its adapter');
       const b = rows.find((row) => row.distribution === 'B')!;
       assert.deepEqual(await f.controller.inject(b.id, 'fixture prompt', true), { ok: true, dryRun: true, prompt: 'fixture prompt' });
       assertNoInput();
@@ -186,6 +203,35 @@ test('restarting the same controller refreshes paths after shutdown deletes its 
     assert.equal(f.probes.filter((probe) => probe.kind === 'launch').length, 2);
     assertNoInput();
   } finally {
+    await f.cleanup();
+  }
+});
+
+test('saving a new distribution waits for the old read-only poll before releasing its readers', async (t) => {
+  const assertNoInput = forbidInput(t);
+  const f = await fixture('A');
+  let release: (() => void) | undefined;
+  try {
+    await f.controller.poll();
+    const oldSnapshot = f.snapshots[0]!.directory;
+    const blocked = f.blockNextDiscovery();
+    release = blocked.release;
+    const poll = f.controller.poll();
+    await blocked.started;
+    let changed = false;
+    const change = f.switchTo('B').then(() => { changed = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(changed, false, 'configChanged should await the in-flight poll');
+    assert.equal(existsSync(oldSnapshot), true, 'old readers still need their snapshot during discovery');
+    blocked.release();
+    await Promise.all([poll, change]);
+    assert.equal(existsSync(oldSnapshot), false);
+    assert.equal((await f.controller.list()).some((row) => row.distribution === 'A'), false);
+    await f.controller.poll();
+    assert.equal((await f.controller.list()).find((row) => row.distribution === 'B')?.conversationId, 'thread-B');
+    assertNoInput();
+  } finally {
+    release?.();
     await f.cleanup();
   }
 });

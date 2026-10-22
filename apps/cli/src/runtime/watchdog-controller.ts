@@ -190,10 +190,12 @@ export class WatchdogController {
   private readonly wslStateSnapshot: typeof snapshotWslCodexState;
   /** The last WSL discovery failure, so a persistent one is not written to the audit log every poll. */
   private lastWslError: string | null = null;
-  /** Cached per distribution, because the home directory and state paths do not move while it runs. */
+  /** The distribution owning the cached home, database copy, and CLI launcher. Null means WSL is disabled. */
+  private wslCacheDistribution: string | null = null;
+  /** Cached only while the selected distribution remains unchanged. */
   private wslCodexPaths: CodexPaths | null = null;
   private wslHomeDirectory?: string;
-  /** Where the distribution's Codex state was copied, removed when the controller stops. */
+  /** Where the distribution's Codex state was copied, removed on a distribution switch or shutdown. */
   private wslStateDirectory: string | null = null;
   private wslStateError: string | null = null;
   /**
@@ -274,16 +276,7 @@ export class WatchdogController {
     await this.claudeLeaseStore?.clearAll();
     for (const session of this.sessions.values()) session.codexAdapter?.close();
     this.sessions.clear();
-    // The WSL state copies are a temporary working set, so they are removed on the way out rather than left
-    // in the temp directory for every run of the service.
-    if (this.wslStateDirectory !== null) {
-      try {
-        rmSync(this.wslStateDirectory, { recursive: true, force: true });
-      } catch {
-        // A copy that cannot be removed is not worth failing a shutdown over; the OS clears temp eventually.
-      }
-      this.wslStateDirectory = null;
-    }
+    this.clearWslRuntime();
   }
 
   /** Stops new work and clears pending Claude actions without waiting for a slow read-only discovery poll. */
@@ -315,6 +308,7 @@ export class WatchdogController {
     try {
       this.currentConfig = await this.configStore.load();
       if (this.stopping) return;
+      this.syncWslDistribution(this.currentConfig.wslDistribution);
       const timestamp = this.now();
       const processGroups = await this.discover();
       if (this.stopping) return;
@@ -431,8 +425,13 @@ export class WatchdogController {
   }
 
   public async configChanged(config: WatchdogConfig): Promise<void> {
+    // Apply write policy immediately, even while read-only discovery is finishing.
     this.currentConfig = config;
     await this.currentPoll;
+    // An in-flight read-only poll can still hold SQLite readers. Finish it before
+    // closing the previous distribution's adapters and removing their working copy.
+    this.currentConfig = config;
+    this.syncWslDistribution(config.wslDistribution);
     await this.waitForClaudeLeaseWrites();
     await this.claudeLeaseStore?.clearAll();
     for (const session of this.sessions.values()) {
@@ -891,6 +890,37 @@ export class WatchdogController {
     if (session.userPaused) session.engine.pause(session.id);
   }
 
+  /** Release readers before removing the state copy they own; native sessions stay intact. */
+  private clearWslRuntime(): void {
+    for (const [id, session] of this.sessions) {
+      if (session.group.distribution === undefined) continue;
+      session.codexAdapter?.close();
+      session.engine.markExited(session.id);
+      this.sessions.delete(id);
+    }
+    if (this.wslStateDirectory !== null) {
+      try {
+        rmSync(this.wslStateDirectory, { recursive: true, force: true });
+      } catch {
+        // Cleanup failure must not keep the next distribution bound to the old copy.
+      }
+    }
+    this.wslCacheDistribution = null;
+    this.wslCodexPaths = null;
+    this.wslHomeDirectory = undefined;
+    this.wslStateDirectory = null;
+    this.wslCodexLaunch = null;
+    this.wslStateError = null;
+    this.lastWslError = null;
+  }
+
+  private syncWslDistribution(value: string): void {
+    const distribution = value.trim() || null;
+    if (distribution === this.wslCacheDistribution) return;
+    this.clearWslRuntime();
+    this.wslCacheDistribution = distribution;
+  }
+
   /**
    * The Codex state paths inside a WSL distribution.
    *
@@ -901,6 +931,7 @@ export class WatchdogController {
    * resolved from the distribution rather than assumed, because it need not match the Windows user's.
    */
   private async findWslCodexPaths(distribution: string): Promise<CodexPaths | null> {
+    this.syncWslDistribution(distribution);
     if (this.wslCodexPaths !== null) return this.wslCodexPaths;
     const home = this.wslHomeDirectory ?? await this.resolveWslHome(distribution);
     if (home === null) return null;
@@ -962,7 +993,7 @@ export class WatchdogController {
         return;
       }
       try {
-        const appServer = this.wslCodexAppServerFactory(distribution);
+        const appServer = this.wslCodexAppServerFactory(distribution, launch);
         session.codexAdapter = new CodexAdapter({
           statePath: paths.statePath,
           goalPath: paths.goalPath,
@@ -1007,9 +1038,8 @@ export class WatchdogController {
    * details were needed and both were measured: the launcher is a script whose shebang needs `node`, and
    * `wsl.exe -e` supplies no PATH — so an explicit node is resolved inside the distribution and passed.
    */
-  private wslCodexAppServerFactory(distribution: string): AppServerClient {
+  private wslCodexAppServerFactory(distribution: string, launch: { readonly node: string; readonly entry: string }): AppServerClient {
     const wslPath = this.wslPath ?? 'wsl.exe';
-    const launch = this.wslCodexLaunch ?? { node: 'node', entry: 'codex' };
     return new AppServerClient({
       command: wslPath,
       args: [
@@ -1031,6 +1061,7 @@ export class WatchdogController {
    * installed.
    */
   private async resolveWslCodexLaunch(distribution: string): Promise<{ readonly node: string; readonly entry: string } | null> {
+    this.syncWslDistribution(distribution);
     if (this.wslCodexLaunch !== null) return this.wslCodexLaunch;
     // The distribution reports its own launcher and the node that runs it; `command -v` is not used because
     // PATH inside a login shell resolves `codex` to the Windows install through interop.
