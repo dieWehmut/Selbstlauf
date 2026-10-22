@@ -156,3 +156,25 @@ test('browser access opens the repository subpath and filtered rail remains keyb
   await expect(popup.getByRole('heading', { name: '进程监控' })).toBeVisible();
   await popup.close();
 });
+
+test('simulated uninstall removes startup and requires reinstall before starting again', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('./');
+  await openSettings(page);
+  await section(page, '常规');
+  await page.getByRole('button', { name: '安装启动项', exact: true }).click();
+  await expect(page.getByRole('button', { name: '移除启动项', exact: true })).toBeVisible();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: '卸载 Watchdog', exact: true }).click();
+  await page.reload();
+  await openSettings(page);
+  await section(page, '常规');
+  await expect(page.getByRole('button', { name: '安装启动项', exact: true })).toBeVisible();
+  await page.locator('.settings-actions').getByRole('button', { name: '启动 Watchdog', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '演示 Watchdog 未安装' })).toBeVisible();
+  await screenshot(page, 'watchdog-uninstalled');
+  await page.getByRole('button', { name: '安装 Watchdog', exact: true }).click();
+  await page.locator('.settings-actions').getByRole('button', { name: '启动 Watchdog', exact: true }).click();
+  await expect(page.locator('.settings-actions').getByRole('button', { name: '停止 Watchdog', exact: true })).toBeVisible();
+  await screenshot(page, 'watchdog-reinstalled');
+});

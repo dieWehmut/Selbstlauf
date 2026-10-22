@@ -24,7 +24,7 @@ state and reports an error.
 from `apps/web/dist-pages` on port 4187. The live bundle packaged by Electron is
 still `apps/web/dist`.
 
-The final run at this step passed all 3 browser tests in 21.4 seconds:
+The final run after `7d2759a` passed all 4 browser tests in 24.9 seconds:
 
 - All 13 settings sections rendered at 1440×1000, 820×1000 and 390×844, with no
   page errors or `/api/` requests and no document horizontal overflow.
@@ -34,13 +34,19 @@ The final run at this step passed all 3 browser tests in 21.4 seconds:
   browser reload. Desktop tray and terminal controls remained disabled in Pages.
 - A searched tab stayed reachable by keyboard, and browser access displayed and
   opened the `/Selbstlauf/` application entry.
+- Uninstall persisted a stopped/uninstalled demo and removed its startup state;
+  a reload still refused startup until reinstall. Reinstall restored the ability
+  to start. Older schema-1 preferences without the new installation field kept
+  loading with their saved settings.
 
-Unit verification passed 13/13 dedicated cases for persistence, malformed
-storage, validation, isolation and keyboard search; an integration run including
+Unit verification initially passed 13/13 dedicated cases for persistence,
+malformed storage, validation, isolation and keyboard search; installation added
+two more API cases and the API-only rerun passed 13/13. An integration run including
 `App.test.tsx` passed 96/96. TypeScript and a production Vite build
 also passed. Screenshots are in the ignored workspace directory
 `tmp/settings-verification-20261022/pages/production/`: all sections at three
-widths plus reload and keyboard states. Captures wait for the settings drawer to
+widths plus reload, reinstall and keyboard states (49 production captures).
+Captures wait for the settings drawer to
 close and disable animations so the actual panel is visible.
 
 ## Existing deployed site
@@ -68,7 +74,7 @@ corresponding service or installed desktop evidence.
 
 | Section | Controls and implemented effect | Evidence and remaining scope |
 | --- | --- | --- |
-| General | Master continuation and Claude/Codex/DSH switches, idle/cooldown/poll/attempt timing, four prompts, Harness session window/API permission, Dry Run, Goal states, owner/include/exclude filters and WSL distribution save through the API. Save/install/startup/start-stop/uninstall buttons call lifecycle APIs. | Pages reload checks master/Claude/Goal/poll/prompt/Dry Run; `App.test.tsx` covers prompts, timing bounds, filters, WSL, lifecycle and Harness. Controller uses settings at `runtime/watchdog-controller.ts:425`, `:609`, `:1394`. Tool switches disable the continuation engine; their UI statement about stopping discovery is stronger than the controller implements. Demo `install()` is still a no-op at `static-demo.ts:209`. |
+| General | Master continuation and Claude/Codex/DSH switches, idle/cooldown/poll/attempt timing, four prompts, Harness session window/API permission, Dry Run, Goal states, owner/include/exclude filters and WSL distribution save through the API. Save/install/startup/start-stop/uninstall buttons call lifecycle APIs. | Pages reload checks master/Claude/Goal/poll/prompt/Dry Run; `App.test.tsx` covers prompts, timing bounds, filters, WSL, lifecycle and Harness. Controller uses settings at `runtime/watchdog-controller.ts:425`, `:609`, `:1394`. Tool switches disable the continuation engine while existing processes remain visible. `a18b270` replaces the demo install no-op with persistent installation state and an inverse uninstall. |
 | Appearance | System/light/dark theme, accent/background/foreground, UI/content font family and weight, inherited content font, translucent sidebar, density, contrast, import/copy/reset palette. They repaint CSS variables and persist browser preferences. | Pages proves light-theme reload; App/palette/theme browser tests inspect other tokens and geometry. Locale row at `App.tsx:1790` has only simplified Chinese; traditional Chinese, English and Japanese are disabled. It is not a working language setting. |
 | Notifications | In-panel/success/error switches filter notices; retained-event limit trims the timeline to 1–1000. | App tests check visible suppression and event retention; Pages checks success switch/limit after reload. |
 | Keyboard shortcuts | Displays the fixed Esc/Ctrl+1/2/3/comma bindings. | App tests exercise navigation. `sections.tsx:445` is an informational table; no custom binding or persistence exists. |
@@ -83,6 +89,6 @@ corresponding service or installed desktop evidence.
 | About | Project/release links, version/service/loop facts; environment refresh, per-outdated-tool upgrade, bulk upgrades, manual-command expansion/copy. | Pages proves a simulated upgrade survives reload; App/service tests cover refresh/error/copy/upgrade. `App.tsx:1134` offers install action only for outdated tools, so missing/unknown/current cards cannot install or repair through the UI. Upgrade buttons use `@latest`; no upgrade was invoked on the actual machine during this work. |
 
 Current unsupported locale controls, fixed shortcuts, incomplete endpoint
-clearing, missing-tool install UX, simulated/no-op installation, and absent
+clearing, missing-tool install UX, and absent
 installed-app/remote-new-version evidence remain explicit audit gaps. The
 Pages-only checks cannot close the full app/WebUI/Pages goal by themselves.
