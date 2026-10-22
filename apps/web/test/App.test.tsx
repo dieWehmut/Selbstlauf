@@ -686,8 +686,8 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     render(<App api={fake} />);
     fireEvent.click(screen.getByRole('button', { name: '事件' }));
     expect(await screen.findByText('1 条')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '刷新', exact: true }));
-    fireEvent.click(screen.getByRole('button', { name: '刷新', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
     await waitFor(() => expect(fake.audit).toHaveBeenCalledTimes(3));
     await act(async () => newest.resolve([]));
     expect(await screen.findByText('0 条')).toBeInTheDocument();
@@ -710,7 +710,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.click(screen.getByRole('button', { name: '事件' }));
     expect(await screen.findByText('1 条')).toBeInTheDocument();
     expect(screen.getByText('live-process')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '刷新', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
     expect(await screen.findByText('recovered-process')).toBeInTheDocument();
     expect(fake.health).toHaveBeenCalledTimes(2);
   });
