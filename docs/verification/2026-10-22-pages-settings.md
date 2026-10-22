@@ -39,9 +39,8 @@ The final run after `7d2759a` passed all 4 browser tests in 24.9 seconds:
   to start. Older schema-1 preferences without the new installation field kept
   loading with their saved settings.
 
-Unit verification initially passed 13/13 dedicated cases for persistence,
-malformed storage, validation, isolation and keyboard search; installation added
-two more API cases and the API-only rerun passed 13/13. An integration run including
+The final dedicated unit run passed 15/15 cases for persistence, malformed
+storage, validation, isolation, installation and keyboard search. An earlier integration run including
 `App.test.tsx` passed 96/96. TypeScript and a production Vite build
 also passed. Screenshots are in the ignored workspace directory
 `tmp/settings-verification-20261022/pages/production/`: all sections at three
