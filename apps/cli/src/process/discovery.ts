@@ -65,7 +65,7 @@ export interface DiscoveredProcessSession {
   readonly transportHint: 'unknown';
 }
 
-const DEFAULT_CLAUDE_EXECUTABLE_NAMES = ['claude.ps1'];
+const DEFAULT_CLAUDE_EXECUTABLE_NAMES = ['claude.ps1', 'claude.cmd', 'claude.exe'];
 const DEFAULT_CODEX_EXECUTABLE_NAMES = ['codex.exe'];
 const DEFAULT_DSH_EXECUTABLE_NAMES = ['dsh.exe', 'dsh.cmd', 'dsh.ps1'];
 

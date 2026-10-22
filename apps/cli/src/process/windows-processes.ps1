@@ -374,7 +374,7 @@ $windowTitleMarkers = @(
 # The signature that marks a process as a supported CLI. It is used both to keep
 # the record (the node image name alone is far too broad) and to describe why an
 # otherwise unrelated process is being reported.
-$workingDirectoryPattern = '(?i)(?:claude-code|claude\.ps1|@openai[\\/]codex|codex\.js|codex\.exe|@deepseek-ai[\\/]dsh|deepseek-harness[\\/]apps[\\/]cli[\\/]lib[\\/]bin\.js|deepseek-harness[\\/]packages[\\/]subprocess|dsh\.(?:cmd|ps1|exe))'
+$workingDirectoryPattern = '(?i)(?:claude-code|claude\.(?:ps1|cmd|exe)|@openai[\\/]codex|codex\.js|codex\.exe|@deepseek-ai[\\/]dsh|deepseek-harness[\\/]apps[\\/]cli[\\/]lib[\\/]bin\.js|deepseek-harness[\\/]packages[\\/]subprocess|dsh\.(?:cmd|ps1|exe))'
 
 function ConvertTo-NullableString {
     param([AllowNull()][object]$Value)

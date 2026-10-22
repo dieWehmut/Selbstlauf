@@ -5,6 +5,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-runtime-dependencies.mjs",
     "test": "npm run build --silent && node --test --test-concurrency=1 dist/test/*.test.js",
+    "start": "node dist/src/index.js",
     "claude-stop-hook": "node dist/src/claude/stop-hook-cli.js"
   },
   "dependencies": {

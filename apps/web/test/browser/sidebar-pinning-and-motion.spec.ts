@@ -74,9 +74,9 @@ test('the navigation is compact and its rows animate on hover', async ({ page })
   // 设置 is gone from the top navigation — the rail is the left column on that page, and
   // settings is reached from the bottom bar's popup or Ctrl+,.
   const navLabels = await nav.getByRole('button').allTextContents();
-  expect(navLabels.map((label) => label.trim())).toEqual(['进程', '事件']);
+  expect(navLabels.map((label) => label.trim())).toEqual(['进程', '智能体窗口', '事件']);
 
-  // Compact: the two rows occupy well under a third of a 704px window.
+  // Compact: the three rows occupy well under a third of a 704px window.
   const navBox = (await nav.boundingBox())!;
   const rowBox = (await nav.getByRole('button').first().boundingBox())!;
   expect(rowBox.height, 'navigation rows are not compact').toBeLessThan(44);

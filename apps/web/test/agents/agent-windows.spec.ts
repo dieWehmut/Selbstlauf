@@ -90,3 +90,21 @@ test('answers real TUI startup queries and sends multiline prompts using bracket
     await page.request.delete(`/api/agents/${session.id}`, { headers: { origin: new URL(page.url()).origin } });
   }
 });
+
+test('the monitored detail page writes to a real PTY and then displays that process\'s recorded response', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await page.locator('.sidebar-row__open').first().click();
+  await expect(page.getByRole('heading', { name: '进程详情', exact: true })).toBeVisible();
+  await expect(page.getByText('受控终端已就绪（真实 TTY）。', { exact: true })).toBeVisible();
+  const prompt = `详情页中文输入 ${testInfo.project.name}`;
+  await page.getByLabel('要发送到该会话的文字').fill(prompt);
+  const submitted = page.waitForResponse((response) => response.url().includes('/api/sessions/') && response.url().endsWith('/inject'));
+  await page.locator('.prompt-composer').getByRole('button', { name: /发送到 PID/u }).click();
+  const result = await submitted;
+  expect(result.status()).toBe(200);
+  expect((await result.json()).dryRun).toBe(false);
+  await expect(page.getByText(`实际回复：${prompt}`, { exact: true })).toBeVisible({ timeout: 10000 });
+  await page.reload();
+  await page.locator('.sidebar-row__open').first().click();
+  await expect(page.getByText(`实际回复：${prompt}`, { exact: true })).toBeVisible();
+});

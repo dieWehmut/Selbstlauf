@@ -334,6 +334,14 @@ test('groupProcesses keeps an orphan native process as a separate unknown sessio
   ]);
 });
 
+test('discovers a native Claude executable or npm cmd shim without requiring a package path', () => {
+  for (const name of ['claude.exe', 'claude.cmd']) {
+    const record: RawProcessRecord = { pid: 700, parentPid: 1, name, commandLine: `${name} --cwd C:/project`, executablePath: null, creationTimeMs: 1, userSid: currentUserSid };
+    assert.equal(detectProcessTool(record), 'claude');
+    assert.equal(groupProcesses([record], { currentUserSid })[0]?.rootPid, 700);
+  }
+});
+
 test('detectProcessTool recognizes configured executable names exactly', () => {
   const record = {
     pid: 400,

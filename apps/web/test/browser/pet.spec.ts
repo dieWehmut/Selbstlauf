@@ -20,17 +20,9 @@ test('the desktop pet sits in the window corner, on every page', async ({ page }
   await expect(pet).toHaveClass(/workspace-pet--ring/u);
 
   const corners = async () => {
-    // The ornament eases its transform, so a mid-transition box is not the settled one.
-    let previous = '';
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const current = JSON.stringify(await pet.evaluate((element) => {
-        const style = getComputedStyle(element);
-        return { transform: style.transform, transition: style.transitionProperty };
-      }));
-      if (current === previous) break;
-      previous = current;
-      await page.waitForTimeout(50);
-    }
+    // A pulse has a stable peak too. Wait for the pulse and its return transition to finish.
+    await expect(pet).not.toHaveClass(/is-pulsing/u);
+    await expect.poll(() => pet.evaluate((element) => getComputedStyle(element).transform)).toBe('none');
     const box = await pet.boundingBox();
     const view = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
     const classes = await pet.getAttribute('class');
