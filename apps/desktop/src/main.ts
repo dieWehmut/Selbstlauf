@@ -16,6 +16,7 @@ import {
   applyShellAction,
   isAsyncShellAction,
   parseShellRequest,
+  type ShellActionTarget,
   type WindowPreview,
   type WindowType,
 } from './shell-actions.js';
@@ -104,8 +105,9 @@ export interface ElectronWindow {
   isMinimized?(): boolean;
   restore?(): void;
   isDestroyed?(): boolean;
-  /** Used by the renderer's full-screen menu item. */
-  toggleFullScreen?(): void;
+  /** Electron exposes a getter and setter, rather than a toggle method. */
+  isFullScreen?(): boolean;
+  setFullScreen?(fullScreen: boolean): void;
   reload?(): void;
   destroy?(): void;
 }
@@ -429,10 +431,10 @@ export function registerShellHandlers(
       {
         window: {
           reload: () => window.reload?.(),
-          toggleFullScreen: () => window.toggleFullScreen?.(),
-          webContents: {
-            ...(window.webContents as { setZoomLevel?: (level: number) => void; getZoomLevel?: () => number }),
-          },
+          toggleFullScreen: () => window.setFullScreen?.(!(window.isFullScreen?.() ?? false)),
+          // Electron stores its methods on the prototype. Spreading this object
+          // loses editing/zoom methods, and detaching them also loses their receiver.
+          webContents: window.webContents as NonNullable<ShellActionTarget['webContents']>,
         },
         quit: context.quit,
         openExternal: context.openExternal,

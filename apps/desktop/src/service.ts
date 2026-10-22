@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 export interface WatchdogRecord {
   readonly pid: number;
@@ -9,10 +10,10 @@ export interface WatchdogRecord {
 
 export function resolveStateDirectory(environment: NodeJS.ProcessEnv = process.env): string {
   const localAppData = environment.LOCALAPPDATA?.trim();
-  if (localAppData === undefined || localAppData.length === 0) {
-    throw new Error('LOCALAPPDATA is required to locate the watchdog state directory');
-  }
-  return join(localAppData, 'ai-cli-bypass', 'continuation');
+  const stateRoot = localAppData && localAppData.length > 0
+    ? localAppData
+    : environment.XDG_STATE_HOME?.trim() || join(homedir(), '.local', 'state');
+  return join(stateRoot, 'ai-cli-bypass', 'continuation');
 }
 
 export async function readWatchdogRecord(stateDirectory: string): Promise<WatchdogRecord | null> {

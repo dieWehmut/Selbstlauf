@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { readWatchdogRecord, resolveStateDirectory, waitForHealth, watchdogOrigin } from '../src/service.js';
@@ -12,7 +12,9 @@ test('resolves the watchdog state directory from the local app data root', () =>
     resolveStateDirectory({ LOCALAPPDATA: 'C:\\Users\\demo\\AppData\\Local' } as NodeJS.ProcessEnv),
     join('C:\\Users\\demo\\AppData\\Local', 'ai-cli-bypass', 'continuation'),
   );
-  assert.throws(() => resolveStateDirectory({} as NodeJS.ProcessEnv), /LOCALAPPDATA/u);
+  assert.equal(resolveStateDirectory({ XDG_STATE_HOME: '/tmp/custom-state' }), join('/tmp/custom-state', 'ai-cli-bypass', 'continuation'));
+  assert.equal(resolveStateDirectory({}), join(homedir(), '.local', 'state', 'ai-cli-bypass', 'continuation'));
+  assert.equal(resolveStateDirectory({ LOCALAPPDATA: ' ', XDG_STATE_HOME: ' /tmp/trimmed-state ' }), join('/tmp/trimmed-state', 'ai-cli-bypass', 'continuation'));
 });
 
 test('reads only well-formed watchdog records', async () => {

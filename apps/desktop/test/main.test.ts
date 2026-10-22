@@ -717,6 +717,44 @@ test('the shell channel performs the action and refuses a non-http(s) URL', asyn
   assert.throws(() => stub.invoke(SHELL_CHANNELS.invoke, { action: 'eval-something' }), /unknown shell action/u);
 });
 
+test('renderer menu actions retain Electron prototype methods and their receiver', async () => {
+  const stub = buildIpcShell();
+  class WebContents {
+    edits: string[] = [];
+    level = 0;
+    undo() { this.edits.push('undo'); }
+    redo() { this.edits.push('redo'); }
+    cut() { this.edits.push('cut'); }
+    copy() { this.edits.push('copy'); }
+    paste() { this.edits.push('paste'); }
+    selectAll() { this.edits.push('selectAll'); }
+    getZoomLevel() { return this.level; }
+    setZoomLevel(value: number) { this.level = value; }
+  }
+  const webContents = new WebContents();
+  const window = {
+    reload: () => undefined,
+    fullScreen: false,
+    isFullScreen() { return this.fullScreen; },
+    setFullScreen(value: boolean) { this.fullScreen = value; },
+    webContents,
+  };
+  registerShellHandlers(stub.shell, buildShellActionContext({ window }));
+  for (const action of ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll']) {
+    await stub.invoke(SHELL_CHANNELS.invoke, { action });
+  }
+  assert.deepEqual(webContents.edits, ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll']);
+  await stub.invoke(SHELL_CHANNELS.invoke, { action: 'zoom', delta: 1 });
+  await stub.invoke(SHELL_CHANNELS.invoke, { action: 'zoom', delta: 1 });
+  assert.equal(webContents.level, 2);
+  await stub.invoke(SHELL_CHANNELS.invoke, { action: 'zoom', delta: 0 });
+  assert.equal(webContents.level, 0);
+  await stub.invoke(SHELL_CHANNELS.invoke, { action: 'toggleFullScreen' });
+  assert.equal(window.fullScreen, true);
+  await stub.invoke(SHELL_CHANNELS.invoke, { action: 'toggleFullScreen' });
+  assert.equal(window.fullScreen, false);
+});
+
 test('the settings channels read and write the persisted store', async () => {
   const stub = buildIpcShell();
   const patches: unknown[] = [];
