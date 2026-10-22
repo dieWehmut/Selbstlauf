@@ -36,6 +36,7 @@ import {
   Webhook,
   X,
 } from 'lucide-react';
+import { useConfigDraft } from './settings/config-drafts';
 /** Bundled with the app so the Pages sub-path rewrites it like any other asset. */
 import brandIcon from './assets/brand.png';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
@@ -1734,7 +1735,7 @@ function SettingsPanel(props: {
   applyingProfile: boolean;
   saving: boolean;
   running: boolean;
-  onSave: (config: WatchdogConfig) => Promise<void>;
+  onSave: (config: WatchdogConfig) => Promise<WatchdogConfig | null>;
   onToggle: () => Promise<void>;
   onInstall: () => Promise<void>;
   startupInstalled: boolean;
@@ -1772,17 +1773,10 @@ function SettingsPanel(props: {
   origin: string;
 }) {
   const { t, locale } = useI18n();
-  const [draft, setDraft] = useState(() => structuredClone(props.config));
+  const { draft, setDraft, includeFilters, setIncludeFilters, excludeFilters, setExcludeFilters, acknowledge } = useConfigDraft(props.config);
   // The rail is the navigation; the app owns which section is in view so a tray
   // command can open the settings page directly on a named section.
   const activeSection = props.activeSection;
-  const [includeFilters, setIncludeFilters] = useState(() => props.config.processFilters.include.join(', '));
-  const [excludeFilters, setExcludeFilters] = useState(() => props.config.processFilters.exclude.join(', '));
-  useEffect(() => {
-    setDraft(structuredClone(props.config));
-    setIncludeFilters(props.config.processFilters.include.join(', '));
-    setExcludeFilters(props.config.processFilters.exclude.join(', '));
-  }, [props.config]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -1793,7 +1787,7 @@ function SettingsPanel(props: {
         include: parseFilterList(includeFilters),
         exclude: parseFilterList(excludeFilters),
       },
-    });
+    }).then((confirmed) => { if (confirmed !== null) acknowledge(confirmed); });
   };
 
   /** The config save bar, shared by the sections that edit the service config. */
@@ -2332,6 +2326,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const [environmentUpgrading, setEnvironmentUpgrading] = useState<string | null>(null);
   const [applyingProfile, setApplyingProfile] = useState(false);
   const [config, setConfig] = useState(fallbackConfig);
+  const configReadSequence = useRef(0);
+  const configWriteSequence = useRef(0);
   const [sessions, setSessions] = useState<SessionView[]>(staticDemo ? fallbackSessions : []);
   const [events, setEvents] = useState<AuditEvent[]>(staticDemo ? fallbackEvents : []);
   const auditReadSequence = useRef(0);
@@ -2810,6 +2806,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   }, [sidebarOpen]);
 
   const refresh = async () => {
+    const configRead = ++configReadSequence.current;
+    const configWrite = configWriteSequence.current;
     const profileRead = ++profileReadSequence.current;
     const profileWrite = profileWriteSequence.current;
     // A snapshot supersedes older snapshots, including an empty/cleared history.
@@ -2836,7 +2834,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         api.codexProfiles(),
       ]);
       setHealth(nextHealth);
-      setConfig(mergeConfig(nextConfig));
+      if (configRead === configReadSequence.current && configWrite === configWriteSequence.current) setConfig(mergeConfig(nextConfig));
       setSessions(nextSessions);
       setStartupInstalled(nextStartup.installed);
       setHookStatus(nextHookStatus);
@@ -3041,19 +3039,23 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
    * change or clear it.
    */
   const applyConfig = async (nextConfig: WatchdogConfig) => {
+    const configWrite = ++configWriteSequence.current;
     setSaving(true); setNotice(null);
     try {
       const saved = await api.updateConfig(nextConfig);
-      setConfig(mergeConfig(saved));
+      ++configReadSequence.current;
+      const confirmed = mergeConfig(saved);
+      if (configWrite === configWriteSequence.current) setConfig(confirmed);
       setHookStatus((current) => ({ ...current, enabled: saved.tools.claude.stopHook.enabled }));
       setNotice('配置已保存');
+      return confirmed;
     }
     finally { setSaving(false); }
   };
 
   const saveConfig = async (nextConfig: WatchdogConfig) => {
-    try { await applyConfig(nextConfig); }
-    catch (error) { setNotice(error instanceof Error ? error.message : '保存失败', 'error'); }
+    try { return await applyConfig(nextConfig); }
+    catch (error) { setNotice(error instanceof Error ? error.message : '保存失败', 'error'); return null; }
   };
 
   const applyCodexProfile = async (fields: CodexProfileEditView[]) => {
