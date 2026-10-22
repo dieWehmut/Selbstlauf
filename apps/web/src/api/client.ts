@@ -240,6 +240,8 @@ export interface WatchdogApi {
   config(): Promise<WatchdogConfig>;
   updateConfig(config: WatchdogConfig): Promise<WatchdogConfig>;
   sessions(): Promise<SessionView[]>;
+  /** Saved history; optional for older injected API adapters. */
+  audit?(limit?: number): Promise<AuditEvent[]>;
   output?(id: string): Promise<SessionOutputView>;
   pause(id: string): Promise<void>;
   resume(id: string): Promise<void>;
@@ -303,6 +305,10 @@ export function createApi(): WatchdogApi {
       };
     },
     config: () => request<WatchdogConfig>('/config'),
+    audit: async (limit = 1_000) => {
+      const response = await request<{ events: AuditEvent[] }>(`/audit?limit=${limit}`);
+      return response.events;
+    },
     updateConfig: (config) => request<WatchdogConfig>('/config', {
       method: 'PUT',
       body: JSON.stringify(config),

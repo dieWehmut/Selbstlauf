@@ -7,6 +7,13 @@ afterEach(() => {
 });
 
 describe('local service API client', () => {
+  it('reads persisted audit entries from the service with the requested retention limit', async () => {
+    const history = [{ id: 'persisted', timestampMs: 42, type: 'activity' }];
+    const fetchMock = vi.fn(async () => json({ events: history }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(createApi().audit!(300)).resolves.toEqual(history);
+    expect(fetchMock).toHaveBeenCalledWith('/api/audit?limit=300', expect.anything());
+  });
   it('preserves the service validation error when a save is rejected', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'pollIntervalMs must be positive' }), { status: 400 })));
     await expect(createApi().updateConfig({} as Parameters<ReturnType<typeof createApi>['updateConfig']>[0])).rejects.toThrow('pollIntervalMs must be positive');

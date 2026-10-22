@@ -204,6 +204,7 @@ export function createStaticDemoApi(storageOption?: DemoStorage | null): Watchdo
   };
   return {
     health: async () => structuredClone(currentHealth),
+    audit: async (limit = 1_000) => structuredClone(events.slice(-limit)),
     config: async () => structuredClone(currentConfig),
     updateConfig: async (next) => { currentConfig = structuredClone(parseConfig(next)); persist(); return structuredClone(currentConfig); },
     sessions: async () => structuredClone(currentSessions),

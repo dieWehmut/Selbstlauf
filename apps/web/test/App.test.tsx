@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { Component, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
-import type { HealthView, SessionView, WatchdogApi, WatchdogEvent } from '../src/api/client';
+import type { AuditEvent, HealthView, SessionView, WatchdogApi, WatchdogEvent } from '../src/api/client';
 import type { EnvironmentView } from '../src/api/client';
 import { applyLocale, translate, type Locale } from '../src/i18n';
 
@@ -655,6 +655,64 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.click(screen.getByRole('button', { name: '事件' }));
 
     expect(await screen.findByText('150 条'), 'events beyond the hundredth were dropped').toBeInTheDocument();
+  });
+
+  it('loads saved audit history and merges SSE arrivals during the read without duplicates', async () => {
+    const fake = api() as WatchdogApi & { audit: (limit?: number) => Promise<AuditEvent[]> };
+    const history = deferred<AuditEvent[]>();
+    fake.audit = vi.fn(() => history.promise);
+    let emit!: (event: WatchdogEvent) => void;
+    fake.subscribe = vi.fn((listener) => { emit = listener; return () => undefined; });
+    render(<App api={fake} />);
+    await waitFor(() => expect(fake.audit).toHaveBeenCalledWith(1_000));
+    const saved: AuditEvent = { id: 'saved-history', timestampMs: 100, type: 'activity', sessionId: 'saved-process' };
+    const duringRead: AuditEvent = { id: 'stream-during-read', timestampMs: 300, type: 'activity', sessionId: 'latest-process' };
+    act(() => { emit({ kind: 'audit', event: duringRead }); emit({ kind: 'audit', event: duringRead }); });
+    await act(async () => history.resolve([saved, { id: 'middle', timestampMs: 200, type: 'activity', sessionId: 'middle-process' }, duringRead]));
+    fireEvent.click(screen.getByRole('button', { name: '事件' }));
+    expect(await screen.findByText('3 条')).toBeInTheDocument();
+    const entries = document.querySelectorAll('.timeline__item');
+    expect(entries).toHaveLength(3);
+    expect(entries[0]).toHaveTextContent('latest-process');
+    expect(entries[1]).toHaveTextContent('middle-process');
+    expect(entries[2]).toHaveTextContent('saved-process');
+  });
+
+  it('a newer empty audit snapshot clears history and an older response cannot restore it', async () => {
+    const fake = api() as WatchdogApi & { audit: (limit?: number) => Promise<AuditEvent[]> };
+    const older = deferred<AuditEvent[]>();
+    const newest = deferred<AuditEvent[]>();
+    fake.audit = vi.fn().mockResolvedValueOnce([{ id: 'old-entry', timestampMs: 1, type: 'activity', sessionId: 'obsolete-history' }]).mockReturnValueOnce(older.promise).mockReturnValueOnce(newest.promise);
+    render(<App api={fake} />);
+    fireEvent.click(screen.getByRole('button', { name: '事件' }));
+    expect(await screen.findByText('1 条')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '刷新', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: '刷新', exact: true }));
+    await waitFor(() => expect(fake.audit).toHaveBeenCalledTimes(3));
+    await act(async () => newest.resolve([]));
+    expect(await screen.findByText('0 条')).toBeInTheDocument();
+    await act(async () => older.resolve([{ id: 'old-entry', timestampMs: 1, type: 'activity', sessionId: 'obsolete-history' }]));
+    expect(screen.getByText('0 条')).toBeInTheDocument();
+    expect(screen.queryByText('obsolete-history')).not.toBeInTheDocument();
+  });
+
+  it('a failed history read keeps SSE events and monitoring usable, and a later read recovers', async () => {
+    const fake = api();
+    fake.audit = vi.fn().mockRejectedValueOnce(new Error('history unavailable')).mockResolvedValueOnce([
+      { id: 'recovered-history', timestampMs: 1, type: 'activity', sessionId: 'recovered-process' },
+    ]);
+    let emit!: (event: WatchdogEvent) => void;
+    fake.subscribe = vi.fn((listener) => { emit = listener; return () => undefined; });
+    render(<App api={fake} />);
+    await screen.findByRole('heading', { name: '进程监控' });
+    await waitFor(() => expect(fake.audit).toHaveBeenCalledOnce());
+    act(() => emit({ kind: 'audit', event: { id: 'retained-stream', timestampMs: 2, type: 'activity', sessionId: 'live-process' } }));
+    fireEvent.click(screen.getByRole('button', { name: '事件' }));
+    expect(await screen.findByText('1 条')).toBeInTheDocument();
+    expect(screen.getByText('live-process')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '刷新', exact: true }));
+    expect(await screen.findByText('recovered-process')).toBeInTheDocument();
+    expect(fake.health).toHaveBeenCalledTimes(2);
   });
 
   it('turns the whole notice strip off from 面板内通知, without a reload', async () => {

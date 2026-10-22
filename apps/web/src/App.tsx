@@ -1094,6 +1094,13 @@ function ProcessDetail(props: {
   );
 }
 
+/** A server snapshot and arrivals may contain the same audit event. */
+function mergeAuditEvents(history: readonly AuditEvent[], arrivals: readonly AuditEvent[]): AuditEvent[] {
+  const byId = new Map(history.map((event) => [event.id, event]));
+  for (const event of arrivals) byId.set(event.id, event);
+  return [...byId.values()].sort((left, right) => right.timestampMs - left.timestampMs).slice(0, TIMELINE_LIMIT_MAX);
+}
+
 function Timeline({ events }: { events: AuditEvent[] }) {
   const { t, locale } = useI18n();
   return (
@@ -2327,6 +2334,9 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const [config, setConfig] = useState(fallbackConfig);
   const [sessions, setSessions] = useState<SessionView[]>(staticDemo ? fallbackSessions : []);
   const [events, setEvents] = useState<AuditEvent[]>(staticDemo ? fallbackEvents : []);
+  const auditReadSequence = useRef(0);
+  const auditStreamSequence = useRef(0);
+  const auditStreamEvents = useRef(new Map<string, { event: AuditEvent; sequence: number }>());
   const [connected, setConnected] = useState(false);
   /**
    * Whether the console is connected to a service this build can talk to.
@@ -2802,6 +2812,20 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const refresh = async () => {
     const profileRead = ++profileReadSequence.current;
     const profileWrite = profileWriteSequence.current;
+    // A snapshot supersedes older snapshots, including an empty/cleared history.
+    // SSE events received while it is loading are merged over that snapshot.
+    if (api.audit !== undefined) {
+      const auditRead = ++auditReadSequence.current;
+      const streamAtRead = auditStreamSequence.current;
+      void api.audit(TIMELINE_LIMIT_MAX).then((history) => {
+        if (auditRead !== auditReadSequence.current) return;
+        const duringRead = [...auditStreamEvents.current.values()].filter((entry) => entry.sequence > streamAtRead);
+        setEvents(mergeAuditEvents(history, duringRead.map((entry) => entry.event)));
+        for (const [id, entry] of auditStreamEvents.current) {
+          if (entry.sequence <= streamAtRead) auditStreamEvents.current.delete(id);
+        }
+      }).catch(() => undefined);
+    }
     try {
       const [nextHealth, nextConfig, nextSessions, nextStartup, nextHookStatus, nextCodexProfiles] = await Promise.all([
         api.health(),
@@ -2844,14 +2868,20 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       // Keep as many events as 保留最近事件条数 can ask for. This closure is created once, so it cannot read
       // the *current* setting; keeping the ceiling that setting offers is what makes it honest, and
       // `visibleEvents` slices back down to whatever it says.
-      if (event.kind === 'audit') setEvents((current) => [event.event, ...current].slice(0, TIMELINE_LIMIT_MAX));
+      if (event.kind === 'audit') {
+        auditStreamEvents.current.set(event.event.id, { event: event.event, sequence: ++auditStreamSequence.current });
+        if (auditStreamEvents.current.size > TIMELINE_LIMIT_MAX) {
+          auditStreamEvents.current.delete(auditStreamEvents.current.keys().next().value!);
+        }
+        setEvents((current) => mergeAuditEvents(current, [event.event]));
+      }
       else void refresh();
     });
     const timer = window.setInterval(() => {
       void refresh();
       void loadEnvironment();
     }, 10_000);
-    return () => { active = false; unsubscribe(); window.clearInterval(timer); };
+    return () => { active = false; ++auditReadSequence.current; auditStreamEvents.current.clear(); unsubscribe(); window.clearInterval(timer); };
   }, [api, staticDemo]);
 
   const mutateSession = async (session: SessionView, action: 'pause' | 'inject', prompt?: string): Promise<{ readonly dryRun: boolean }> => {

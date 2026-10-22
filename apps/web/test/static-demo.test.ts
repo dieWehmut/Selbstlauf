@@ -10,6 +10,13 @@ function memoryStorage() {
 }
 
 describe('static Pages demo API', () => {
+  it('returns its existing audit seed without exposing shared mutable events', async () => {
+    const api = createStaticDemoApi(null);
+    const history = await api.audit!(1_000);
+    expect(history.map((event) => event.id)).toEqual(['demo-1', 'demo-2', 'demo-3', 'demo-4']);
+    history[0].id = 'modified';
+    expect((await api.audit!(1_000))[0].id).toBe('demo-1');
+  });
   it('keeps demo state isolated between page loads', async () => {
     const first = createStaticDemoApi(null);
     const before = await first.sessions();
