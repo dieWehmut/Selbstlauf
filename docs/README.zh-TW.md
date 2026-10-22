@@ -346,6 +346,9 @@ Codex 的接入端點。面板會列出目前生效的 `model`、`review_model`�
 `model_reasoning_effort`、`base_url` 與 `experimental_bearer_token`，並把
 `config.toml` 中以註解形式閒置的舊端點顯示為可點擊的備選膠囊；點擊膠囊即可
 切回對應端點，也可以在輸入框手寫新值後按「套用端點配置」。
+清空目前已有欄位再套用，會移除該欄位的活動賦值，並把舊值保留為註解備選；
+未修改欄位不會一起重寫。介面以明確的 `"value": null` 表示移除，空字串與
+未知鍵會被拒絕。
 
 切換完全依照手工維護該檔案的方式改寫：命中的註解行會被啟用，原先生效的賦值會
 被改寫為註解保留，未知取值會取代目前行，缺少的鍵會追加到最後一個頂層賦值之後；
@@ -355,8 +358,8 @@ Codex 的接入端點。面板會列出目前生效的 `model`、`review_model`�
 
 本機路由為 `GET /api/codex/profiles` 與 `PUT /api/codex/profiles`（請求體
 `{ "fields": [{ "key": "base_url", "value": "..." }] }`）；變更會記入審計日誌
-的 `user-override` 事件。此面板僅在本機 watchdog 介面提供，Pages 展示站使用
-記憶體內範例資料，不會修改任何本機檔案。
+的 `user-override` 事件。Pages 展示站在此瀏覽器中模擬相同的修改與移除操作，
+不會修改本機 `config.toml`。
 ### 本機工具升級
 
 設定頁的「關於」分區會列出型錄中每個 agent CLI 的目前版本與 npm 上的最新版本，

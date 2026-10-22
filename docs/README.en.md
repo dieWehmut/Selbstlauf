@@ -391,6 +391,10 @@ Codex endpoint inside `CODEX_HOME/config.toml`. It lists the active `model`,
 `experimental_bearer_token` values, and shows every endpoint parked as a
 comment as a clickable chip; choose a chip to switch back, or edit a field and
 apply the panel to write a new value.
+Clear an existing field and apply to deactivate it while preserving its old
+assignment as a commented alternative. Only edited fields are sent; the API
+uses an explicit `"value": null` for removal and rejects empty strings or
+unsupported keys.
 
 Switching mirrors how the file is maintained by hand: a matching parked line
 is activated, the previously active assignment is parked as a comment, unknown
@@ -404,8 +408,8 @@ cannot interleave.
 The local routes are `GET /api/codex/profiles` and `PUT /api/codex/profiles`
 (body `{ "fields": [{ "key": "base_url", "value": "..." }] }`), and every
 change is recorded as a `user-override` audit event. The panel is available
-only from the localhost watchdog; the Pages demo uses in-memory sample data
-and never touches local files.
+from the localhost watchdog; Pages simulates the same edits and removals in this
+browser and never touches the local `config.toml`.
 ### Local tool upgrades
 
 The About tab in settings lists every agent CLI in the catalog with its installed

@@ -369,6 +369,9 @@ Codex 的接入端点。面板会列出当前生效的 `model`、`review_model`�
 `model_reasoning_effort`、`base_url` 和 `experimental_bearer_token`，并把
 `config.toml` 里以注释形式闲置的旧端点显示为可点击的备选胶囊；点击胶囊即可
 切回对应端点，也可以在输入框里手写新值后按“应用端点配置”。
+清空当前已有字段再应用，会移除该字段的活动赋值，并将旧值保留为注释备选；
+未改动字段不会随本次操作重写。接口用显式 `"value": null` 表示移除，空字符串
+与未知键会被拒绝。
 
 切换完全按照手工维护该文件的方式改写：命中的注释行会被激活，原先生效的赋值会
 被改写为注释保留下来，未知取值会替换当前行，缺失的键会追加到最后一个顶层赋值
@@ -378,8 +381,8 @@ Codex 的接入端点。面板会列出当前生效的 `model`、`review_model`�
 
 本机路由为 `GET /api/codex/profiles` 和 `PUT /api/codex/profiles`（请求体
 `{ "fields": [{ "key": "base_url", "value": "..." }] }`）；变更会记入审计日志
-的 `user-override` 事件。该面板只在本机 watchdog 界面可用，Pages 演示站使用
-内存样例数据，不会修改任何本地文件。
+的 `user-override` 事件。Pages 演示站在此浏览器中模拟同样的设置与移除操作，
+不会修改本机 `config.toml`。
 ### 本地工具升级
 
 设置页的“关于”分区会列出目录里每个 agent CLI 的当前版本与 npm 上的最新版本，
