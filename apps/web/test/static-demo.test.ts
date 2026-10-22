@@ -1,19 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { createStaticDemoApi } from '../src/api/static-demo';
+import { createStaticDemoApi, STATIC_DEMO_STORAGE_KEY } from '../src/api/static-demo';
+
+function memoryStorage() {
+  const values = new Map<string, string>();
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value); },
+  };
+}
 
 describe('static Pages demo API', () => {
   it('keeps demo state isolated between page loads', async () => {
-    const first = createStaticDemoApi();
+    const first = createStaticDemoApi(null);
     const before = await first.sessions();
     await first.pause(before[0].id);
     expect((await first.sessions())[0].paused).toBe(true);
 
-    const second = createStaticDemoApi();
+    const second = createStaticDemoApi(null);
     expect((await second.sessions())[0].paused).toBe(false);
   });
 
   it('updates configuration without mutating the caller object', async () => {
-    const api = createStaticDemoApi();
+    const api = createStaticDemoApi(null);
     const draft = await api.config();
     draft.tools.codex.normalPrompt = 'demo prompt';
     const saved = await api.updateConfig(draft);
@@ -23,7 +31,7 @@ describe('static Pages demo API', () => {
   });
 
   it('can recover the demo service after an emergency stop', async () => {
-    const api = createStaticDemoApi();
+    const api = createStaticDemoApi(null);
     await expect(api.install()).resolves.toBeUndefined();
     await api.stop();
     expect((await api.health()).running).toBe(false);
@@ -32,18 +40,18 @@ describe('static Pages demo API', () => {
   });
 
   it('keeps startup-task state local to each demo instance', async () => {
-    const first = createStaticDemoApi();
+    const first = createStaticDemoApi(null);
     await first.installStartup();
     expect((await first.startup()).installed).toBe(true);
 
-    const second = createStaticDemoApi();
+    const second = createStaticDemoApi(null);
     expect((await second.startup()).installed).toBe(false);
     await first.uninstallStartup();
     expect((await first.startup()).installed).toBe(false);
   });
 
   it('switches Codex endpoints and parks the replaced base_url in memory', async () => {
-    const api = createStaticDemoApi();
+    const api = createStaticDemoApi(null);
     const before = await api.codexProfiles();
     expect(before.active.base_url).toBe('https://external-api-platform.hkgai.net/v1');
     expect(before.current?.name).toBe('external-api-platform.hkgai.net');
@@ -56,7 +64,7 @@ describe('static Pages demo API', () => {
   });
 
   it('models an install so the demo upgrade button reports a new version', async () => {
-    const api = createStaticDemoApi();
+    const api = createStaticDemoApi(null);
     const before = await api.environment();
     expect(before.upgrades).toContain('claude');
 
@@ -76,7 +84,7 @@ describe('static Pages demo API', () => {
   });
 
   it('models explicit Claude Hook installation, disable, and uninstall in memory', async () => {
-    const api = createStaticDemoApi();
+    const api = createStaticDemoApi(null);
     expect(await api.claudeHook()).toEqual({
       installed: false,
       enabled: false,
@@ -103,5 +111,62 @@ describe('static Pages demo API', () => {
       restartRequired: false,
       manualReviewRequired: false,
     });
+  });
+
+  it('restores every demo setting while resetting sample process state', async () => {
+    const storage = memoryStorage();
+    const api = createStaticDemoApi(storage);
+    const config = await api.config();
+    config.dryRun = false;
+    config.pollIntervalMs = 4200;
+    config.tools.codex.normalPrompt = 'saved prompt';
+    config.tools.claude.stopHook.enabled = true;
+    config.wslDistribution = 'Ubuntu-24.04';
+    config.processFilters.include = ['Tabby'];
+    await api.updateConfig(config);
+    await api.installStartup();
+    await api.installClaudeHook();
+    await api.applyCodexProfile([{ key: 'base_url', value: 'https://example.test/v1' }]);
+    await api.upgradeTool('claude');
+    await api.stop();
+    await api.pause((await api.sessions())[0].id);
+
+    const reloaded = createStaticDemoApi(storage);
+    expect(await reloaded.config()).toEqual(config);
+    expect((await reloaded.startup()).installed).toBe(true);
+    expect(await reloaded.claudeHook()).toEqual(expect.objectContaining({ installed: true, enabled: true }));
+    expect((await reloaded.codexProfiles()).active.base_url).toBe('https://example.test/v1');
+    expect((await reloaded.codexProfiles()).alternatives.base_url).toContain('https://external-api-platform.hkgai.net/v1');
+    expect((await reloaded.environment()).tools.find((tool) => tool.id === 'claude')?.installed).toBe('2.1.276');
+    expect((await reloaded.health()).running).toBe(false);
+    expect((await reloaded.sessions())[0].paused).toBe(false);
+    expect(await reloaded.inject('any')).toEqual({ dryRun: true });
+    await expect(reloaded.focus('any')).rejects.toThrow('在线演示无法打开本机运行位置');
+  });
+
+  it('refuses invalid imported config using the live service constraints', async () => {
+    const api = createStaticDemoApi(memoryStorage());
+    const before = await api.config();
+    await expect(api.updateConfig({} as never)).rejects.toThrow();
+    await expect(api.updateConfig({ ...before, pollIntervalMs: 0 })).rejects.toThrow('positive finite number');
+    await expect(api.updateConfig({ ...before, tools: { ...before.tools, codex: { ...before.tools.codex, goalStatuses: ['complete'] } } })).rejects.toThrow('terminal status');
+    expect(await api.config()).toEqual(before);
+  });
+
+  it('falls back safely when stored data is malformed or from another schema', async () => {
+    for (const raw of ['{', '{}', '{"schema":2}', '{"schema":1,"config":{}}']) {
+      const storage = memoryStorage();
+      storage.setItem(STATIC_DEMO_STORAGE_KEY, raw);
+      expect((await createStaticDemoApi(storage).config()).pollIntervalMs).toBe(2000);
+    }
+  });
+
+  it('reports blocked persistence instead of claiming a setting was saved', async () => {
+    const api = createStaticDemoApi({ getItem: () => null, setItem: () => { throw new Error('quota'); } });
+    const before = await api.config();
+    await expect(api.updateConfig({ ...before, pollIntervalMs: 4500 })).rejects.toThrow('浏览器无法保存演示设置');
+    expect(await api.config()).toEqual(before);
+    await expect(api.installStartup()).rejects.toThrow('浏览器无法保存演示设置');
+    expect((await api.startup()).installed).toBe(false);
   });
 });

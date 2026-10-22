@@ -105,6 +105,9 @@ export function SettingsRail(props: SettingsRailProps) {
   }, [needle]);
 
   const matches = categories.reduce((total, category) => total + category.entries.length, 0);
+  const visibleEntries = categories.flatMap((category) => category.entries);
+  const tabStop = visibleEntries.some((entry) => entry.id === props.active)
+    ? props.active : visibleEntries[0]?.id;
 
   return (
     <div className="settings-rail">
@@ -144,10 +147,14 @@ export function SettingsRail(props: SettingsRailProps) {
           const step = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1
             : event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1
               : 0;
-          const flat = categories.flatMap((category) => category.entries);
-          const current = flat.findIndex((entry) => entry.id === props.active);
+          const flat = visibleEntries;
+          // Search can hide the active section. Start from the focused visible
+          // tab in that case, so arrows still move through the filtered list.
+          const focused = event.target instanceof HTMLElement
+            ? event.target.closest<HTMLButtonElement>('[role="tab"]')?.dataset.section : undefined;
+          const current = flat.findIndex((entry) => entry.id === (focused ?? tabStop));
           let next = -1;
-          if (step !== 0) next = current + step;
+          if (step !== 0 && flat.length > 0) next = (current + step + flat.length) % flat.length;
           else if (event.key === 'Home') next = 0;
           else if (event.key === 'End') next = flat.length - 1;
           else return;
@@ -175,10 +182,11 @@ export function SettingsRail(props: SettingsRailProps) {
                   className={selected ? 'settings-rail__item is-active' : 'settings-rail__item'}
                   type="button"
                   role="tab"
+                  data-section={entry.id}
                   aria-selected={selected}
                   /* Roving tabindex: only the selected tab is reachable by Tab, and
                      the arrow keys move within the list. */
-                  tabIndex={selected ? 0 : -1}
+                  tabIndex={entry.id === tabStop ? 0 : -1}
                   onClick={() => props.onSelect(entry.id)}
                 >
                   <Icon size={16} />

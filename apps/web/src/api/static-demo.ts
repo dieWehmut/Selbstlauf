@@ -8,6 +8,9 @@ import type {
   WatchdogApi,
   WatchdogConfig,
 } from './client';
+// Use the service parser so an imported Pages config has the same constraints as
+// the live HTTP API, including legacy defaults and resumable goal statuses.
+import { parseConfig } from '../../../cli/src/domain/config';
 
 const initialConfig: WatchdogConfig = {
   enabled: true,
@@ -88,21 +91,74 @@ function upgradedTools(tools: readonly EnvironmentToolView[], id: string): Envir
     : tool);
 }
 
-export function createStaticDemoApi(): WatchdogApi {
-  let currentConfig = structuredClone(initialConfig);
+export const STATIC_DEMO_STORAGE_KEY = 'selbstlauf-pages-demo-v1';
+type DemoStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+interface DemoPreferences {
+  schema: 1;
+  config: WatchdogConfig;
+  running: boolean;
+  startupInstalled: boolean;
+  codexProfileFields: { key: string; value: string }[];
+  codexAlternatives: Record<string, string[]>;
+  hookInstallation: Omit<ClaudeHookStatusView, 'enabled'>;
+  installedTools: Record<string, string | null>;
+}
+
+function browserStorage(): DemoStorage | null {
+  try { return typeof localStorage === 'undefined' ? null : localStorage; }
+  catch { return null; }
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function loadPreferences(storage: DemoStorage | null): DemoPreferences | null {
+  try {
+    const raw = storage?.getItem(STATIC_DEMO_STORAGE_KEY);
+    if (!raw) return null;
+    const value: unknown = JSON.parse(raw);
+    if (!record(value) || value.schema !== 1 || typeof value.running !== 'boolean'
+      || typeof value.startupInstalled !== 'boolean' || !Array.isArray(value.codexProfileFields)
+      || value.codexProfileFields.some((field) => !record(field) || typeof field.key !== 'string' || typeof field.value !== 'string')
+      || !record(value.codexAlternatives) || Object.values(value.codexAlternatives).some((entries) => !Array.isArray(entries) || entries.some((entry) => typeof entry !== 'string'))
+      || !record(value.hookInstallation)
+      || typeof value.hookInstallation.installed !== 'boolean'
+      || typeof value.hookInstallation.restartRequired !== 'boolean'
+      || typeof value.hookInstallation.manualReviewRequired !== 'boolean'
+      || !record(value.installedTools) || Object.values(value.installedTools).some((version) => version !== null && typeof version !== 'string')) return null;
+    const config = structuredClone(parseConfig(value.config));
+    return { ...value, config } as unknown as DemoPreferences;
+  } catch {
+    // Old, truncated or manually edited local data must never blank the demo.
+    return null;
+  }
+}
+
+/** Persist settings only; sample sessions and host/process identities reset on reload. */
+export function createStaticDemoApi(storageOption?: DemoStorage | null): WatchdogApi {
+  const storage = storageOption === undefined ? browserStorage() : storageOption;
+  const saved = loadPreferences(storage);
+  let currentConfig: WatchdogConfig = saved?.config ?? structuredClone(initialConfig);
   let currentSessions = structuredClone(initialSessions);
-  let currentTools = structuredClone(demoToolSeed);
+  let currentTools = structuredClone(demoToolSeed).map((tool) => {
+    const installed = saved?.installedTools[tool.id];
+    if (installed === undefined) return tool;
+    return { ...tool, installed, state: installed === null ? 'missing' as const : installed === tool.latest ? 'current' as const : 'outdated' as const };
+  });
   const currentHealth = structuredClone(initialHealth);
-  let startupInstalled = false;
-  let codexProfileFields = [
+  currentHealth.running = saved?.running ?? currentHealth.running;
+  let startupInstalled = saved?.startupInstalled ?? false;
+  let codexProfileFields = saved?.codexProfileFields ?? [
     { key: 'base_url', value: 'https://external-api-platform.hkgai.net/v1' },
   ];
-  let codexAlternatives: Record<string, string[]> = {
+  let codexAlternatives: Record<string, string[]> = saved?.codexAlternatives ?? {
     base_url: ['https://www.sevnx.lol', 'https://agentrouter.org/v1'],
     model: ['gpt-6-astra'],
   };
 
-  let hookInstallation: Omit<ClaudeHookStatusView, 'enabled'> = {
+  let hookInstallation: Omit<ClaudeHookStatusView, 'enabled'> = saved?.hookInstallation ?? {
     installed: false,
     restartRequired: false,
     manualReviewRequired: false,
@@ -111,21 +167,49 @@ export function createStaticDemoApi(): WatchdogApi {
     ...structuredClone(hookInstallation),
     enabled: currentConfig.tools.claude.stopHook.enabled,
   });
+  const preferences = (): DemoPreferences => ({
+      schema: 1, config: currentConfig, running: currentHealth.running,
+      startupInstalled, codexProfileFields, codexAlternatives, hookInstallation,
+      installedTools: Object.fromEntries(currentTools.map((tool) => [tool.id, tool.installed])),
+  });
+  let lastSaved = structuredClone(preferences());
+  const persist = () => {
+    // null explicitly opts into isolated memory state for fixtures/HTTP mocks.
+    if (storageOption === null) return;
+    try {
+      if (!storage) throw new Error('storage unavailable');
+      storage.setItem(STATIC_DEMO_STORAGE_KEY, JSON.stringify(preferences()));
+      lastSaved = structuredClone(preferences());
+    } catch {
+      // Failed persistence must not become an apparently applied setting at the
+      // next poll after the UI correctly reported a save error.
+      currentConfig = structuredClone(lastSaved.config);
+      currentHealth.running = lastSaved.running;
+      startupInstalled = lastSaved.startupInstalled;
+      codexProfileFields = structuredClone(lastSaved.codexProfileFields);
+      codexAlternatives = structuredClone(lastSaved.codexAlternatives);
+      hookInstallation = structuredClone(lastSaved.hookInstallation);
+      currentTools = currentTools.map((tool) => {
+        const installed = lastSaved.installedTools[tool.id];
+        return { ...tool, installed, state: installed === null ? 'missing' : installed === tool.latest ? 'current' : 'outdated' };
+      });
+      throw new Error('浏览器无法保存演示设置，请检查本地存储权限或空间');
+    }
+  };
   return {
     health: async () => structuredClone(currentHealth),
     config: async () => structuredClone(currentConfig),
-    updateConfig: async (next) => { currentConfig = structuredClone(next); return structuredClone(currentConfig); },
+    updateConfig: async (next) => { currentConfig = structuredClone(parseConfig(next)); persist(); return structuredClone(currentConfig); },
     sessions: async () => structuredClone(currentSessions),
     pause: async (id) => { currentSessions = currentSessions.map((session) => session.id === id ? { ...session, paused: !session.paused } : session); },
     resume: async (id) => { currentSessions = currentSessions.map((session) => session.id === id ? { ...session, paused: false } : session); },
-    // The demo never writes anything, so it reports a dry run: that is the honest answer for a build with no
-// service behind it, and it matches what the real service returns when Dry Run is enabled.
+    // The demo cannot write to a process, even if the saved Dry Run toggle is off.
     inject: async () => ({ dryRun: true }),
-    focus: async () => ({ focused: true }),
+    focus: async () => { throw new Error('在线演示无法打开本机运行位置，请使用本地服务或桌面版'); },
     install: async () => undefined,
     startup: async () => ({ installed: startupInstalled, name: 'Selbstlauf Continuation Watchdog' }),
-    installStartup: async () => { startupInstalled = true; },
-    uninstallStartup: async () => { startupInstalled = false; },
+    installStartup: async () => { startupInstalled = true; persist(); },
+    uninstallStartup: async () => { startupInstalled = false; persist(); },
     codexProfiles: async () => {
       const active = Object.fromEntries(codexProfileFields.map((field) => [field.key, field.value]));
       const baseUrl = active.base_url ?? '';
@@ -154,6 +238,7 @@ export function createStaticDemoApi(): WatchdogApi {
         return { key: field.key, action: 'uncommented', value: field.value };
       });
       codexProfileFields = fields.map((field) => ({ key: field.key, value: field.value }));
+      persist();
       return { ok: true, changes };
     },
     claudeHook: async () => hookStatus(),
@@ -163,28 +248,33 @@ export function createStaticDemoApi(): WatchdogApi {
       const tool = currentTools.find((entry) => entry.id === id);
       if (tool === undefined) return { id, ok: false, error: `unknown tool: ${id}` };
       currentTools = upgradedTools(currentTools, id);
-      return { id, ok: true, output: 'added 1 package' };
+      persist();
+      return { id, ok: true, output: '演示状态已保存；未安装本机软件包' };
     },
     upgradeAllTools: async () => {
       const outdated = currentTools.filter((tool) => tool.state === 'outdated');
       for (const tool of outdated) currentTools = upgradedTools(currentTools, tool.id);
-      return { ok: true, results: outdated.map((tool) => ({ id: tool.id, ok: true, output: 'added 1 package' })) };
+      persist();
+      return { ok: true, results: outdated.map((tool) => ({ id: tool.id, ok: true, output: '演示状态已保存；未安装本机软件包' })) };
     },
     installClaudeHook: async () => {
       hookInstallation = { installed: true, restartRequired: true, manualReviewRequired: false };
+      persist();
       return hookStatus();
     },
     uninstallClaudeHook: async () => {
       hookInstallation = { installed: false, restartRequired: false, manualReviewRequired: false };
+      persist();
       return hookStatus();
     },
     disableClaudeHook: async () => {
       currentConfig.tools.claude.stopHook.enabled = false;
+      persist();
       return hookStatus();
     },
-    start: async () => { currentHealth.running = true; },
-    stop: async () => { currentHealth.running = false; },
-    uninstall: async () => { currentHealth.running = false; },
+    start: async () => { currentHealth.running = true; persist(); },
+    stop: async () => { currentHealth.running = false; persist(); },
+    uninstall: async () => { currentHealth.running = false; persist(); },
     subscribe: () => () => undefined,
   };
 }
