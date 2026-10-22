@@ -102,3 +102,32 @@ package's nine screenshots and full log live under `app/packaged/`.
 
 No installer or live user configuration was changed by this script. Reinstalling
 the same local version remains a separate final check.
+
+## Installed 0.9.5 verification after reinstall
+
+After the same-version reinstall, an exact copy of the installed directory was
+tested in a separate path, state directory and Electron browser profile. The
+full behavior check passes against that installed copy. Before any UI action,
+the harness confirms from Electron itself that its main-process PID owns the
+temporary `watchdog.pid.json`, that LOCALAPPDATA and userData point to the new
+temporary directory, and that its service origin differs from the user's port
+48920. The run's main PID was 29924; the Playwright launcher PID was 16504.
+The packaged Windows executable can relaunch its main process, so the launcher
+PID alone is not valid evidence of ownership.
+
+The installed app.asar SHA-256 is
+`623a6c1e21b4bdb7c93325391f77212ba174537a502d1f22d1c2c367f4f9cd08`.
+The real user's config SHA-256 remains
+`b9423f6297145f859cba41845d80ae20d25208524b286f378a358082af46229c`
+before and after the isolated verification. The user's desktop-settings.json
+was absent both before and after. The evidence and nine full application
+screenshots are in `app/installed-copy/`.
+
+The actual user's installed window was also captured without changing its
+focus, visibility, preferences or theme. `PrintWindow PW_RENDERFULLCONTENT`
+captures HWND 5639962, belonging to installed Selbstlauf PID 14304, version
+0.9.5. The image shows the user's preserved pink/dark appearance and real
+monitoring state (nine processes, five writable). The image and owner/bounds
+metadata are under `app/installed-readonly/installed-window-current.*`.
+CopyFromScreen was unavailable in the WSL-launched Windows helper, so PrintWindow
+is the capture method recorded in the metadata.

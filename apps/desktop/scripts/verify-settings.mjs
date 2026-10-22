@@ -25,6 +25,7 @@ let desktop;
 let page;
 let agentId;
 let externalPids = [];
+let isolationValidated = process.env.SELBSTLAUF_SETTINGS_REQUIRE_ISOLATION !== '1';
 const menuOnly = process.argv.includes('--menu-only');
 const check = (condition, label) => { if (!condition) throw new Error(label); notes.push(`PASS ${label}`); };
 const screenshot = async (name) => page.screenshot({ path: join(artifacts, `${name}.png`), fullPage: true });
@@ -49,6 +50,14 @@ try {
   });
   page = await desktop.firstWindow();
   page.on('pageerror', (error) => pageErrors.push(String(error)));
+  if (process.env.SELBSTLAUF_SETTINGS_REQUIRE_ISOLATION === '1') {
+    const statePath = join(root, 'ai-cli-bypass', 'continuation', 'watchdog.pid.json');
+    const record = JSON.parse(await readFile(statePath, 'utf8'));
+    const actual = await desktop.evaluate(({ app }) => ({ pid: process.pid, localAppData: process.env.LOCALAPPDATA, userData: app.getPath('userData') }));
+    check(Number(record.pid) === actual.pid && actual.localAppData === root && actual.userData === join(root, 'electron'), `the new isolated state/profile is owned by the verification process (${JSON.stringify(actual)}, recorded PID ${record.pid}, launcher PID ${desktop.process().pid})`);
+    check(Number(record.port) !== Number(process.env.SELBSTLAUF_SETTINGS_USER_PORT), 'the isolated service uses a separate origin from the user app');
+    isolationValidated = true;
+  }
   await mainWindow('show');
   await mainWindow('focus');
   await expect(page.getByRole('heading', { name: '进程监控', exact: true })).toBeVisible({ timeout: 30_000 });
@@ -165,7 +174,7 @@ try {
   if (process.platform === 'win32' && externalPids.length) {
     await promisify(execFile)('taskkill.exe', ['/PID', String(externalPids[0]), '/T', '/F']).catch(() => undefined);
   }
-  if (desktop) {
+  if (desktop && isolationValidated) {
     await desktop.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
     await desktop.close().catch(() => undefined);
   }
