@@ -65,6 +65,11 @@ describe('translation catalog integrity', () => {
             missing.push(`${file.slice(sourceRoot.length + 1)}:${position.line + 1} ${attribute.initializer.text}`);
           }
         }
+        if (ts.isJsxAttribute(node) && ['aria-label', 'title', 'placeholder'].includes(node.name.getText(source))
+          && node.initializer && ts.isStringLiteral(node.initializer) && messages[node.initializer.text] !== undefined) {
+          const position = source.getLineAndCharacterOfPosition(node.getStart());
+          missing.push(`${file.slice(sourceRoot.length + 1)}:${position.line + 1} untranslated ${node.name.getText(source)} ${node.initializer.text}`);
+        }
         ts.forEachChild(node, visit);
       };
       visit(source);
