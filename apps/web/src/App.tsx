@@ -3056,7 +3056,12 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const uninstall = async () => {
     if (!window.confirm('停止并卸载 Continuation Watchdog？')) return;
     setSaving(true);
-    try { await api.uninstall(); setHealth({ ok: false, running: false, dryRun: config.dryRun, lastPollAtMs: null }); setNotice('卸载已启动'); }
+    try {
+      await api.uninstall();
+      setHealth({ ok: false, running: false, dryRun: config.dryRun, lastPollAtMs: null });
+      setStartupInstalled(false);
+      setNotice(staticDemo ? '演示 Watchdog 已卸载（仅此浏览器）' : '卸载已启动');
+    }
     catch (error) { setNotice(error instanceof Error ? error.message : '卸载失败', 'error'); }
     finally { setSaving(false); }
   };
@@ -3064,7 +3069,11 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const install = async () => {
     setSaving(true);
     setNotice(null);
-    try { await api.install(); setNotice('Watchdog 已安装'); }
+    try {
+      await api.install();
+      await refresh();
+      setNotice(staticDemo ? '演示 Watchdog 已安装（仅此浏览器）' : 'Watchdog 已安装');
+    }
     catch (error) { setNotice(error instanceof Error ? error.message : '安装失败', 'error'); }
     finally { setSaving(false); }
   };
