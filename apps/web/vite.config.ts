@@ -5,6 +5,10 @@ import { createServiceProxy } from './dev-proxy';
 export default defineConfig({
   base: process.env.VITE_BASE_PATH ?? '/',
   plugins: [react()],
+  build: {
+    // Keep the hosted demo separate from the live bundle packaged by Electron.
+    outDir: process.env.VITE_STATIC_DEMO === 'true' ? 'dist-pages' : 'dist',
+  },
   server: {
     port: 4174,
     strictPort: false,

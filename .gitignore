@@ -5,6 +5,7 @@
 /node_modules/
 **/node_modules/
 /apps/*/dist/
+/apps/web/dist-pages/
 /apps/web/playwright-report/
 /apps/web/test-results/
 prompt/

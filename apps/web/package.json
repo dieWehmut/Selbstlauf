@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "test:browser": "playwright test",
+    "test:pages": "playwright test --config playwright.pages.config.ts",
     "preview": "vite preview",
     "test:agents": "npm --workspace @ai-cli-bypass/cli run build --silent && npm run build --silent && playwright test --config playwright.agents.config.ts"
   },

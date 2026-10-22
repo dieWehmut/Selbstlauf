@@ -41,6 +41,9 @@ jobs:
       - name: Verify responsive WebUI
         run: npm --workspace apps/web run test:browser
 
+      - name: Verify production Pages artifact and persistent settings
+        run: npm --workspace apps/web run test:pages
+
       - name: Upload browser report
         if: always()
         uses: actions/upload-artifact@v4
@@ -49,6 +52,7 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
+            tmp/settings-verification-20261022/pages/production
           if-no-files-found: ignore
 
   build:
@@ -79,7 +83,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/web/dist
+          path: apps/web/dist-pages
 
   deploy:
     needs: build
