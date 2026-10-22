@@ -157,22 +157,24 @@ try {
   const codexSession = launched.find((id) => results.codex !== undefined && true) && launched[2];
   if (modelRoundTrip && results.codex !== undefined && codexSession !== undefined) {
     await page.getByRole('tab', { name: 'codex 真实 CLI', exact: true }).click();
-    await page.getByLabel('发送到 codex 真实 CLI 的内容').fill('Reply with exactly SELBSTLAUF_WINDOW_OK and nothing else.');
+    // Asking the model to echo a token proves nothing: the prompt contains it and the TUI echoes
+    // the prompt. Ask for a transformation instead, so the expected answer never appears in the
+    // prompt and a single occurrence is a reply the model actually produced.
+    const token = 'SELBSTLAUF_WINDOW_OK';
+    const marker = [...token].reverse().join('');
+    const question = `Reverse the string ${token} and reply with only the reversed string.`;
+    await page.getByLabel('发送到 codex 真实 CLI 的内容').fill(question);
     await page.getByRole('button', { name: '发送', exact: true }).click();
-    // The prompt itself contains the marker, and the TUI echoes it, so one occurrence proves nothing.
-    // A real answer is a second, independent occurrence after the echoed prompt.
-    const marker = 'SELBSTLAUF_WINDOW_OK';
     const deadline = Date.now() + 240_000;
     let seen = '';
     let answered = false;
     while (Date.now() < deadline) {
       seen = await outputOf(codexSession);
       const flatSeen = flat(seen);
-      const first = flatSeen.indexOf(marker);
-      if (first >= 0 && flatSeen.indexOf(marker, first + marker.length) >= 0) { answered = true; break; }
+      if (flatSeen.includes(marker)) { answered = true; break; }
       await page.waitForTimeout(2_000);
     }
-    check(answered, 'codex answered a prompt typed into the window (real model round-trip, not the echoed prompt)');
+    check(answered, 'codex answered a prompt typed into the window (the answer is not in the prompt)');
     notes.push(`      marker occurrences: ${flat(seen).split(marker).length - 1}`);
     await page.waitForTimeout(1_500);
     await page.screenshot({ path: join(artifacts, 'live-codex-model.png'), fullPage: true });

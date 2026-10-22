@@ -115,6 +115,52 @@ try {
     await page.screenshot({ path: join(artifacts, `electron-live-${tool}.png`), fullPage: true });
   }
 
+  // A real model answer inside the desktop app. The prompt contains the marker and the TUI echoes it,
+  // so one occurrence proves nothing: a reply is a second, independent occurrence.
+  const codex = created.length > 2 ? created[2] : undefined;
+  if (process.argv.includes('--model') && codex !== undefined) {
+    // The prompt cannot contain the expected answer, or an echoed prompt would look like a reply.
+    // Ask for a transformation: the reversed token is produced only by the model.
+    const token = 'SELBSTLAUF_DESKTOP_OK';
+    const marker = [...token].reverse().join('');
+    await page.getByRole('tab', { name: 'codex 桌面', exact: true }).click();
+    // Codex paints its banner while still loading; typing before it accepts input leaves the text
+    // sitting in the box. Wait for the loading line to disappear.
+    const readyDeadline = Date.now() + 120_000;
+    let ready = '';
+    while (Date.now() < readyDeadline) {
+      ready = await outputOf(codex);
+      if (!/loading/iu.test(flat(ready)) && /AskCodex/iu.test(flat(ready))) break;
+      await page.waitForTimeout(1_000);
+    }
+    check(!/loading/iu.test(flat(ready)), 'codex finished loading before input was sent');
+
+    const asked = `Reverse the string ${token} and reply with only the reversed string.`;
+    let answered = false;
+    let seen = '';
+    for (let attempt = 0; attempt < 2 && !answered; attempt += 1) {
+      await page.getByLabel('发送到 codex 桌面 的内容').fill(asked);
+      await page.getByRole('button', { name: '发送', exact: true }).click();
+      const deadline = Date.now() + 180_000;
+      while (Date.now() < deadline) {
+        seen = await outputOf(codex);
+        const flatSeen = flat(seen);
+        if (flatSeen.includes(marker)) { answered = true; break; }
+        await page.waitForTimeout(2_000);
+      }
+      if (!answered) {
+        // Enter may have been swallowed while the TUI was busy; submit the text that is sitting there.
+        await page.request.post(new URL(`/api/agents/${codex}/input`, page.url()).href, {
+          headers: { origin: new URL(page.url()).origin, 'content-type': 'application/json' },
+          data: { data: '\r' },
+        }).catch(() => undefined);
+      }
+    }
+    check(answered, 'codex answered a prompt typed into the desktop window (the answer is not in the prompt)');
+    notes.push(`      marker occurrences: ${flat(seen).split(marker).length - 1}`);
+    await page.waitForTimeout(1_500);
+    await page.screenshot({ path: join(artifacts, 'electron-live-model.png'), fullPage: true });
+  }
   // Input/output through the window's own composer, on a real ConPTY.
   const nodeBinary = process.env.NODE_BIN;
   if (nodeBinary !== undefined) {
@@ -153,7 +199,9 @@ try {
     await desktop.evaluate(({ app }) => app.exit(0)).catch(() => undefined);
     await desktop.close().catch(() => undefined);
   }
-  await rm(root, { recursive: true, force: true });
+  // Electron can still hold a lock on its profile for a moment after exit; cleanup must never mask
+  // the result of the run.
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 }).catch(() => undefined);
   process.stdout.write(`${notes.join('\n')}\n`);
   process.stdout.write(failures.length === 0 ? '\ndesktop live verification: PASS\n' : `\n${failures.length} failure(s)\n`);
   process.exitCode = failures.length === 0 ? 0 : 1;

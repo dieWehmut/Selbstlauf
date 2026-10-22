@@ -56,8 +56,8 @@ ok    往返验证窗口: the service started a real process
 ok    the round-trip window owns a real TTY
 ok    the process received both lines and its reply reached the window
 ok    xterm rendered that reply on screen
-ok    codex answered a prompt typed into the window (real model round-trip, not the echoed prompt)
-      marker occurrences: 2
+ok    codex answered a prompt typed into the window (the answer is not in the prompt)
+      marker occurrences: 1
 ok    no page errors ()
 
 agent windows live verification: PASS
@@ -70,11 +70,10 @@ spaces between words are cursor moves in these TUIs, not literal characters):
 - **OpenCode** `1.19.3` — the `opencode` wordmark plus `Ask anything…` and the build line
 - **Codex** `0.163.0` — `OpenAI Codex (v0.163.0)` with `› Ask Codex to do anything`
 
-The model round-trip is deliberately strict: the prompt itself contains the marker and the
-TUI echoes the prompt, so a single occurrence proves nothing. The check requires a **second,
-independent** occurrence, i.e. a reply the process produced. It was observed with
-`marker occurrences: 2` and is visible in `tmp/agent-window-verification/live-codex-model.png`
-as `• SELBSTLAUF_WINDOW_OK` followed by `Worked for 20s`.
+The model round-trip asks the model to reverse a token rather than echo it. An echo proves nothing: the
+prompt contains the token and the TUI echoes the prompt, so the marker would appear even with no model
+involved. The reversed string never appears in the prompt, so its presence is a reply the model produced.
+It was observed with marker occurrences: 1.
 
 Two screenshots are retained: `live-codex-model.png` (the model reply inside the window) and
 `live-round-trip.png` (multiline Chinese input, both lines answered, rendered by xterm).
@@ -142,6 +141,13 @@ electron-live-codex.png (OpenAI Codex v0.163.0), and electron-live-round-trip.pn
 
 apps/desktop/scripts/verify-agents.mjs was run the same way and passed: native PTY, Unicode and multiline
 input, output, the independent BrowserWindow, and continued input after that window closes.
+
+The desktop app was also driven with --model, which asks the window to reverse a token. Input reaches the
+TUI and Codex replies back into the window, but on this Windows host Codex is configured to use a
+third-party gateway in ~/.codex/config.toml that answers with a malformed body, which Codex renders in
+the window as an invalid-character error. That is the host configuration, not the window: the text was
+delivered, the process answered, and the answer came back. The real model round-trip is demonstrated in
+the WSL run above, where codex has working credentials.
 
 Two environment traps had to be fixed before any of this could run, and both are handled in the scripts
 rather than worked around by hand:

@@ -44,13 +44,15 @@
 - 新增 `scripts/verify/agent-windows-live.mjs`：启动真实服务（一次性状态目录），用真实 Chromium 打开真实 WebUI，像人一样点「启动智能体」、选工具、命名窗口、按「启动」，然后断言浏览器收到的字节。
 - 三个预设在本机各自画出了自己的 TUI：Claude Code 2.1.278（`Welcome to Claude Code`）、OpenCode 1.19.3（wordmark 与 `Ask anything`）、Codex 0.163.0（`› Ask Codex to do anything`）。
 - 输入输出往返：在窗口输入框里发多行中文，PTY 收到两行并回显，xterm 把回复渲染在屏幕上。
-- 真实模型往返：在 codex 窗口里发一句指令，要求只回 `SELBSTLAUF_WINDOW_OK`。断言要求**第二次**独立出现（提示词本身含标记、TUI 也会回显提示词，只出现一次什么都证明不了），实测 marker occurrences: 2。
+- 真实模型往返：在 codex 窗口里发一句指令，要求把标记串倒序返回。倒序结果不可能出现在提示词里，所以它出现就只可能来自模型；实测出现 1 次。（早先的写法是要求原样回显标记，但提示词本身含标记、TUI 又会回显提示词，那种断言其实什么都没证明。）
 - 启动入口：根 `package.json` 增加 `verify:agent-windows`，CLI 工作区增加 `start`，`npm start` 直接起服务。
 - 回归：CLI 306 项（295 通过 / 11 项 Windows 专用跳过）、前端 270 项、浏览器 93 项、智能体浏览器 6 项、桌面 149 项。
 - Windows 原生复核：新增 scripts/verify/agent-windows-conpty.mjs，在 Windows 上用 ConPTY 跑同样的流程，
   三个预设各自画出 TUI（Claude Code 2.1.278、OpenCode、Codex 0.163.0），终端窗口输入 echo 后回显两处标记，
   说明输入真的到达了进程、输出真的回到了窗口。
-- 本机限制如实记录：Claude Code 在这台机器上连不上 `api.anthropic.com`（TLS 校验失败），窗口本身正常；Electron 端到端需要显示器，这台 WSL 没有，桌面版只跑了 149 项工作区测试。
+- 真实桌面应用：新增 apps/desktop/scripts/verify-agents-live.mjs，用 Playwright 启动 Electron 44.4.1（win32-x64），在应用自己的窗口里从启动器启动三个预设，三者的界面都画在窗口里，ConPTY 上多行中文输入得到回复。
+- 顺带修掉两个会让 Electron 检查在 Windows 上必然失败的环境坑：继承来的 ELECTRON_RUN_AS_NODE 会让 Electron 退化成普通 Node 进程（Playwright 只会报 Process failed to launch），而应用内的 process.execPath 是 Electron 本身，不能拿来跑 Node 脚本，所以加了 NODE_BIN。
+- 本机限制如实记录：Claude Code 在这台机器上连不上 api.anthropic.com（TLS 校验失败），窗口本身正常；Windows 上的 codex 配的是第三方网关，返回体格式错误，窗口里能看到它自己的报错，所以真实模型往返是在 WSL 侧完成的（那边 codex 有可用凭据）。
 
 ## 任务 4 验证
 
