@@ -4,6 +4,7 @@ import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(appRoot, '../..');
@@ -11,7 +12,17 @@ const artifacts = join(repositoryRoot, 'tmp', 'agent-window-verification');
 await mkdir(artifacts, { recursive: true });
 const root = await mkdtemp(join(tmpdir(), 'selbstlauf-electron-agent-'));
 const packaged = process.env.SELBSTLAUF_PACKAGED_EXECUTABLE;
-let executable = packaged === undefined ? (await import('electron')).default : resolve(packaged);
+// ELECTRON_BIN lets a harness point at a specific binary; otherwise resolve the package.
+// The package is CommonJS, so require() returns the path string; import() can hand back the
+// module namespace instead (and a runtime that exposes electron as a builtin returns neither).
+const electronPath = (() => {
+  if (process.env.ELECTRON_BIN) return resolve(process.env.ELECTRON_BIN);
+  const loaded = createRequire(import.meta.url)('electron');
+  if (typeof loaded === 'string') return loaded;
+  if (typeof loaded?.default === 'string') return loaded.default;
+  throw new Error('could not resolve the Electron executable; set ELECTRON_BIN');
+})();
+let executable = packaged === undefined ? electronPath : resolve(packaged);
 if (packaged !== undefined) {
   // An installed service must not accidentally resolve dependencies from the repository's node_modules.
   const installed = join(root, 'installed');
@@ -20,6 +31,9 @@ if (packaged !== undefined) {
 }
 const environment = { ...process.env, LOCALAPPDATA: root, XDG_STATE_HOME: root };
 delete environment.NODE_PATH;
+// Inherited from a Node-based harness, this makes Electron run as a plain Node process, so the
+// app never starts and Playwright reports only "Process failed to launch!".
+delete environment.ELECTRON_RUN_AS_NODE;
 let desktop;
 let page;
 let id;
@@ -42,7 +56,10 @@ try {
   await page.getByRole('button', { name: '启动智能体', exact: true }).click();
   await page.getByLabel('智能体', { exact: true }).selectOption('custom');
   if (!await page.getByLabel('启动命令', { exact: true }).isVisible()) await page.getByText('启动命令与参数', { exact: true }).click();
-  await page.getByLabel('启动命令', { exact: true }).fill(process.execPath);
+  // process.execPath is Electron here, not node: it would start the fixture in app mode and exit
+  // silently. NODE_BIN lets a harness supply a real node; the checkout path is the fallback.
+  const nodeBinary = process.env.NODE_BIN ?? process.execPath;
+  await page.getByLabel('启动命令', { exact: true }).fill(nodeBinary);
   await page.getByLabel('额外启动参数（每行一个）').fill(resolve(repositoryRoot, 'apps/cli/dist/test/fixtures/agent-terminal.js'));
   await page.getByLabel('窗口名称（可选）').fill('Electron 真实终端');
   const launched = page.waitForResponse((response) => response.url().endsWith('/api/agents') && response.request().method() === 'POST');

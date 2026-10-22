@@ -114,6 +114,48 @@ argument. Those shims started and rendered, which is what that code path exists 
 Run it with node scripts/verify/agent-windows-conpty.mjs, or npm run verify:agent-windows:conpty.
 It exits 2 off Windows rather than pretending to pass.
 
+## The real desktop application
+
+The two checks above drive the WebUI. The desktop app is a different process, and it is what actually ships,
+so it was verified too: Electron 44.4.1 (win32-x64), the checkout build, launched by Playwright and driven
+through its own window. apps/desktop/scripts/verify-agents-live.mjs starts the three presets from the
+launcher dialog and asserts on what the window shows:
+
+```
+ok    the packaged desktop shell rendered its main window
+ok    the preload bridge is wired
+ok    claude: PID 31640 running C:/Users/han/AppData/Roaming/npm/claude.ps1
+ok    claude: its own interface appeared inside the desktop window
+ok    opencode: PID 13132 running C:/Users/han/AppData/Roaming/npm/opencode.ps1
+ok    opencode: its own interface appeared inside the desktop window
+ok    codex: PID 32024 running C:/Users/han/AppData/Roaming/npm/codex.ps1
+ok    codex: its own interface appeared inside the desktop window
+ok    the window owns a real TTY
+ok    the process received both lines and its reply reached the window
+
+desktop live verification: PASS
+```
+
+The screenshots are the app itself, under tmp/agent-window-verification/: electron-live-claude.png,
+electron-live-opencode.png (the OpenCode wordmark, Ask anything, Build - Big Pickle, version 1.19.3),
+electron-live-codex.png (OpenAI Codex v0.163.0), and electron-live-round-trip.png.
+
+apps/desktop/scripts/verify-agents.mjs was run the same way and passed: native PTY, Unicode and multiline
+input, output, the independent BrowserWindow, and continued input after that window closes.
+
+Two environment traps had to be fixed before any of this could run, and both are handled in the scripts
+rather than worked around by hand:
+
+- ELECTRON_RUN_AS_NODE, inherited from a Node-based harness, makes Electron behave as a plain Node process.
+  The app never starts and Playwright only reports "Process failed to launch!". The scripts delete it from
+  the child environment.
+- process.execPath is Electron inside the desktop app, not node. Using it to start the fixture launched the
+  fixture in app mode, which exited 0 with no output. NODE_BIN now lets a harness supply a real node binary.
+
+Running it needs a real Electron binary; ELECTRON_BIN points at one when the package cannot be resolved
+from the module graph, because a runtime that exposes electron as a builtin resolves it to a namespace
+instead of a path.
+
 ## What this run does not claim
 
 - **Claude Code cannot reach its API on this machine.** The claude window paints
@@ -125,11 +167,10 @@ It exits 2 off Windows rather than pretending to pass.
 - **No window is captured for a process.** The desktop shell can preview and type into the
   window a *monitored* session runs in, but a window opened here is rendered by the app itself
   and needs no OS-level capture.
-- **Electron itself was not launched in this run.** The desktop gate is the 149-test workspace
-  suite; the Electron end-to-end run (`apps/desktop/scripts/verify-agents.mjs`) needs a
-  display, and this WSL image has no X server and is missing the shared libraries Electron
-  links against. The last recorded real-Electron run is in
-  [agent-windows.md](../implementation/agent-windows.md) task 4.
+- **Electron was not launched under WSL.** It was launched on the Windows host instead, which is the
+  platform it ships on; see "The real desktop application" above. The WSL image has no X server and is
+  missing the shared libraries Electron links against, so the Linux desktop run is still not covered
+  here. [agent-windows.md](../implementation/agent-windows.md) task 4 records the earlier Linux run.
 
 ## How to reproduce
 
@@ -138,6 +179,14 @@ npm run build
 node scripts/verify/agent-windows-live.mjs              # includes the model round-trip
 node scripts/verify/agent-windows-live.mjs --no-model   # UI + PTY round-trip only
 ```
+
+```bash
+# the real desktop app on Windows, with the real CLIs
+node apps/desktop/scripts/verify-agents-live.mjs
+```
+
+That one needs a display and a real Electron binary. Set ELECTRON_BIN when the package cannot be
+resolved, and NODE_BIN to a real node for the echo window. Both scripts exit non-zero on failure.
 
 `--no-model` skips the step that spends real tokens. `--keep-state` keeps the throwaway state
 directory for inspection. `SELBSTLAUF_LIVE_PORT` changes the port (default 49390).
