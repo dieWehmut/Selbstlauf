@@ -657,7 +657,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 /* On 设置 the rail occupies the app shell's left column instead of the app sidebar, so
    the settings page has one left rail rather than two. It is a `.sidebar` for the slot
    and the drawer behaviour, and this modifier takes over its insides. */
-.app-shell--settings { grid-template-columns: minmax(0, 268px) minmax(0, 1fr); }
+@media (min-width: 961px) {
+  .app-shell--settings { grid-template-columns: minmax(0, 268px) minmax(0, 1fr); }
+}
 /* Collapsed wins over the settings column.
    Both rules are single-class selectors, so whichever comes last in the file would
    otherwise decide it — and with these in this order the 268px column stayed reserved
@@ -669,7 +671,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 /* The settings rail is a `.sidebar` for the slot, but its own header is the 返回应用 row,
    so it has no close control at column widths. Doubled with `.icon-button` for the same
    specificity reason as the rule above. */
-.sidebar--settings > .sidebar-close.icon-button { display: none; }
+@media (min-width: 961px) {
+  .sidebar--settings > .sidebar-close.icon-button { display: none; }
+}
 
 .settings-shell { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; margin-top: 0; align-items: start; }
 /* Keyed on the section, so switching sections remounts the panel and replays this. */

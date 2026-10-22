@@ -1,0 +1,6 @@
+name: selbstlauf-settings-20261022
+channels:
+  - conda-forge
+dependencies:
+  - nodejs=22.23.2
+  - python=3.12.15

@@ -1,5 +1,20 @@
 import { expect, test } from '@playwright/test';
 
+test('the closed settings drawer leaves the full viewport for content and its close control is reachable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.keyboard.press('Control+,');
+  const workspace = page.locator('.workspace');
+  const bounds = (await workspace.boundingBox())!;
+  expect(Math.round(bounds.x)).toBe(0);
+  expect(Math.round(bounds.width)).toBe(390);
+  await page.getByRole('button', { name: '打开菜单', exact: true }).click();
+  const close = page.locator('.sidebar--settings').getByRole('button', { name: '关闭菜单', exact: true });
+  await expect(close).toBeVisible();
+  await close.click();
+  await expect(page.locator('.sidebar--settings')).not.toHaveClass(/is-open/u);
+});
+
 /**
  * The settings page's layout contract.
  *
