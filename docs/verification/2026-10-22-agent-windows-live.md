@@ -44,22 +44,43 @@ ok    claude is discoverable on PATH (/mnt/c/Users/han/AppData/Roaming/npm/claud
 ok    opencode is discoverable on PATH (/mnt/c/Users/han/AppData/Roaming/npm/opencode)
 ok    codex is discoverable on PATH (/home/han/.nvm/versions/node/v24.21.0/bin/codex)
 ok    the app shell renders
+ok    the launcher opens for claude 真实 CLI
 ok    claude 真实 CLI: the service started a real process
-ok    claude 真实 CLI: PID 2822786 running /mnt/c/Users/han/AppData/Roaming/npm/claude
+ok    claude 真实 CLI: PID 1716027 running /mnt/c/Users/han/AppData/Roaming/npm/claude
 ok    claude 真实 CLI: the window is connected
 ok    claude: its own TUI reached the browser window
+      claude first screen: WelcometoClaudeCodev2.1.278[>0q
+ok    the launcher opens for opencode 真实 CLI
 ok    opencode 真实 CLI: the service started a real process
+ok    opencode 真实 CLI: PID 1716070 running /mnt/c/Users/han/AppData/Roaming/npm/opencode
+ok    opencode 真实 CLI: the window is connected
 ok    opencode: its own TUI reached the browser window
+      opencode first screen: [>0q ▄ █▀▀█ █▀▀█ █▀▀█ █▀▀▄█▀▀▀ █▀▀█ █▀▀█ █▀▀██ █ █ █ █▀▀▀ █ ██ █ █ █ █ █▀▀▀▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀┃┃ Ask anything… "Fix broken tests"┃┃ Build · Big Pickle OpenCode╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+ok    the launcher opens for codex 真实 CLI
 ok    codex 真实 CLI: the service started a real process
+ok    codex 真实 CLI: PID 1716251 running /home/han/.nvm/versions/node/v24.21.0/bin/codex
+ok    codex 真实 CLI: the window is connected
 ok    codex: its own TUI reached the browser window
+      codex first screen: [>4;0m[>7u10;?11;?[>4;0m[>7u>_ OpenAI Codex (v0.163.0)loading › Ask Codex to do anything ? for shortcuts ~
+ok    the launcher opens for 往返验证窗口
 ok    往返验证窗口: the service started a real process
+ok    往返验证窗口: PID 1717526 running /home/han/.nvm/versions/node/v24.21.0/bin/node
+ok    往返验证窗口: the window is connected
 ok    the round-trip window owns a real TTY
 ok    the process received both lines and its reply reached the window
 ok    xterm rendered that reply on screen
+ok    the launcher opens for 往返验证窗口二
+ok    往返验证窗口二: the service started a real process
+ok    往返验证窗口二: PID 1719058 running /home/han/.nvm/versions/node/v24.21.0/bin/node
+ok    往返验证窗口二: the window is connected
+ok    the first window received its own input
+ok    the second window received its own input
+ok    the first window never saw the second window input
+ok    the second window never saw the first window input
+ok    codex finished loading before input was sent
 ok    codex answered a prompt typed into the window (the answer is not in the prompt)
       marker occurrences: 1
 ok    no page errors ()
-
 agent windows live verification: PASS
 ```
 
@@ -69,6 +90,10 @@ spaces between words are cursor moves in these TUIs, not literal characters):
 - **Claude Code** `2.1.278` — `WelcometoClaudeCodev2.1.278`
 - **OpenCode** `1.19.3` — the `opencode` wordmark plus `Ask anything…` and the build line
 - **Codex** `0.163.0` — `OpenAI Codex (v0.163.0)` with `› Ask Codex to do anything`
+
+Two windows are opened at once, each a separate process, and each is sent a different line: both receive
+their own and neither sees the other. That is the property a multi-window page has to have, and it is
+checked rather than assumed.
 
 The model round-trip asks the model to reverse a token rather than echo it. An echo proves nothing: the
 prompt contains the token and the TUI echoes the prompt, so the marker would appear even with no model
