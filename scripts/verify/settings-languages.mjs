@@ -1,7 +1,7 @@
 // Real service and the exact Pages artifact: language persistence, UI coverage and layout.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,7 @@ const sections = ['general', 'appearance', 'notifications', 'shortcuts', 'profil
 const notes = [];
 const englishHan = [];
 let screenshots = 0;
+const captures = [];
 let browser;
 let service;
 let pagesServer;
@@ -55,6 +56,7 @@ async function chooseLocale(page, locale, name) {
 async function screenshot(page, name) {
   await settle(page);
   await page.screenshot({ path: join(artifacts, `${name}.png`), fullPage: true });
+  captures.push(`${name}.png`);
   screenshots += 1;
 }
 async function scanEnglish(page, surface, id) {
@@ -76,6 +78,13 @@ async function scanEnglish(page, surface, id) {
 
 try {
   await mkdir(artifacts, { recursive: true });
+  // Replace only this verifier's generated files, so stale successful runs or
+  // viewport bottoms cannot be mistaken for the current run's evidence.
+  for (const name of await readdir(artifacts)) {
+    if (/^(?:webui|pages)-.*\.png$/u.test(name) || ['result.json', 'failure.txt', 'english-text-audit.json'].includes(name)) {
+      await rm(join(artifacts, name));
+    }
+  }
   await mkdir(dirname(codex), { recursive: true });
   await mkdir(dirname(claude), { recursive: true });
   await writeFile(codex, 'model = "verification-model"\nbase_url = "https://example.com/v1"\n');
@@ -176,7 +185,7 @@ try {
   await writeFile(join(artifacts, 'english-text-audit.json'), JSON.stringify(englishHan, null, 2));
   assert.deepEqual(englishHan, [], 'untranslated English UI (see english-text-audit.json)');
   await writeFile(join(artifacts, 'result.json'), `${JSON.stringify({ ok: true, node: process.execPath, runtime: process.version,
-    conda: process.env.CONDA_PREFIX, liveBuild, pagesBuild, notes, sections, locales: locales.map(([locale]) => locale), screenshots }, null, 2)}\n`);
+    conda: process.env.CONDA_PREFIX, liveBuild, pagesBuild, notes, sections, locales: locales.map(([locale]) => locale), screenshots, captures }, null, 2)}\n`);
   await rm(join(artifacts, 'failure.txt'), { force: true });
 } catch (cause) {
   await writeFile(join(artifacts, 'english-text-audit.json'), JSON.stringify(englishHan, null, 2));

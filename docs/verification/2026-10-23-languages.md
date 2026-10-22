@@ -29,12 +29,12 @@ explicit React nodes such as the PID and prompt; they do not parse HTML.
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Web unit suite | 347 passed in 28 files | `environment/web-language-final.log` |
+| Web unit suite after audit history and config draft fixes | 356 passed in 29 files | `environment/web-drafts-final.log` |
 | Language store and translation integrity | 24 passed, including persistence errors, native authority, delayed reads, concurrent responses, first paint, catalog coverage and parameter agreement | `test/i18n.test.tsx`, `test/translation-catalog.test.ts` |
-| Browser suite | 105 passed | `environment/browser-language-final.log` |
-| Production Pages `/Selbstlauf/` | 4 passed | `environment/pages-language-final.log` |
-| Real PTY agent/browser flows | 6 passed | `environment/agents-language-final.log` |
-| Desktop unit suite | 171 passed | `app-locale-unit.log` |
+| Browser suite | 105 passed | `environment/browser-settings-final.log` |
+| Production Pages `/Selbstlauf/` | 4 passed | `environment/pages-settings-final.log` |
+| Real PTY agent/browser flows | 6 passed | `environment/agents-settings-final.log` |
+| Desktop unit suite | 171 passed | `environment/desktop-settings-final.log` |
 | Real native Windows language actions | 34 checks, 30 successful screenshots | `app/locale-native/locale-verification.log`, `locale-evidence.json` |
 
 All artifact paths in this report are relative to
@@ -42,12 +42,15 @@ All artifact paths in this report are relative to
 
 `scripts/verify/settings-languages.mjs` passed first against separate temporary
 production bundles, then against the final `apps/web/dist` and
-`apps/web/dist-pages`. The final result records **557 captures**: both surfaces,
+`apps/web/dist-pages`. After the history and draft fixes, the final result records
+**547 captures** and lists every generated filename: both surfaces,
 all four locales, 13 sections, light/dark and 1280/390 widths, with lower views
 for scrollable sections. It also checks cross-window language changes, reload
 persistence, a real browser-storage refusal and retry, zero renderer errors,
 unchanged real continuation configuration, and zero local API requests from
-Pages. The English settings text audit is empty. Result and images are under
+Pages. Old verifier-generated images are removed before a run so a prior
+scroll-bottom capture cannot inflate the final count. The English settings text
+audit is empty. Result and images are under
 `languages/`.
 
 Manual inspection included English wide General settings, Traditional Chinese
