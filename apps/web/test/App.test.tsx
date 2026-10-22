@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
 import type { HealthView, SessionView, WatchdogApi, WatchdogEvent } from '../src/api/client';
 import type { EnvironmentView } from '../src/api/client';
+import { applyLocale, translate, type Locale } from '../src/i18n';
 
 function api(): WatchdogApi {
   const config = {
@@ -112,7 +113,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     const languages = screen.getByRole('group', { name: '界面语言' });
     expect(within(languages).getByRole('button', { name: '简体中文' })).toHaveAttribute('aria-pressed', 'true');
     for (const language of ['繁體中文', 'English', '日本語']) {
-      expect(within(languages).getByRole('button', { name: new RegExp(language) })).toBeDisabled();
+      expect(within(languages).getByRole('button', { name: new RegExp(language) })).toBeEnabled();
     }
   });
 
@@ -166,6 +167,59 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     // Clearing restores the full list.
     fireEvent.change(search, { target: { value: '' } });
     expect(within(rail).getAllByRole('tab')).toHaveLength(expected.length);
+  });
+
+  it.each<Locale>(['zh-CN', 'zh-TW', 'en', 'ja'])('renders navigation and settings in %s while preserving edited user data and messages', async (locale) => {
+    const t = (source: string) => translate(source, {}, locale);
+    act(() => applyLocale(locale));
+    const fake = api();
+    fake.codexProfiles = vi.fn(async () => ({ path: 'C:/user/用户路径/config.toml', exists: true, active: { model: 'my-model', experimental_bearer_token: 'raw-token' }, alternatives: {}, current: null }));
+    render(<App api={fake} />);
+    try {
+      expect(await screen.findByRole('heading', { level: 1, name: t('进程监控') })).toBeInTheDocument();
+      fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+      fireEvent.click(await screen.findByRole('tab', { name: t('外观') }));
+      const languages = screen.getByRole('group', { name: t('界面语言') });
+      expect(within(languages).getAllByRole('button')).toHaveLength(4);
+      expect(within(languages).getByRole('button', { name: locale === 'zh-CN' ? '简体中文' : locale === 'zh-TW' ? '繁體中文' : locale === 'en' ? 'English' : '日本語' })).toHaveAttribute('aria-pressed', 'true');
+      fireEvent.click(screen.getByRole('tab', { name: t('常规') }));
+      const prompt = screen.getByDisplayValue('请继续');
+      fireEvent.change(prompt, { target: { value: '用户自己的提示 user prompt 日本語' } });
+      fireEvent.click(screen.getByRole('button', { name: t('保存配置') }));
+      expect(await screen.findByText(t('配置已保存'))).toBeInTheDocument();
+      act(() => applyLocale(locale === 'en' ? 'ja' : 'en'));
+      const nextLocale: Locale = locale === 'en' ? 'ja' : 'en';
+      expect(screen.getByText(translate('配置已保存', {}, nextLocale))).toBeInTheDocument();
+      expect(screen.getByDisplayValue('用户自己的提示 user prompt 日本語')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('tab', { name: translate('续写与进程', {}, nextLocale) }));
+      expect(await screen.findByRole('textbox', { name: translate('访问令牌', {}, nextLocale) })).toHaveValue('raw-token');
+      expect(screen.getByText(/C:\/user\/用户路径\/config.toml/u)).toBeInTheDocument();
+      expect(document.documentElement.lang).toBe(nextLocale);
+    } finally { act(() => applyLocale('zh-CN')); }
+  });
+
+  it('retranslates dynamic tool counts and endpoint errors while keeping diagnostic details unchanged', async () => {
+    act(() => applyLocale('en'));
+    const fake = api();
+    fake.codexProfiles = vi.fn(async () => ({ path: 'C:/demo/config.toml', exists: true, active: { experimental_bearer_token: 'saved-token' }, alternatives: {}, current: null }));
+    vi.mocked(fake.applyCodexProfile).mockRejectedValueOnce(new Error('disk-full: D:/用户目录'));
+    render(<App api={fake} />);
+    try {
+      fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+      fireEvent.click(await screen.findByRole('tab', { name: translate('关于') }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Update all' }));
+      expect(await screen.findByText('2 tools updated')).toBeInTheDocument();
+      act(() => applyLocale('zh-TW'));
+      expect(screen.getByText('2 個工具已升級')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('tab', { name: translate('续写与进程') }));
+      const token = await screen.findByRole('textbox', { name: translate('访问令牌') });
+      fireEvent.change(token, { target: { value: '' } });
+      fireEvent.click(screen.getByRole('button', { name: translate('应用端点配置') }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('端點儲存失敗：disk-full: D:/用户目录');
+      act(() => applyLocale('ja'));
+      expect(screen.getByRole('alert')).toHaveTextContent('エンドポイントを保存できませんでした：disk-full: D:/用户目录');
+      expect(token).toHaveValue('');
+    } finally { act(() => applyLocale('zh-CN')); }
   });
 
   /** 返回应用 leaves the settings page again. */

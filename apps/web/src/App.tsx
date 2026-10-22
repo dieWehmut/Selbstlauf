@@ -39,6 +39,8 @@ import {
 /** Bundled with the app so the Pages sub-path rewrites it like any other asset. */
 import brandIcon from './assets/brand.png';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { getLocale, translate, useI18n, type Locale, type MessageParams } from './i18n';
+import { LanguageSection } from './i18n/LanguageSection';
 import {
   createApi,
   type AuditEvent,
@@ -120,6 +122,18 @@ import {
  */
 export const APP_VERSION = '0.9.5';
 
+type LocalizedMessage = string | { readonly source: string; readonly params: MessageParams };
+const message = (source: string, params: MessageParams): LocalizedMessage => ({ source, params });
+const messageText = (value: LocalizedMessage, locale: Locale): string => typeof value === 'string'
+  ? translate(value, {}, locale) : translate(value.source, value.params, locale);
+class LocalizedError extends Error {
+  readonly localized: LocalizedMessage;
+  constructor(source: string, params: MessageParams) {
+    super(translate(source, params));
+    this.localized = message(source, params);
+  }
+}
+
 /** 电脑操控's single switch. */
 function isRevealPref(value: unknown): value is { allowReveal: boolean } {
   return typeof value === 'object' && value !== null
@@ -143,7 +157,7 @@ function pluginPromptLine(): string | undefined {
   if (prompts.length === 0) return undefined;
   const line = prompts.join(' ');
   if (line.length > PLUGIN_PROMPT_LIMIT) {
-    throw new Error(`续写插件提示词拼接后共 ${line.length} 字符，超过 ${PLUGIN_PROMPT_LIMIT} 字符上限，未发送`);
+    throw new LocalizedError('续写插件提示词拼接后共 {count} 字符，超过 {limit} 字符上限，未发送', { count: line.length, limit: PLUGIN_PROMPT_LIMIT });
   }
   return line;
 }
@@ -265,9 +279,9 @@ interface DesktopBridge {
   readonly platform?: string;
   readonly shell?: Partial<DesktopShellBridge>;
   readonly settings?: {
-    get(): Promise<{ closeToTray?: boolean; preferredTerminal?: string | null }>;
-    set(patch: { closeToTray?: boolean; preferredTerminal?: string }): Promise<unknown>;
-    onChange?(listener: (prefs: { closeToTray: boolean; preferredTerminal: string | null }) => void): () => void;
+    get(): Promise<{ closeToTray?: boolean; preferredTerminal?: string | null; locale?: Locale }>;
+    set(patch: { closeToTray?: boolean; preferredTerminal?: string; locale?: Locale }): Promise<unknown>;
+    onChange?(listener: (prefs: { closeToTray: boolean; preferredTerminal: string | null; locale?: Locale }) => void): () => void;
   };
   /** Named commands from the menu bar and the tray. */
   onCommand?(listener: (payload: { command?: string; section?: string }) => void): () => void;
@@ -604,7 +618,7 @@ const fallbackEvents: AuditEvent[] = [
 ];
 
 function time(timestampMs: number): string {
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(getLocale(), {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   }).format(timestampMs);
 }
@@ -616,14 +630,14 @@ function transportLabel(transport: SessionView['transport']): string {
     'codex-app-server': 'App Server',
     'claude-stop-hook': 'Stop Hook',
     'dsh-web': 'Harness API',
-    'monitor-only': '仅监控',
-    'cannot-inject': '不可写入',
-    unknown: '待识别',
+    'monitor-only': translate("仅监控"),
+    'cannot-inject': translate("不可写入"),
+    unknown: translate("待识别"),
   };
   // The Record is closed but the response is not validated, so a transport this build has never heard of reaches
   // here as an undefined lookup — and a badge whose only text is `undefined` renders as an empty pill beside its
   // dot. Printing the transport's own name is what `toolLabel` does with the same problem.
-  return labels[transport] ?? transport;
+  return translate(labels[transport] ?? transport);
 }
 
 /**
@@ -636,32 +650,32 @@ function transportLabel(transport: SessionView['transport']): string {
  */
 export function decisionLabel(decision: string | undefined): { label: string; tone: 'ready' | 'waiting' | 'limited' | 'error' } {
   switch (decision) {
-    case 'awaiting-quiet-period': return { label: '等待静默', tone: 'waiting' };
-    case 'output-observed': return { label: '输出活跃', tone: 'ready' };
-    case 'cannot-inject': return { label: '仅监控', tone: 'limited' };
-    case 'transport-error': return { label: '传输错误', tone: 'error' };
-    case 'injected': return { label: '已写入', tone: 'ready' };
-    case 'activity': return { label: '活动', tone: 'ready' };
-    case 'decision': return { label: '决策', tone: 'waiting' };
-    case 'skip': return { label: '跳过', tone: 'limited' };
-    case 'injection': return { label: '已写入', tone: 'ready' };
-    case 'output-recovery': return { label: '输出恢复', tone: 'ready' };
+    case 'awaiting-quiet-period': return { label: translate("等待静默"), tone: 'waiting' };
+    case 'output-observed': return { label: translate("输出活跃"), tone: 'ready' };
+    case 'cannot-inject': return { label: translate("仅监控"), tone: 'limited' };
+    case 'transport-error': return { label: translate("传输错误"), tone: 'error' };
+    case 'injected': return { label: translate("已写入"), tone: 'ready' };
+    case 'activity': return { label: translate("活动"), tone: 'ready' };
+    case 'decision': return { label: translate("决策"), tone: 'waiting' };
+    case 'skip': return { label: translate("跳过"), tone: 'limited' };
+    case 'injection': return { label: translate("已写入"), tone: 'ready' };
+    case 'output-recovery': return { label: translate("输出恢复"), tone: 'ready' };
     // The states the engine reports that had no label, so they fell through to the raw string.
-    case 'disabled': return { label: '自动续写已关闭', tone: 'limited' };
-    case 'cooldown': return { label: '冷却中', tone: 'waiting' };
-    case 'max-attempts': return { label: '已达本轮上限', tone: 'limited' };
-    case 'paused': return { label: '已暂停', tone: 'limited' };
-    case 'new': return { label: '新发现', tone: 'waiting' };
-    case 'process-exited': return { label: '进程已退出', tone: 'error' };
+    case 'disabled': return { label: translate("自动续写已关闭"), tone: 'limited' };
+    case 'cooldown': return { label: translate("冷却中"), tone: 'waiting' };
+    case 'max-attempts': return { label: translate("已达本轮上限"), tone: 'limited' };
+    case 'paused': return { label: translate("已暂停"), tone: 'limited' };
+    case 'new': return { label: translate("新发现"), tone: 'waiting' };
+    case 'process-exited': return { label: translate("进程已退出"), tone: 'error' };
     // The rest of the engine's union. Labelling every reachable state keeps each one meaningful: a fallthrough to
     // 未知状态 is honest about an unknown value but says nothing useful about a known one.
-    case 'injection-pending': return { label: '写入中', tone: 'waiting' };
-    case 'resumed': return { label: '已恢复', tone: 'ready' };
-    case 'enabled': return { label: '自动续写已开启', tone: 'ready' };
-    case 'clock-rollback': return { label: '时钟回退', tone: 'error' };
+    case 'injection-pending': return { label: translate("写入中"), tone: 'waiting' };
+    case 'resumed': return { label: translate("已恢复"), tone: 'ready' };
+    case 'enabled': return { label: translate("自动续写已开启"), tone: 'ready' };
+    case 'clock-rollback': return { label: translate("时钟回退"), tone: 'error' };
     // A decision this build does not know is still reported as an unknown state rather than shown raw, because a
     // bare English identifier in a Chinese interface reads as a fault.
-    default: return { label: decision === undefined ? '等待活动' : '未知状态', tone: 'waiting' };
+    default: return { label: decision === undefined ? translate("等待活动") : translate("未知状态"), tone: 'waiting' };
   }
 }
 
@@ -691,27 +705,27 @@ function injectRefusal(session: SessionView): string | null {
 function transportReason(error: string | undefined): string | null {
   if (!error) return null;
   const reasons: Record<string, string> = {
-    'no-cwd-match': '未找到同目录 Codex 线程',
-    'no-thread-index': '未找到 Codex 线程索引',
-    'resume-id-not-found': 'Codex 恢复线程不存在',
-    'multiple-explicit-matches': 'Codex 线程关联不唯一',
-    'equally-recent-threads': 'Codex 线程关联不唯一',
-    'process working directory is unknown': '无法读取进程目录',
-    'no unique recent Claude session was found': '未找到唯一 Claude 会话',
-    'ambiguous Claude resume session association': 'Claude 会话关联不唯一',
-    'shared classic Console contains multiple discovered CLI sessions': '多个 CLI 共用同一 Console',
-    'Codex state database was not found': '未找到 Codex 状态库',
-    'DeepSeek Harness exposes no local input transport': 'DeepSeek Harness 暂无本机写入通道',
-    'DeepSeek Harness input is disabled in the watchdog settings': '已关闭 Harness 写入',
-    'dry run keeps DeepSeek Harness input disabled': 'Dry Run 期间不写入 Harness',
-    'the local DeepSeek Harness session API is unavailable': '未找到可认证的 Harness 本机接口',
-    'harness rejected the local session credential': 'Harness 拒绝了本机会话凭据',
-    'The harness session still has an unfinished step.': 'Harness 仍在执行步骤，不打断',
-    'DeepSeek Harness host has no live session': 'Harness 宿主机没有活动会话',
-    'DeepSeek Harness session is no longer live': 'Harness 会话已结束',
-    'DeepSeek Harness session disappeared during discovery': 'Harness 会话在扫描中结束',
+    'no-cwd-match': translate("未找到同目录 Codex 线程"),
+    'no-thread-index': translate("未找到 Codex 线程索引"),
+    'resume-id-not-found': translate("Codex 恢复线程不存在"),
+    'multiple-explicit-matches': translate("Codex 线程关联不唯一"),
+    'equally-recent-threads': translate("Codex 线程关联不唯一"),
+    'process working directory is unknown': translate("无法读取进程目录"),
+    'no unique recent Claude session was found': translate("未找到唯一 Claude 会话"),
+    'ambiguous Claude resume session association': translate("Claude 会话关联不唯一"),
+    'shared classic Console contains multiple discovered CLI sessions': translate("多个 CLI 共用同一 Console"),
+    'Codex state database was not found': translate("未找到 Codex 状态库"),
+    'DeepSeek Harness exposes no local input transport': translate("DeepSeek Harness 暂无本机写入通道"),
+    'DeepSeek Harness input is disabled in the watchdog settings': translate("已关闭 Harness 写入"),
+    'dry run keeps DeepSeek Harness input disabled': translate("Dry Run 期间不写入 Harness"),
+    'the local DeepSeek Harness session API is unavailable': translate("未找到可认证的 Harness 本机接口"),
+    'harness rejected the local session credential': translate("Harness 拒绝了本机会话凭据"),
+    'The harness session still has an unfinished step.': translate("Harness 仍在执行步骤，不打断"),
+    'DeepSeek Harness host has no live session': translate("Harness 宿主机没有活动会话"),
+    'DeepSeek Harness session is no longer live': translate("Harness 会话已结束"),
+    'DeepSeek Harness session disappeared during discovery': translate("Harness 会话在扫描中结束"),
   };
-  if (error.startsWith('ambiguous Claude session association')) return 'Claude 会话关联不唯一';
+  if (error.startsWith('ambiguous Claude session association')) return translate("Claude 会话关联不唯一");
   return reasons[error] ?? error;
 }
 
@@ -748,6 +762,7 @@ function parseFilterList(value: string): string[] {
 }
 
 function CapabilityBadge({ session }: { session: SessionView }) {
+  const { t, locale } = useI18n();
   const actionable = canInject(session);
   const reason = transportReason(session.transportError);
   return (
@@ -762,11 +777,13 @@ function CapabilityBadge({ session }: { session: SessionView }) {
 }
 
 function DecisionChip({ decision }: { decision: string | undefined }) {
+  const { t, locale } = useI18n();
   const state = decisionLabel(decision);
   return <span className={`state-chip state-chip--${state.tone}`}><span className="state-chip__dot" />{state.label}</span>;
 }
 
 function ToolMark({ tool }: { tool: SessionView['tool'] }) {
+  const { t, locale } = useI18n();
   // One shared component, so the process table and the sidebar can never drift apart on which art they show.
   return (
     <span className={`tool-mark tool-mark--${tool}`} aria-hidden="true">
@@ -787,25 +804,26 @@ interface SessionActionsProps {
 }
 
 function SessionActions({ session, busy, onPause, onInject, onFocus, allowReveal = true, onOpenTerminal }: SessionActionsProps) {
+  const { t, locale } = useI18n();
   const waiting = busy === session.id;
   return (
     <div className="row-actions">
       <button
         className="icon-button"
         type="button"
-        title="打开运行位置"
-        aria-label={`打开运行位置 PID ${session.rootPid}`}
+        title={t("打开运行位置")}
+        aria-label={t('打开运行位置 PID {pid}', { pid: session.rootPid })}
         disabled={waiting || !allowReveal || !session.alive || session.host === null || session.host === undefined}
         onClick={() => onFocus(session)}
       >
         <SquareArrowOutUpRight size={17} />
       </button>
-      {onOpenTerminal !== undefined && <button className="icon-button" type="button" title="在首选终端中打开工作目录" aria-label={`打开终端 PID ${session.rootPid}`} disabled={waiting || !allowReveal || !session.alive || !session.sessionCwd} onClick={() => onOpenTerminal(session)}><Terminal size={17} /></button>}
+      {onOpenTerminal !== undefined && <button className="icon-button" type="button" title={t("在首选终端中打开工作目录")} aria-label={t('打开终端 PID {pid}', { pid: session.rootPid })} disabled={waiting || !allowReveal || !session.alive || !session.sessionCwd} onClick={() => onOpenTerminal(session)}><Terminal size={17} /></button>}
       <button
         className="icon-button"
         type="button"
-        title={session.paused ? '恢复监控' : '暂停监控'}
-        aria-label={session.paused ? `恢复 PID ${session.rootPid}` : `暂停 PID ${session.rootPid}`}
+        title={session.paused ? t("恢复监控") : t("暂停监控")}
+        aria-label={t(session.paused ? '恢复 PID {pid}' : '暂停 PID {pid}', { pid: session.rootPid })}
         disabled={waiting || !session.alive}
         onClick={() => onPause(session)}
       >
@@ -814,8 +832,8 @@ function SessionActions({ session, busy, onPause, onInject, onFocus, allowReveal
       <button
         className="icon-button icon-button--accent"
         type="button"
-        title="立即续写"
-        aria-label={`立即续写 PID ${session.rootPid}`}
+        title={t("立即续写")}
+        aria-label={t('立即续写 PID {pid}', { pid: session.rootPid })}
         disabled={waiting || !canInject(session)}
         onClick={() => onInject(session)}
       >
@@ -826,6 +844,7 @@ function SessionActions({ session, busy, onPause, onInject, onFocus, allowReveal
 }
 
 function HostCell({ session }: { session: SessionView }) {
+  const { t, locale } = useI18n();
   const host = session.host ?? null;
   /**
    * A WSL session shows both facts: the terminal it was launched from, and that it runs inside a distribution.
@@ -845,12 +864,12 @@ function HostCell({ session }: { session: SessionView }) {
       </div>
     );
   }
-  if (host === null) return <span className="subtle">未识别宿主</span>;
+  if (host === null) return <span className="subtle">{t("未识别宿主")}</span>;
   return (
     <div className="host-cell">
       <span className={`host-badge host-badge--${host.category}`} title={host.label}>{host.label}</span>
       <span className="subtle" title={host.windowTitle ?? undefined}>
-        {host.windowTitle ?? (host.windowHandle === null ? '网页界面' : `PID ${host.processId}`)}
+        {host.windowTitle ?? (host.windowHandle === null ? t("网页界面") : `PID ${host.processId}`)}
       </span>
     </div>
   );
@@ -866,6 +885,7 @@ function ProcessTable(props: {
   allowReveal?: boolean;
   onOpenTerminal?: (session: SessionView) => void;
 }) {
+  const { t, locale } = useI18n();
   /**
    * With nothing discovered, there is nothing to tabulate.
    *
@@ -879,8 +899,8 @@ function ProcessTable(props: {
   if (props.sessions.length === 0) {
     return (
       <div className="empty-state">
-        <p>尚未发现进程</p>
-        <p className="subtle">进程出现后会自动出现在这里，同时列在左侧列表。</p>
+        <p>{t("尚未发现进程")}</p>
+        <p className="subtle">{t("进程出现后会自动出现在这里，同时列在左侧列表。")}</p>
       </div>
     );
   }
@@ -890,7 +910,7 @@ function ProcessTable(props: {
       <div className="process-table-wrap">
         <table className="process-table">
           <thead>
-            <tr><th>进程</th><th>运行位置</th><th>能力</th><th>对话</th><th>静默</th><th>下一输入</th><th><span className="sr-only">操作</span></th></tr>
+            <tr><th>{t("进程")}</th><th>{t("运行位置")}</th><th>{t("能力")}</th><th>{t("对话")}</th><th>{t("静默")}</th><th>{t("下一输入")}</th><th><span className="sr-only">{t("操作")}</span></th></tr>
           </thead>
           <tbody>
             {props.sessions.map((session) => (
@@ -900,7 +920,7 @@ function ProcessTable(props: {
                 </td>
                 <td><HostCell session={session} /></td>
                 <td><CapabilityBadge session={session} /></td>
-                <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle conversation-id">{session.conversationId ?? '未关联'}</span></td>
+                <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle conversation-id">{session.conversationId ?? t("未关联")}</span></td>
                 <td><strong>{formatDuration(quietMs(session))}</strong><DecisionChip decision={session.lastDecision} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
                 <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} onOpenTerminal={props.onOpenTerminal} /></td>
@@ -914,10 +934,10 @@ function ProcessTable(props: {
           <article className="session-card" key={session.id}>
             <header><div className="process-id"><ToolMark tool={session.tool} /><div><strong>{toolLabel(session.tool)}</strong><span>PID {session.rootPid}{session.sessionCwd ? ` · ${session.sessionCwd}` : ''}</span></div></div><CapabilityBadge session={session} /></header>
             <dl>
-              <div className="session-card__host"><dt>运行位置</dt><dd><HostCell session={session} /></dd></div>
-              <div><dt>对话</dt><dd>{conversationLabel(session)}</dd></div>
-              <div><dt>静默</dt><dd>{formatDuration(quietMs(session))}</dd></div>
-              <div className="session-card__prompt"><dt>下一输入</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
+              <div className="session-card__host"><dt>{t("运行位置")}</dt><dd><HostCell session={session} /></dd></div>
+              <div><dt>{t("对话")}</dt><dd>{conversationLabel(session)}</dd></div>
+              <div><dt>{t("静默")}</dt><dd>{formatDuration(quietMs(session))}</dd></div>
+              <div className="session-card__prompt"><dt>{t("下一输入")}</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
             </dl>
             <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} onOpenTerminal={props.onOpenTerminal} /></footer>
           </article>
@@ -956,15 +976,16 @@ function ProcessDetail(props: {
   /** How many watched sessions share this session's window; more than one refuses typing. */
   readonly windowSharedBy?: number;
 }) {
+  const { t, locale } = useI18n();
   const session = props.session;
   if (session === null) {
     return (
       <div className="empty-state">
-        <p>请选择一个进程</p>
+        <p>{t("请选择一个进程")}</p>
         <p className="subtle">
           {props.sessions.length === 0
-            ? '尚未发现进程。进程出现后会自动出现在左侧列表。'
-            : '在左侧列表中选择一个进程即可查看它的详情。'}
+            ? t("尚未发现进程。进程出现后会自动出现在左侧列表。")
+            : t("在左侧列表中选择一个进程即可查看它的详情。")}
         </p>
       </div>
     );
@@ -977,8 +998,7 @@ function ProcessDetail(props: {
     <section className="process-detail">
       <header className="process-detail__header">
         <button className="button button--ghost" type="button" onClick={props.onBack}>
-          <ArrowLeft size={17} />返回列表
-        </button>
+          <ArrowLeft size={17} />{t("返回列表")}</button>
         <div className="process-id">
           <ToolMark tool={session.tool} />
           <div>
@@ -991,15 +1011,15 @@ function ProcessDetail(props: {
       </header>
 
       <dl className="process-detail__grid">
-        <div><dt>运行位置</dt><dd><HostCell session={session} /></dd></div>
-        <div><dt>能力</dt><dd><CapabilityBadge session={session} /></dd></div>
-        <div><dt>对话</dt><dd>{conversationLabel(session)}</dd></div>
-        <div><dt>静默</dt><dd>{formatDuration(quiet)}</dd></div>
-        <div><dt>状态</dt><dd><DecisionChip decision={session.lastDecision} /></dd></div>
-        <div><dt>启动于</dt><dd>{time(session.startedAtMs)}</dd></div>
-        {session.sessionCwd ? <div className="process-detail__wide"><dt>工作目录</dt><dd><code>{session.sessionCwd}</code></dd></div> : null}
-        <div className="process-detail__wide"><dt>下一输入</dt><dd><code className="prompt-code">{nextPrompt(session, props.config)}</code></dd></div>
-        {session.transportError ? <div className="process-detail__wide"><dt>传输错误</dt><dd className="process-detail__error">{transportReason(session.transportError) ?? session.transportError}</dd></div> : null}
+        <div><dt>{t("运行位置")}</dt><dd><HostCell session={session} /></dd></div>
+        <div><dt>{t("能力")}</dt><dd><CapabilityBadge session={session} /></dd></div>
+        <div><dt>{t("对话")}</dt><dd>{conversationLabel(session)}</dd></div>
+        <div><dt>{t("静默")}</dt><dd>{formatDuration(quiet)}</dd></div>
+        <div><dt>{t("状态")}</dt><dd><DecisionChip decision={session.lastDecision} /></dd></div>
+        <div><dt>{t("启动于")}</dt><dd>{time(session.startedAtMs)}</dd></div>
+        {session.sessionCwd ? <div className="process-detail__wide"><dt>{t("工作目录")}</dt><dd><code>{session.sessionCwd}</code></dd></div> : null}
+        <div className="process-detail__wide"><dt>{t("下一输入")}</dt><dd><code className="prompt-code">{nextPrompt(session, props.config)}</code></dd></div>
+        {session.transportError ? <div className="process-detail__wide"><dt>{t("传输错误")}</dt><dd className="process-detail__error">{transportReason(session.transportError) ?? session.transportError}</dd></div> : null}
       </dl>
 
       {/* The window the process runs in. Placed before the actions because it answers the
@@ -1055,7 +1075,7 @@ function ProcessDetail(props: {
       </footer>
 
       {props.sessions.length > 1 && (
-        <nav className="process-detail__siblings" aria-label="其他进程">
+        <nav className="process-detail__siblings" aria-label={t("其他进程")}>
           {props.sessions.filter((other) => other.id !== session.id).map((other) => (
             <button
               key={other.id}
@@ -1075,9 +1095,10 @@ function ProcessDetail(props: {
 }
 
 function Timeline({ events }: { events: AuditEvent[] }) {
+  const { t, locale } = useI18n();
   return (
     <div className="timeline">
-      {events.length === 0 && <div className="empty-state">暂无事件</div>}
+      {events.length === 0 && <div className="empty-state">{t("暂无事件")}</div>}
       {events.map((event) => {
         const details = describeAuditDetails(event.details, AUDIT_DETAIL_LABELS);
         return (
@@ -1115,6 +1136,7 @@ function EnvironmentToolCard({ tool, upgrading, busy, onUpgrade }: {
   busy: boolean;
   onUpgrade: () => void;
 }) {
+  const { t, locale } = useI18n();
   return (
     <article className={`tool-card tool-card--${tool.state}`} data-testid={`tool-${tool.id}`}>
       <header>
@@ -1124,12 +1146,12 @@ function EnvironmentToolCard({ tool, upgrading, busy, onUpgrade }: {
         </div>
         <span className={`state-chip state-chip--${tool.state === 'current' ? 'ready' : tool.state === 'outdated' ? 'waiting' : tool.state === 'missing' ? 'limited' : 'error'}`}>
           <span className="state-chip__dot" />
-          {ENVIRONMENT_STATE_LABEL[tool.state]}
+          {t(ENVIRONMENT_STATE_LABEL[tool.state])}
         </span>
       </header>
       <dl className="tool-card__versions">
-        <div><dt>当前版本</dt><dd>{tool.installed ?? '未安装'}</dd></div>
-        <div><dt>最新版本</dt><dd>{tool.latest ?? '--'}</dd></div>
+        <div><dt>{t("当前版本")}</dt><dd>{tool.installed ?? t("未安装")}</dd></div>
+        <div><dt>{t("最新版本")}</dt><dd>{tool.latest ?? '--'}</dd></div>
       </dl>
       {tool.state === 'outdated' && <code className="tool-card__command">{tool.installCommand}</code>}
       {tool.state === 'outdated' && (
@@ -1137,12 +1159,12 @@ function EnvironmentToolCard({ tool, upgrading, busy, onUpgrade }: {
           <button
             className="button button--primary"
             type="button"
-            aria-label={`升级 ${tool.label}`}
+            aria-label={t('升级 {tool}', { tool: tool.label })}
             disabled={busy}
             onClick={onUpgrade}
           >
             {upgrading ? <RefreshCw className="spin" size={15} /> : <CircleArrowUp size={15} />}
-            {upgrading ? '升级中' : '升级'}
+            {upgrading ? t("升级中") : t("升级")}
           </button>
         </div>
       )}
@@ -1159,6 +1181,7 @@ function EnvironmentPanel(props: {
   onUpgrade: (id: string) => Promise<void>;
   onUpgradeAll: () => Promise<void>;
 }) {
+  const { t, locale } = useI18n();
   const [manualOpen, setManualOpen] = useState(false);
   const [copyState, setCopyState] = useState<{ readonly status: 'idle' | 'done' | 'failed'; readonly reason: string }>({ status: 'idle', reason: '' });
   /**
@@ -1190,30 +1213,29 @@ function EnvironmentPanel(props: {
   return (
     <section className="settings-section settings-section--wide environment-panel">
       <div className="section-title">
-        <div><span className="eyebrow">Environment</span><h2>本地环境检查</h2></div>
+        <div><span className="eyebrow">{t("Environment")}</span><h2>{t("本地环境检查")}</h2></div>
         <div className="section-title__actions">
           {report.upgrades.length > 0 && (
             <button
               className="button button--primary"
               type="button"
-              aria-label="全部升级"
+              aria-label={t("全部升级")}
               disabled={props.upgrading !== null || props.refreshing}
               onClick={() => void props.onUpgradeAll()}
             >
               {props.upgrading === 'all' ? <RefreshCw className="spin" size={16} /> : <CircleArrowUp size={16} />}
-              全部升级 ({report.upgrades.length})
+              {t('全部升级 ({count})', { count: report.upgrades.length })}
             </button>
           )}
           <button
             className="button button--secondary"
             type="button"
-            aria-label="刷新本地环境"
+            aria-label={t("刷新本地环境")}
             disabled={props.refreshing || props.upgrading !== null}
             onClick={() => void props.onRefresh()}
           >
             {props.refreshing ? <RefreshCw className="spin" size={16} /> : <RefreshCw size={16} />}
-            刷新
-          </button>
+            {t("刷新")}</button>
         </div>
       </div>
       <div className="environment-panel__body">
@@ -1236,8 +1258,7 @@ function EnvironmentPanel(props: {
             onClick={() => setManualOpen((current) => !current)}
           >
             <Terminal size={16} />
-            手动安装命令
-            <span className="manual-commands__chevron">{manualOpen ? '收起' : '展开'}</span>
+            {t("手动安装命令")}<span className="manual-commands__chevron">{manualOpen ? t("收起") : t("展开")}</span>
           </button>
           {manualOpen && (
             <div className="manual-commands__body">
@@ -1245,15 +1266,15 @@ function EnvironmentPanel(props: {
                 <button
                   className="button button--secondary"
                   type="button"
-                  aria-label="复制安装命令"
+                  aria-label={t("复制安装命令")}
                   /* The name stays constant, so the outcome is announced as a live region rather than
                      relying on the accessible name — which never changes for a labelled button. */
                   aria-live="polite"
-                  title={copyState.status === 'failed' ? `复制失败：${copyState.reason}` : undefined}
+                  title={copyState.status === 'failed' ? t('复制失败：{detail}', { detail: t(copyState.reason) }) : undefined}
                   onClick={() => { void copyManualCommands(report.manualCommands); }}
                 >
                   <Copy size={15} />
-                  {copyState.status === 'done' ? '已复制' : copyState.status === 'failed' ? '复制失败' : '复制'}
+                  {copyState.status === 'done' ? t("已复制") : copyState.status === 'failed' ? t("复制失败") : t("复制")}
                 </button>
               </div>
               <pre data-testid="manual-commands">{report.manualCommands.map((command) => `# ${command.split(' ').at(-1)?.replace('@latest', '') ?? ''}\n${command}`).join('\n')}</pre>
@@ -1269,6 +1290,7 @@ function CodexEndpointsPanel(props: {
   onApply: (fields: CodexProfileEditView[]) => Promise<void>;
   applying: boolean;
 }) {
+  const { t, locale } = useI18n();
   const [draft, setDraft] = useState<Readonly<Record<string, string>>>({});
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -1295,7 +1317,7 @@ function CodexEndpointsPanel(props: {
       await props.onApply(fields);
       if (mine === sequence.current) setDraft({});
     } catch (cause) {
-      if (mine === sequence.current) setError(`端点保存失败：${cause instanceof Error ? cause.message : String(cause)}`);
+      if (mine === sequence.current) setError(cause instanceof Error ? cause.message : String(cause));
     } finally { if (mine === sequence.current) setPending(false); }
   };
   const switchTo = async (key: string, value: string) => {
@@ -1305,14 +1327,14 @@ function CodexEndpointsPanel(props: {
   };
   return (
     <section className="settings-section settings-section--wide codex-endpoints">
-      <div className="section-title"><div><span className="eyebrow">Codex</span><h2>端点配置</h2></div><Plug size={20} /></div>
+      <div className="section-title"><div><span className="eyebrow">Codex</span><h2>{t("端点配置")}</h2></div><Plug size={20} /></div>
       <div className="codex-endpoints__body">
-        <p className="hook-disclosure"><CircleAlert size={17} /><span>切换会直接改写 <code>{profiles.path}</code>，并把旧值保留为注释；每次写入前都会生成 .bak 备份。清空字段并应用会移除该设置，旧值仍保留为注释。</span></p>
+        <p className="hook-disclosure"><CircleAlert size={17} /><span>{t('切换会直接改写 {path}，并把旧值保留为注释；每次写入前都会生成 .bak 备份。清空字段并应用会移除该设置，旧值仍保留为注释。', { path: profiles.path })}</span></p>
         <div className="field-grid codex-endpoints__fields">
           {[
-            { key: 'model', label: '模型' },
-            { key: 'review_model', label: '评审模型' },
-            { key: 'model_reasoning_effort', label: '推理强度' },
+            { key: 'model', label: t("模型") },
+            { key: 'review_model', label: t("评审模型") },
+            { key: 'model_reasoning_effort', label: t("推理强度") },
           ].map((entry) => (
             <label key={entry.key}><span>{entry.label}</span><input aria-label={entry.label} disabled={busy} value={valueOf(entry.key)} onChange={(event) => setDraft((current) => ({ ...current, [entry.key]: event.target.value }))} /></label>
           ))}
@@ -1322,10 +1344,10 @@ function CodexEndpointsPanel(props: {
           const current = valueOf(key);
           return (
             <div className="field-grid codex-endpoints__fields" key={key}>
-              <label><span>{key === 'base_url' ? '接口地址' : '访问令牌'}</span><input aria-label={key === 'base_url' ? '接口地址' : '访问令牌'} disabled={busy} value={current} onChange={(event) => setDraft((values) => ({ ...values, [key]: event.target.value }))} /></label>
+              <label><span>{key === 'base_url' ? t("接口地址") : t("访问令牌")}</span><input aria-label={key === 'base_url' ? t("接口地址") : t("访问令牌")} disabled={busy} value={current} onChange={(event) => setDraft((values) => ({ ...values, [key]: event.target.value }))} /></label>
               {alternatives.length > 0 && (
                 <div className="codex-endpoints__alternatives">
-                  <span>已注释的备选</span>
+                  <span>{t("已注释的备选")}</span>
                   <div className="codex-endpoints__chips">
                     {[...new Set([...alternatives, activeByKey[key]].filter((entry): entry is string => typeof entry === 'string' && entry.length > 0))].map((alternative) => (
                       <button key={alternative} className={alternative === current ? 'chip is-active' : 'chip'} type="button" disabled={busy} onClick={() => void switchTo(key, alternative)}>{alternative}</button>
@@ -1336,8 +1358,8 @@ function CodexEndpointsPanel(props: {
             </div>
           );
         })}
-        <div className="settings-actions"><button className="button button--primary" type="button" disabled={busy || edits(draft).length === 0} onClick={() => void apply()}>{busy ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}应用端点配置</button></div>
-        {error && <p className="hook-error" role="alert">{error}</p>}
+        <div className="settings-actions"><button className="button button--primary" type="button" disabled={busy || edits(draft).length === 0} onClick={() => void apply()}>{busy ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}{t("应用端点配置")}</button></div>
+        {error && <p className="hook-error" role="alert">{t('端点保存失败：{detail}', { detail: t(error) })}</p>}
       </div>
     </section>
   );
@@ -1369,6 +1391,7 @@ function ThemePreviewCard(props: {
   readonly systems?: readonly [ThemePalette, ThemePalette];
   readonly onSelect: () => void;
 }) {
+  const { t, locale } = useI18n();
   // A system card shows both schemes at once, split down the middle.
   const [left, right] = props.systems ?? [props.palette, props.palette];
   /**
@@ -1400,7 +1423,7 @@ function ThemePreviewCard(props: {
       type="button"
       role="radio"
       aria-checked={props.selected}
-      aria-label={props.ariaLabel}
+      aria-label={t(props.ariaLabel)}
       onClick={props.onSelect}
     >
       <span className="theme-preview__canvas">
@@ -1408,7 +1431,7 @@ function ThemePreviewCard(props: {
           ? <>{card('light', left)}{card('dark', right)}</>
           : card(props.scheme, props.palette)}
       </span>
-      <span className="theme-preview__label">{props.label}</span>
+      <span className="theme-preview__label">{t(props.label)}</span>
     </button>
   );
 }
@@ -1435,6 +1458,7 @@ function ThemeDiffPreview(props: {
   readonly palette: ThemePalette;
   readonly activeTheme: Theme;
 }) {
+  const { t, locale } = useI18n();
   const before = DEFAULT_PALETTES[props.activeTheme];
   const after = props.palette;
   /**
@@ -1480,9 +1504,10 @@ function AppearanceRow(props: {
   readonly label: string;
   readonly children: React.ReactNode;
 }) {
+  const { t, locale } = useI18n();
   return (
     <div className="appearance-row">
-      <span className="appearance-row__label">{props.label}</span>
+      <span className="appearance-row__label">{t(props.label)}</span>
       <div className="appearance-row__control">{props.children}</div>
     </div>
   );
@@ -1503,6 +1528,7 @@ function AppearancePanel(props: {
   readonly density: Density;
   readonly onDensityChange: (next: Density) => void;
 }) {
+  const { t, locale } = useI18n();
   const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>('idle');
   const copy = async () => {
     setCopyState('idle');
@@ -1522,18 +1548,17 @@ function AppearancePanel(props: {
   return (
     <section className="settings-section settings-section--wide appearance-panel">
       <div className="section-title">
-        <div><span className="eyebrow">Appearance</span><h2>外观</h2></div>
+        <div><span className="eyebrow">{t("Appearance")}</span><h2>{t("外观")}</h2></div>
         <div className="appearance-panel__actions">
           <button className="text-button" type="button" onClick={() => void props.onImport()}>
-            <Copy size={14} /> 导入
-          </button>
+            <Copy size={14} /> {t("导入")}</button>
           <button className="text-button" type="button" onClick={() => void copy()}>
-            <Copy size={14} /> {copyState === 'done' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制主题'}
+            <Copy size={14} /> {copyState === 'done' ? t("已复制") : copyState === 'failed' ? t("复制失败") : t("复制主题")}
           </button>
         </div>
       </div>
-      <p className="section-hint">选择应用的外观主题与排版，立即生效。</p>
-      <div className="theme-previews" role="radiogroup" aria-label="外观主题">
+      <p className="section-hint">{t("选择应用的外观主题与排版，立即生效。")}</p>
+      <div className="theme-previews" role="radiogroup" aria-label={t("外观主题")}>
         {THEME_OPTIONS.map((option) => (
           <ThemePreviewCard
             key={option.id}
@@ -1550,55 +1575,55 @@ function AppearancePanel(props: {
       </div>
       <ThemeDiffPreview palette={props.palette} activeTheme={props.activeTheme} />
       <div className="appearance-list">
-        <AppearanceRow label="强调色">
+        <AppearanceRow label={t("强调色")}>
           <select
-            aria-label="强调色"
+            aria-label={t("强调色")}
             value={props.palette.accent}
             onChange={(event) => props.onPaletteChange({ accent: event.target.value })}
           >
             {[...new Set([props.palette.accent, ...ACCENT_PRESETS.map((preset) => preset.value)])].map((value) => (
               <option key={value} value={value}>
-                {ACCENT_PRESETS.find((preset) => preset.value === value)?.label ?? '当前'}
+                {t(ACCENT_PRESETS.find((preset) => preset.value === value)?.label ?? '当前')}
               </option>
             ))}
           </select>
         </AppearanceRow>
-        <AppearanceRow label="背景">
+        <AppearanceRow label={t("背景")}>
           <span className="appearance-swatch">
             <input
               type="color"
-              aria-label="背景"
+              aria-label={t("背景")}
               value={props.palette.background}
               onChange={(event) => props.onPaletteChange({ background: event.target.value })}
             />
             <code>{props.palette.background.toUpperCase()}</code>
           </span>
         </AppearanceRow>
-        <AppearanceRow label="前景">
+        <AppearanceRow label={t("前景")}>
           <span className="appearance-swatch">
             <input
               type="color"
-              aria-label="前景"
+              aria-label={t("前景")}
               value={props.palette.foreground}
               onChange={(event) => props.onPaletteChange({ foreground: event.target.value })}
             />
             <code>{props.palette.foreground.toUpperCase()}</code>
           </span>
         </AppearanceRow>
-        <AppearanceRow label="UI 字体">
-          <select aria-label="UI 字体" value={ui.family} onChange={(event) => setUi({ family: event.target.value as FontChoice })}>
-            <option value="system">系统默认</option>
-            <option value="mono">等宽</option>
-            <option value="serif">衬线</option>
+        <AppearanceRow label={t("UI 字体")}>
+          <select aria-label={t("UI 字体")} value={ui.family} onChange={(event) => setUi({ family: event.target.value as FontChoice })}>
+            <option value="system">{t("系统默认")}</option>
+            <option value="mono">{t("等宽")}</option>
+            <option value="serif">{t("衬线")}</option>
           </select>
-          <select aria-label="UI 字重" value={String(ui.weight)} onChange={(event) => setUi({ weight: event.target.value === '500' ? 500 : 400 })}>
-            <option value="400">常规</option>
-            <option value="500">中等</option>
+          <select aria-label={t("UI 字重")} value={String(ui.weight)} onChange={(event) => setUi({ weight: event.target.value === '500' ? 500 : 400 })}>
+            <option value="400">{t('常规字重')}</option>
+            <option value="500">{t("中等")}</option>
           </select>
         </AppearanceRow>
-        <AppearanceRow label="内容字体">
+        <AppearanceRow label={t("内容字体")}>
           <select
-            aria-label="内容字体"
+            aria-label={t("内容字体")}
             value={content.sameAsUi ? 'same' : content.family}
             onChange={(event) => {
               const value = event.target.value;
@@ -1606,24 +1631,24 @@ function AppearancePanel(props: {
               else setContent({ sameAsUi: false, family: value as FontChoice });
             }}
           >
-            <option value="same">与界面字体相同</option>
-            <option value="system">系统默认</option>
-            <option value="mono">等宽</option>
-            <option value="serif">衬线</option>
+            <option value="same">{t("与界面字体相同")}</option>
+            <option value="system">{t("系统默认")}</option>
+            <option value="mono">{t("等宽")}</option>
+            <option value="serif">{t("衬线")}</option>
           </select>
           <select
-            aria-label="内容字重"
+            aria-label={t("内容字重")}
             value={String(content.weight)}
             onChange={(event) => setContent({ weight: event.target.value === '500' ? 500 : 400 })}
           >
-            <option value="400">常规</option>
-            <option value="500">中等</option>
+            <option value="400">{t('常规字重')}</option>
+            <option value="500">{t("中等")}</option>
           </select>
         </AppearanceRow>
-        <AppearanceRow label="半透明侧边栏">
+        <AppearanceRow label={t("半透明侧边栏")}>
           <label className="switch">
             <input
-              aria-label="半透明侧边栏"
+              aria-label={t("半透明侧边栏")}
               type="checkbox"
               checked={props.palette.translucentSidebar}
               onChange={(event) => props.onPaletteChange({ translucentSidebar: event.target.checked })}
@@ -1631,22 +1656,22 @@ function AppearancePanel(props: {
             <span />
           </label>
         </AppearanceRow>
-        <AppearanceRow label="界面密度">
+        <AppearanceRow label={t("界面密度")}>
           <select
-            aria-label="界面密度"
-            title="紧凑会收紧设置分区、外观行与进程表的行距"
+            aria-label={t("界面密度")}
+            title={t("紧凑会收紧设置分区、外观行与进程表的行距")}
             value={props.density}
             onChange={(event) => props.onDensityChange(event.target.value === 'compact' ? 'compact' : 'comfortable')}
           >
-            <option value="comfortable">舒适</option>
-            <option value="compact">紧凑</option>
+            <option value="comfortable">{t("舒适")}</option>
+            <option value="compact">{t("紧凑")}</option>
           </select>
         </AppearanceRow>
-        <AppearanceRow label="对比度">
+        <AppearanceRow label={t("对比度")}>
           <span className="appearance-slider">
             <input
               type="range"
-              aria-label="对比度"
+              aria-label={t("对比度")}
               min="0"
               max="100"
               step="1"
@@ -1659,7 +1684,7 @@ function AppearancePanel(props: {
       </div>
       {props.customized && (
         <div className="settings-actions">
-          <button className="button button--secondary" type="button" onClick={props.onPaletteReset}>恢复默认</button>
+          <button className="button button--secondary" type="button" onClick={props.onPaletteReset}>{t("恢复默认")}</button>
         </div>
       )}
     </section>
@@ -1739,6 +1764,7 @@ function SettingsPanel(props: {
   /** Origin this WebUI is served from. */
   origin: string;
 }) {
+  const { t, locale } = useI18n();
   const [draft, setDraft] = useState(() => structuredClone(props.config));
   // The rail is the navigation; the app owns which section is in view so a tray
   // command can open the settings page directly on a named section.
@@ -1765,7 +1791,7 @@ function SettingsPanel(props: {
 
   /** The config save bar, shared by the sections that edit the service config. */
   const saveBar = (
-    <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}保存配置</button><button className="button button--secondary" type="button" onClick={() => void props.onInstall()} disabled={props.saving}><CirclePlay size={17} />安装 Watchdog</button><button className="button button--secondary" type="button" onClick={() => void props.onToggleStartup()} disabled={props.saving}><Power size={17} />{props.startupInstalled ? '移除启动项' : '安装启动项'}</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? '停止 Watchdog' : '启动 Watchdog'}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />卸载 Watchdog</button></div>
+    <div className="settings-actions"><button className="button button--primary" type="submit" disabled={props.saving}>{props.saving ? <RefreshCw className="spin" size={17} /> : <Save size={17} />}{t("保存配置")}</button><button className="button button--secondary" type="button" onClick={() => void props.onInstall()} disabled={props.saving}><CirclePlay size={17} />{t("安装 Watchdog")}</button><button className="button button--secondary" type="button" onClick={() => void props.onToggleStartup()} disabled={props.saving}><Power size={17} />{props.startupInstalled ? t("移除启动项") : t("安装启动项")}</button><button className={`button ${props.running ? 'button--stop' : 'button--start'}`} type="button" onClick={() => void props.onToggle()} disabled={props.saving}>{props.running ? <Power size={17} /> : <CirclePlay size={17} />}{props.running ? t("停止 Watchdog") : t("启动 Watchdog")}</button><button className="button button--danger" type="button" onClick={() => void props.onUninstall()} disabled={props.saving}><Trash2 size={17} />{t("卸载 Watchdog")}</button></div>
   );
 
   return (
@@ -1776,7 +1802,7 @@ function SettingsPanel(props: {
           which restarts the CSS enter animation: switching sections then reads as a change of
           place rather than as text silently swapping under the cursor. */}
       <div className="settings-content" key={activeSection}>
-      {props.staticDemo && <p className="section-hint settings-section--wide" role="note">演示模式：设置保存在此浏览器。Watchdog、启动项、Stop Hook、Codex 端点与工具安装操作仅模拟，不会操作本机进程或文件。</p>}
+      {props.staticDemo && <p className="section-hint settings-section--wide" role="note">{t("演示模式：设置保存在此浏览器。Watchdog、启动项、Stop Hook、Codex 端点与工具安装操作仅模拟，不会操作本机进程或文件。")}</p>}
       {activeSection === 'appearance' && (
         <>
           <AppearancePanel
@@ -1793,62 +1819,46 @@ function SettingsPanel(props: {
             density={props.density}
             onDensityChange={props.onDensityChange}
           />
-          <section className="settings-section settings-section--wide">
-            <div className="section-title"><div><span className="eyebrow">Locale</span><h2>界面语言</h2></div><Settings2 size={20} /></div>
-            <p className="section-hint">当前使用简体中文，其他界面语言暂不支持。</p>
-            <div className="segmented segmented--labels" role="group" aria-label="界面语言">
-              {['简体中文', '繁體中文', 'English', '日本語'].map((language) => (
-                <button
-                  key={language}
-                  className={language === '简体中文' ? 'segmented__option is-active' : 'segmented__option'}
-                  type="button"
-                  aria-pressed={language === '简体中文'}
-                  disabled={language !== '简体中文'}
-                >
-                  {language}{language !== '简体中文' && '（暂不支持）'}
-                </button>
-              ))}
-            </div>
-          </section>
+          <LanguageSection />
         </>
       )}
       {activeSection === 'general' && (
         <>
       <section className="settings-section settings-section--wide">
-        <div className="section-title"><div><span className="eyebrow">Watchdog</span><h2>常规</h2></div><Gauge size={20} /></div>
-        <p className="section-hint">检测节奏、续写提示词与进程范围，保存后立即生效。</p>
-        <div className="switch-row"><div><strong>启用自动续写</strong><span>关闭后继续发现进程和记录事件，停止自动发送续写提示词</span></div><label className="switch"><input aria-label="启用自动续写" type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span /></label></div>
-        {(['claude', 'codex', 'dsh'] as const).map((tool) => <div className="switch-row" key={tool}><div><strong>监控 {toolLabel(tool)}</strong><span>控制该工具的自动续写；进程仍显示以便查看</span></div><label className="switch"><input aria-label={`监控 ${toolLabel(tool)}`} type="checkbox" checked={draft.tools[tool].enabled} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, [tool]: { ...draft.tools[tool], enabled: event.target.checked } } })} /><span /></label></div>)}
+        <div className="section-title"><div><span className="eyebrow">Watchdog</span><h2>{t("常规")}</h2></div><Gauge size={20} /></div>
+        <p className="section-hint">{t("检测节奏、续写提示词与进程范围，保存后立即生效。")}</p>
+        <div className="switch-row"><div><strong>{t("启用自动续写")}</strong><span>{t("关闭后继续发现进程和记录事件，停止自动发送续写提示词")}</span></div><label className="switch"><input aria-label={t("启用自动续写")} type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span /></label></div>
+        {(['claude', 'codex', 'dsh'] as const).map((tool) => <div className="switch-row" key={tool}><div><strong>{t('监控 {tool}', { tool: toolLabel(tool) })}</strong><span>{t("控制该工具的自动续写；进程仍显示以便查看")}</span></div><label className="switch"><input aria-label={t('监控 {tool}', { tool: toolLabel(tool) })} type="checkbox" checked={draft.tools[tool].enabled} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, [tool]: { ...draft.tools[tool], enabled: event.target.checked } } })} /><span /></label></div>)}
       </section>
       <section className="settings-section">
-        <div className="section-title"><div><span className="eyebrow">Timing</span><h2>检测节奏</h2></div><Gauge size={20} /></div>
+        <div className="section-title"><div><span className="eyebrow">{t("Timing")}</span><h2>{t("检测节奏")}</h2></div><Gauge size={20} /></div>
         <div className="field-grid">
-          <label><span>静默阈值（秒）</span><input type="number" min="1" value={draft.defaultIdleTimeoutMs / 1_000} onChange={(event) => setDraft({ ...draft, defaultIdleTimeoutMs: clampNumber(event.target.value, 1) * 1_000 })} /></label>
-          <label><span>冷却时间（秒）</span><input type="number" min="1" value={draft.defaultCooldownMs / 1_000} onChange={(event) => setDraft({ ...draft, defaultCooldownMs: clampNumber(event.target.value, 1) * 1_000 })} /></label>
-          <label><span>轮询间隔（毫秒）</span><input type="number" min="250" step="250" value={draft.pollIntervalMs} onChange={(event) => setDraft({ ...draft, pollIntervalMs: clampNumber(event.target.value, 250) })} /></label>
-          <label><span>每轮最大尝试</span><input type="number" min="1" value={draft.maxAttemptsPerQuietPeriod} onChange={(event) => setDraft({ ...draft, maxAttemptsPerQuietPeriod: clampNumber(event.target.value, 1) })} /></label>
+          <label><span>{t("静默阈值（秒）")}</span><input type="number" min="1" value={draft.defaultIdleTimeoutMs / 1_000} onChange={(event) => setDraft({ ...draft, defaultIdleTimeoutMs: clampNumber(event.target.value, 1) * 1_000 })} /></label>
+          <label><span>{t("冷却时间（秒）")}</span><input type="number" min="1" value={draft.defaultCooldownMs / 1_000} onChange={(event) => setDraft({ ...draft, defaultCooldownMs: clampNumber(event.target.value, 1) * 1_000 })} /></label>
+          <label><span>{t("轮询间隔（毫秒）")}</span><input type="number" min="250" step="250" value={draft.pollIntervalMs} onChange={(event) => setDraft({ ...draft, pollIntervalMs: clampNumber(event.target.value, 250) })} /></label>
+          <label><span>{t("每轮最大尝试")}</span><input type="number" min="1" value={draft.maxAttemptsPerQuietPeriod} onChange={(event) => setDraft({ ...draft, maxAttemptsPerQuietPeriod: clampNumber(event.target.value, 1) })} /></label>
         </div>
       </section>
       <section className="settings-section">
-        <div className="section-title"><div><span className="eyebrow">Prompts</span><h2>续写内容</h2></div><Terminal size={20} /></div>
+        <div className="section-title"><div><span className="eyebrow">{t("Prompts")}</span><h2>{t("续写内容")}</h2></div><Terminal size={20} /></div>
         <div className="field-stack">
           <label><span>Claude</span><input value={draft.tools.claude.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, normalPrompt: event.target.value } } })} /></label>
-          <label><span>Codex 普通对话</span><input value={draft.tools.codex.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, normalPrompt: event.target.value } } })} /></label>
+          <label><span>{t("Codex 普通对话")}</span><input value={draft.tools.codex.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, normalPrompt: event.target.value } } })} /></label>
           <label><span>Codex Goal</span><input value={draft.tools.codex.goalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, goalPrompt: event.target.value } } })} /></label>
           <label><span>DeepSeek Harness</span><input value={draft.tools.dsh.normalPrompt} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, normalPrompt: event.target.value } } })} /></label>
-          <label><span>Harness 活动窗口（分钟）</span><input aria-label="Harness 活动窗口（分钟）" type="number" min="1" value={Math.round(draft.tools.dsh.sessionWindowMs / 60_000)} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, sessionWindowMs: clampNumber(event.target.value, 1) * 60_000 } } })} /></label>
+          <label><span>{t("Harness 活动窗口（分钟）")}</span><input aria-label={t("Harness 活动窗口（分钟）")} type="number" min="1" value={Math.round(draft.tools.dsh.sessionWindowMs / 60_000)} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, sessionWindowMs: clampNumber(event.target.value, 1) * 60_000 } } })} /></label>
         </div>
-        <div className="switch-row"><div><strong>允许续写 DeepSeek Harness</strong><span>通过 Harness 自己的本机会话接口写入，仅在会话已停止且能完成本机认证时生效</span></div><label className="switch"><input aria-label="允许续写 DeepSeek Harness" type="checkbox" checked={draft.tools.dsh.allowApiInput} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, allowApiInput: event.target.checked } } })} /><span /></label></div>
-        <div className="switch-row"><div><strong>Dry run</strong><span>只记录决策，不写入进程</span></div><label className="switch"><input aria-label="Dry run" type="checkbox" checked={draft.dryRun} onChange={(event) => setDraft({ ...draft, dryRun: event.target.checked })} /><span /></label></div>
-        <fieldset className="goal-status-settings"><legend>Codex Goal 续写状态</legend><p className="section-hint">选中的 active / paused 状态使用 Goal 提示词；至少保留一个状态。其他状态使用普通对话提示词。</p>{(['active', 'paused'] as const).map((status) => <label key={status}><input type="checkbox" aria-label={`Goal 状态 ${status}`} disabled={draft.tools.codex.goalStatuses.length === 1 && draft.tools.codex.goalStatuses.includes(status)} checked={draft.tools.codex.goalStatuses.includes(status)} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, goalStatuses: event.target.checked ? [...draft.tools.codex.goalStatuses, status] : draft.tools.codex.goalStatuses.filter((entry) => entry !== status) } } })} /><span>{status === 'active' ? 'active（进行中）' : 'paused（已暂停）'}</span></label>)}</fieldset>
+        <div className="switch-row"><div><strong>{t("允许续写 DeepSeek Harness")}</strong><span>{t("通过 Harness 自己的本机会话接口写入，仅在会话已停止且能完成本机认证时生效")}</span></div><label className="switch"><input aria-label={t("允许续写 DeepSeek Harness")} type="checkbox" checked={draft.tools.dsh.allowApiInput} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, dsh: { ...draft.tools.dsh, allowApiInput: event.target.checked } } })} /><span /></label></div>
+        <div className="switch-row"><div><strong>{t("Dry run")}</strong><span>{t("只记录决策，不写入进程")}</span></div><label className="switch"><input aria-label="Dry run" type="checkbox" checked={draft.dryRun} onChange={(event) => setDraft({ ...draft, dryRun: event.target.checked })} /><span /></label></div>
+        <fieldset className="goal-status-settings"><legend>{t("Codex Goal 续写状态")}</legend><p className="section-hint">{t("选中的 active / paused 状态使用 Goal 提示词；至少保留一个状态。其他状态使用普通对话提示词。")}</p>{(['active', 'paused'] as const).map((status) => <label key={status}><input type="checkbox" aria-label={t("Goal 状态 {status}", { status })} disabled={draft.tools.codex.goalStatuses.length === 1 && draft.tools.codex.goalStatuses.includes(status)} checked={draft.tools.codex.goalStatuses.includes(status)} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, codex: { ...draft.tools.codex, goalStatuses: event.target.checked ? [...draft.tools.codex.goalStatuses, status] : draft.tools.codex.goalStatuses.filter((entry) => entry !== status) } } })} /><span>{status === 'active' ? t("active（进行中）") : t("paused（已暂停）")}</span></label>)}</fieldset>
       </section>
       <section className="settings-section settings-section--wide">
-        <div className="section-title"><div><span className="eyebrow">Processes</span><h2>进程范围</h2></div><ShieldAlert size={20} /></div>
+        <div className="section-title"><div><span className="eyebrow">{t("Processes")}</span><h2>{t("进程范围")}</h2></div><ShieldAlert size={20} /></div>
         <div className="field-grid">
-          <label><span>包含匹配</span><input aria-label="包含匹配" placeholder="例如 Nexus, study-os" value={includeFilters} onChange={(event) => setIncludeFilters(event.target.value)} /></label>
-          <label><span>排除匹配</span><input aria-label="排除匹配" placeholder="例如 node_modules" value={excludeFilters} onChange={(event) => setExcludeFilters(event.target.value)} /></label>
+          <label><span>{t("包含匹配")}</span><input aria-label={t("包含匹配")} placeholder={t("例如 Nexus, study-os")} value={includeFilters} onChange={(event) => setIncludeFilters(event.target.value)} /></label>
+          <label><span>{t("排除匹配")}</span><input aria-label={t("排除匹配")} placeholder={t("例如 node_modules")} value={excludeFilters} onChange={(event) => setExcludeFilters(event.target.value)} /></label>
         </div>
-        <div className="switch-row"><div><strong>仅监控当前用户进程</strong><span>关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入</span></div><label className="switch"><input aria-label="仅监控当前用户进程" type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
+        <div className="switch-row"><div><strong>{t("仅监控当前用户进程")}</strong><span>{t("关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入")}</span></div><label className="switch"><input aria-label={t("仅监控当前用户进程")} type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
       </section>
       {/*
         WSL is opt-in and left empty by default, because looking inside a distribution costs a subprocess per
@@ -1856,10 +1866,10 @@ function SettingsPanel(props: {
         `wsl -l -q` reports it: a session inside one has no window, so the distribution is what identifies it.
       */}
       <section className="settings-section">
-        <div className="section-title"><div><span className="eyebrow">WSL</span><h2>WSL 发行版</h2></div><Terminal size={20} /></div>
-        <p className="section-hint">留空即不监控。填入发行版名称（如 Ubuntu-22.04）后，会一并监控该发行版里的 codex / claude 会话。</p>
+        <div className="section-title"><div><span className="eyebrow">WSL</span><h2>{t("WSL 发行版")}</h2></div><Terminal size={20} /></div>
+        <p className="section-hint">{t("留空即不监控。填入发行版名称（如 Ubuntu-22.04）后，会一并监控该发行版里的 codex / claude 会话。")}</p>
         <div className="field-stack">
-          <label><span>发行版名称</span><input aria-label="WSL 发行版名称" placeholder="留空即关闭" value={draft.wslDistribution ?? ''} onChange={(event) => setDraft({ ...draft, wslDistribution: event.target.value })} /></label>
+          <label><span>{t("发行版名称")}</span><input aria-label={t("WSL 发行版名称")} placeholder={t("留空即关闭")} value={draft.wslDistribution ?? ''} onChange={(event) => setDraft({ ...draft, wslDistribution: event.target.value })} /></label>
         </div>
       </section>
       {saveBar}
@@ -1882,32 +1892,32 @@ function SettingsPanel(props: {
               <div><span className="eyebrow">Claude</span><h2>Claude Stop Hook</h2></div>
               <Webhook size={20} />
             </div>
-            <div className="hook-status-list" aria-label="Claude Stop Hook 状态">
+            <div className="hook-status-list" aria-label={t("Claude Stop Hook 状态")}>
               <span className={`state-chip ${props.hookStatus.manualReviewRequired ? 'state-chip--error' : props.hookStatus.installed ? 'state-chip--ready' : 'state-chip--limited'}`}>
                 <span className="state-chip__dot" />
-                {props.hookStatus.manualReviewRequired ? '需人工检查' : props.hookStatus.installed ? '已安装' : '未安装'}
+                {props.hookStatus.manualReviewRequired ? t("需人工检查") : props.hookStatus.installed ? t("已安装") : t("未安装")}
               </span>
               <span className={`state-chip ${props.hookStatus.enabled ? 'state-chip--ready' : 'state-chip--limited'}`}>
                 <span className="state-chip__dot" />
-                {props.hookStatus.enabled ? '已启用' : '未启用'}
+                {props.hookStatus.enabled ? t("已启用") : t("未启用")}
               </span>
-              {props.hookStatus.restartRequired && <span className="state-chip state-chip--waiting"><span className="state-chip__dot" />需重启 Claude</span>}
+              {props.hookStatus.restartRequired && <span className="state-chip state-chip--waiting"><span className="state-chip__dot" />{t("需重启 Claude")}</span>}
             </div>
             <div className="hook-settings__body">
               <div>
                 <div className="field-grid hook-settings__fields">
-                  <label><span>Lease 有效期（毫秒）</span><input aria-label="Lease 有效期（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.leaseTtlMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, leaseTtlMs: clampNumber(event.target.value, 1) } } } })} /></label>
-                  <label><span>命令超时（毫秒）</span><input aria-label="命令超时（毫秒）" type="number" min="1" value={draft.tools.claude.stopHook.commandTimeoutMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, commandTimeoutMs: clampNumber(event.target.value, 1) } } } })} /></label>
+                  <label><span>{t("Lease 有效期（毫秒）")}</span><input aria-label={t("Lease 有效期（毫秒）")} type="number" min="1" value={draft.tools.claude.stopHook.leaseTtlMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, leaseTtlMs: clampNumber(event.target.value, 1) } } } })} /></label>
+                  <label><span>{t("命令超时（毫秒）")}</span><input aria-label={t("命令超时（毫秒）")} type="number" min="1" value={draft.tools.claude.stopHook.commandTimeoutMs} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, commandTimeoutMs: clampNumber(event.target.value, 1) } } } })} /></label>
                 </div>
-                <div className="switch-row"><div><strong>启用 Stop Hook 续写</strong><span>仅对唯一关联且已静默的 Claude 会话创建一次性 Lease</span></div><label className="switch"><input aria-label="启用 Claude Stop Hook" type="checkbox" checked={draft.tools.claude.stopHook.enabled} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, enabled: event.target.checked } } } })} /><span /></label></div>
+                <div className="switch-row"><div><strong>{t("启用 Stop Hook 续写")}</strong><span>{t("仅对唯一关联且已静默的 Claude 会话创建一次性 Lease")}</span></div><label className="switch"><input aria-label={t("启用 Claude Stop Hook")} type="checkbox" checked={draft.tools.claude.stopHook.enabled} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, claude: { ...draft.tools.claude, stopHook: { ...draft.tools.claude.stopHook, enabled: event.target.checked } } } })} /><span /></label></div>
               </div>
               <div className="hook-settings__control">
-                <p className="hook-disclosure"><CircleAlert size={17} /><span>安装会修改 <code>~/.claude/settings.json</code>。已打开的 Claude 会话需要重启后才能加载 Hook。</span></p>
+                <p className="hook-disclosure"><CircleAlert size={17} /><span>{t('安装会修改 {path}。已打开的 Claude 会话需要重启后才能加载 Hook。', { path: '~/.claude/settings.json' })}</span></p>
                 {props.hookStatus.lastError && <p className="hook-error" role="alert">{props.hookStatus.lastError}</p>}
                 <div className="hook-actions">
-                  {!props.hookStatus.installed && !props.hookStatus.manualReviewRequired && <button className="button button--secondary" type="button" onClick={() => void props.onInstallClaudeHook()} disabled={props.saving}><Plug size={17} />安装 Stop Hook</button>}
-                  {props.hookStatus.enabled && <button className="button button--stop" type="button" onClick={() => void props.onDisableClaudeHook()} disabled={props.saving}><Power size={17} />停用 Stop Hook</button>}
-                  {(props.hookStatus.installed || props.hookStatus.manualReviewRequired) && <button className="button button--danger" type="button" onClick={() => void props.onUninstallClaudeHook()} disabled={props.saving}><Unplug size={17} />卸载 Stop Hook</button>}
+                  {!props.hookStatus.installed && !props.hookStatus.manualReviewRequired && <button className="button button--secondary" type="button" onClick={() => void props.onInstallClaudeHook()} disabled={props.saving}><Plug size={17} />{t("安装 Stop Hook")}</button>}
+                  {props.hookStatus.enabled && <button className="button button--stop" type="button" onClick={() => void props.onDisableClaudeHook()} disabled={props.saving}><Power size={17} />{t("停用 Stop Hook")}</button>}
+                  {(props.hookStatus.installed || props.hookStatus.manualReviewRequired) && <button className="button button--danger" type="button" onClick={() => void props.onUninstallClaudeHook()} disabled={props.saving}><Unplug size={17} />{t("卸载 Stop Hook")}</button>}
                 </div>
               </div>
             </div>
@@ -2042,6 +2052,7 @@ function TitleBar(props: {
   readonly bridge: DesktopBridge | null;
   readonly onAction: (entry: MenuEntry) => void;
 }) {
+  const { t, locale } = useI18n();
   const [openMenu, setOpenMenu] = useState<MenuLabel | null>(null);
   /** The open dropdown, so a press inside it is not mistaken for a press outside. */
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -2075,12 +2086,12 @@ function TitleBar(props: {
   const open = openMenu === null ? null : MENU_ITEMS[openMenu];
 
   return (
-    <div className="titlebar" role="toolbar" aria-label="窗口工具栏">
+    <div className="titlebar" role="toolbar" aria-label={t("窗口工具栏")}>
       <button
         className="titlebar__button"
         type="button"
-        title={props.sidebarCompact ? '展开侧栏' : '收起侧栏'}
-        aria-label={props.sidebarCompact ? '展开侧栏' : '收起侧栏'}
+        title={props.sidebarCompact ? t("展开侧栏") : t("收起侧栏")}
+        aria-label={props.sidebarCompact ? t("展开侧栏") : t("收起侧栏")}
         onClick={props.onToggleSidebar}
       >
         {props.sidebarCompact ? <PanelLeftOpen size={17} /> : <PanelLeft size={17} />}
@@ -2088,8 +2099,8 @@ function TitleBar(props: {
       <button
         className="titlebar__button"
         type="button"
-        title="后退"
-        aria-label="后退"
+        title={t("后退")}
+        aria-label={t("后退")}
         disabled={!props.canGoBack}
         aria-disabled={!props.canGoBack}
         onClick={props.onBack}
@@ -2099,8 +2110,8 @@ function TitleBar(props: {
       <button
         className="titlebar__button"
         type="button"
-        title="前进"
-        aria-label="前进"
+        title={t("前进")}
+        aria-label={t("前进")}
         disabled={!props.canGoForward}
         aria-disabled={!props.canGoForward}
         onClick={props.onForward}
@@ -2121,10 +2132,10 @@ function TitleBar(props: {
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => setOpenMenu((current) => (current === label ? null : label))}
               >
-                {label}
+                {t(label)}
               </button>
               {openMenu === label && (
-                <div className="titlebar__dropdown" role="menu" aria-label={label} ref={menuRef}>
+                <div className="titlebar__dropdown" role="menu" aria-label={t(label)} ref={menuRef}>
                   {entries.map((entry, index) => {
                     if (entry === 'separator') {
                       return <div className="titlebar__separator" role="separator" key={`sep-${index}`} />;
@@ -2141,14 +2152,14 @@ function TitleBar(props: {
                         key={entry.label}
                         disabled={disabled}
                         aria-disabled={disabled}
-                        title={needsBridge ? '仅在桌面应用中可用' : undefined}
+                        title={needsBridge ? t("仅在桌面应用中可用") : undefined}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => {
                           setOpenMenu(null);
                           props.onAction(entry);
                         }}
                       >
-                        <span>{entry.label}</span>
+                        <span>{t(entry.label)}</span>
                         {entry.shortcut && <span className="titlebar__shortcut">{entry.shortcut}</span>}
                       </button>
                     );
@@ -2164,6 +2175,7 @@ function TitleBar(props: {
 }
 
 export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: AppProps) {
+  const { t, locale } = useI18n();
   const api = useMemo(() => suppliedApi ?? createApi(), [suppliedApi]);
   const agentsApi = useMemo(() => suppliedAgentsApi ?? createAgentApi(), [suppliedAgentsApi]);
   const [launcherOpen, setLauncherOpen] = useState(false);
@@ -2273,8 +2285,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const [preferredTerminal, setPreferredTerminal] = useState<string | null>(null);
   const [desktopSettingsReady, setDesktopSettingsReady] = useState(false);
   const [desktopSettingsBusy, setDesktopSettingsBusy] = useState(false);
-  const [desktopSettingsError, setDesktopSettingsError] = useState<string | null>(null);
-  const [preferenceError, setPreferenceError] = useState<string | null>(null);
+  const [desktopSettingsError, setDesktopSettingsError] = useState<LocalizedMessage | null>(null);
+  const [preferenceError, setPreferenceError] = useState<LocalizedMessage | null>(null);
   /**
    * The window-preview request, or null outside the desktop shell.
    *
@@ -2333,9 +2345,9 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
    * The tone is what the 通知 switches filter on: without it, `面板内通知`, `操作成功时提示` and
    * `出现错误时提示` had nothing to consult and were inert (see `setNotice`).
    */
-  const [notice, setNoticeState] = useState<{ readonly text: string; readonly tone: 'info' | 'error' } | null>(null);
+  const [notice, setNoticeState] = useState<{ readonly text: LocalizedMessage; readonly tone: 'info' | 'error' } | null>(null);
   /** Show a notice. The default tone is a confirmation; failures pass `'error'`. */
-  const setNotice = (text: string | null, tone: 'info' | 'error' = 'info') =>
+  const setNotice = (text: LocalizedMessage | null, tone: 'info' | 'error' = 'info') =>
     setNoticeState(text === null ? null : { text, tone });
 
   // Each scheme keeps its own palette, so a preview card shows that scheme's
@@ -2417,7 +2429,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         const current = await settings.get();
         apply(current);
       } catch (error) {
-        if (active) setDesktopSettingsError(`读取桌面设置失败：${error instanceof Error ? error.message : String(error)}`);
+        if (active) setDesktopSettingsError(message('读取桌面设置失败：{detail}', { detail: error instanceof Error ? error.message : String(error) }));
       }
     })();
     return () => { active = false; unsubscribe?.(); };
@@ -2432,7 +2444,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       if (patch.closeToTray !== undefined) setCloseToTray(patch.closeToTray);
       if (patch.preferredTerminal !== undefined) setPreferredTerminal(patch.preferredTerminal);
     } catch (error) {
-      setDesktopSettingsError(`保存桌面设置失败：${error instanceof Error ? error.message : String(error)}`);
+      setDesktopSettingsError(message('保存桌面设置失败：{detail}', { detail: error instanceof Error ? error.message : String(error) }));
     } finally { setDesktopSettingsBusy(false); }
   };
 
@@ -2460,7 +2472,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       try {
         const result = await bridge.shell!.openTerminal!(session.id);
         if (!result.ok) throw new Error(result.reason ?? '终端无法打开');
-        setNotice(`已打开终端${result.terminal ? `：${result.terminal}` : ''}`);
+        setNotice(result.terminal ? message('已打开终端：{terminal}', { terminal: result.terminal }) : '已打开终端');
       } catch (error) { setNotice(error instanceof Error ? error.message : String(error), 'error'); }
       finally { setBusy(null); }
     } : undefined;
@@ -2861,7 +2873,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       await refresh();
       return outcome;
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '操作失败', 'error');
+      setNotice(error instanceof LocalizedError ? error.localized : error instanceof Error ? error.message : '操作失败', 'error');
       // Rethrown so a caller showing its own error — the composer does — is not left believing the
       // send succeeded just because the notice was set.
       if (prompt !== undefined) throw error;
@@ -2880,8 +2892,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
     try {
       const result = await api.focus(session.id);
       setNotice(result.focused
-        ? `已打开 ${session.host?.label ?? '运行位置'}`
-        : `已置顶 ${session.host?.label ?? '运行位置'}（系统未授予前台焦点）`);
+        ? message('已打开 {host}', { host: session.host?.label ?? t('运行位置') })
+        : message('已置顶 {host}（系统未授予前台焦点）', { host: session.host?.label ?? t('运行位置') }));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '无法打开运行位置', 'error');
     } finally { setBusy(null); }
@@ -2915,7 +2927,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       // The card is titled with the tool's label and its button reads 升级 <label>, so the notice uses that name
       // too. The id is only the fallback for a tool the report does not describe.
       const name = report.tools.find((tool) => tool.id === id)?.label ?? id;
-      setNotice(result.ok ? `${name} 升级完成` : `${name} 升级失败：${result.error ?? '未知错误'}`, result.ok ? 'info' : 'error');
+      setNotice(result.ok ? message('{tool} 升级完成', { tool: name }) : message('{tool} 升级失败：{detail}', { tool: name, detail: result.error ?? t('未知错误') }), result.ok ? 'info' : 'error');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '升级失败', 'error');
     } finally { setEnvironmentUpgrading(null); }
@@ -2928,8 +2940,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       setEnvironment(await api.environment());
       const failed = outcome.results.filter((result) => !result.ok);
       setNotice(failed.length === 0
-        ? `${outcome.results.length} 个工具已升级`
-        : `${outcome.results.length - failed.length} 个成功，${failed.length} 个失败`, failed.length === 0 ? 'info' : 'error');
+        ? message('{count} 个工具已升级', { count: outcome.results.length })
+        : message('{success} 个成功，{failed} 个失败', { success: outcome.results.length - failed.length, failed: failed.length }), failed.length === 0 ? 'info' : 'error');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '全部升级失败', 'error');
     } finally { setEnvironmentUpgrading(null); }
@@ -3069,7 +3081,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   };
 
   const uninstall = async () => {
-    if (!window.confirm('停止并卸载 Continuation Watchdog？')) return;
+    if (!window.confirm(t('停止并卸载 Continuation Watchdog？'))) return;
     setSaving(true);
     try {
       await api.uninstall();
@@ -3199,7 +3211,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         bridge={bridge}
         onAction={runMenuAction}
       />
-      <button className={`mobile-overlay ${sidebarOpen ? 'is-open' : ''}`} type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)} />
+      <button className={`mobile-overlay ${sidebarOpen ? 'is-open' : ''}`} type="button" aria-label={t("关闭菜单")} onClick={() => setSidebarOpen(false)} />
       {settingsMode ? (
         /* The settings column. On the settings page this *is* the left rail, so it owns
            the same slot the app sidebar would. Below the drawer breakpoint it is a
@@ -3208,9 +3220,9 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         <aside
           id="watchdog-sidebar"
           className={`sidebar sidebar--settings ${sidebarOpen ? 'is-open' : ''}`}
-          aria-label="设置分区"
+          aria-label={t("设置分区")}
         >
-          <button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button>
+          <button className="sidebar-close icon-button" type="button" aria-label={t("关闭菜单")} onClick={() => setSidebarOpen(false)}><X size={18} /></button>
           <SettingsRail
             active={settingsSection}
             onSelect={(id) => {
@@ -3229,8 +3241,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
             carrying anything actionable, and the identity it showed lives in the bottom
             bar instead. The close control the drawer needs at narrow widths stays, and
             hides itself at column widths where there is no drawer to close. */}
-        <button className="sidebar-close icon-button" type="button" aria-label="关闭菜单" onClick={() => setSidebarOpen(false)}><X size={18} /></button>
-        <nav aria-label="主导航">{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? item.label : undefined} onClick={() => { navigate(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{item.label}</span></button>)}</nav>
+        <button className="sidebar-close icon-button" type="button" aria-label={t("关闭菜单")} onClick={() => setSidebarOpen(false)}><X size={18} /></button>
+        <nav aria-label={t("主导航")}>{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? t(item.label) : undefined} onClick={() => { navigate(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{t(item.label)}</span></button>)}</nav>
         {/* The discovered processes, grouped by the application they run inside. This
             is the list the reference sidebar's structure is modelled on: a heading per
             group and a full-width highlight on the selected row. It scrolls on its own
@@ -3260,7 +3272,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
               // plain status block among the items is invalid and some screen readers skip
               // the whole menu for it. The status is still announced, because it is a
               // region with its own label.
-              <div className="account-popup" role="region" aria-label="账户与状态">
+              <div className="account-popup" role="region" aria-label={t("账户与状态")}>
                 {/* One header block, then rows — the grammar the reference popup uses. Two
                     stacked header blocks read as two headers; the identity is the header and
                     the service facts become label/value rows like any other.
@@ -3270,34 +3282,34 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
                   <span className="brand__mark" data-testid="brand-mark" aria-hidden="true"><img src={brandIcon} alt="" width={34} height={34} /></span>
                   <div>
                     <strong>{displayName.trim().length > 0 ? displayName : 'Selbstlauf'}</strong>
-                    <span>continuation watchdog</span>
+                    <span>{t("continuation watchdog")}</span>
                   </div>
                 </div>
 
                 <div className="account-popup__facts">
                   <div className="account-popup__fact">
                     <span className={`process-dot process-dot--${live ? 'writable' : 'error'}`} aria-hidden="true" />
-                    <span>连接状态</span>
+                    <span>{t("连接状态")}</span>
                     <strong className={live ? 'text-ready' : 'text-warn'}>
-                      {live ? '在线' : staticDemo ? '离线预览' : '未连接'}
+                      {live ? t("在线") : staticDemo ? t("离线预览") : t("未连接")}
                     </strong>
                   </div>
                   <div className="account-popup__fact">
                     <span className={`process-dot process-dot--${ready > 0 ? 'writable' : 'monitor'}`} aria-hidden="true" />
-                    <span>发现进程</span>
+                    <span>{t("发现进程")}</span>
                     <strong>{sessions.length}</strong>
                   </div>
                   <div className="account-popup__fact">
                     <span className="process-dot process-dot--writable" aria-hidden="true" />
-                    <span>可写入</span>
+                    <span>{t("可写入")}</span>
                     <strong>{ready}</strong>
                   </div>
                 </div>
 
-                <div className="account-menu" role="menu" aria-label="账户与状态菜单">
+                <div className="account-menu" role="menu" aria-label={t("账户与状态菜单")}>
                   <button className="account-menu__item" type="button" role="menuitem" onClick={() => { changeThemePreference(theme === 'dark' ? 'light' : 'dark'); setAccountMenuOpen(false); }}>
                     {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
-                    <span>切换到{theme === 'dark' ? '亮色' : '暗色'}主题</span>
+                    <span>{t(theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题')}</span>
                   </button>
                   {/* The pet has its own settings section, so this is a real destination
                       rather than a decoration, and it is reachable from here. No key is shown beside it: Ctrl+3
@@ -3305,24 +3317,24 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
                       the 键盘快捷键 section documents it that way. */}
                   <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setSettingsSection('pet'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
                     <PawPrint size={17} />
-                    <span>显示宠物</span>
+                    <span>{t("显示宠物")}</span>
                   </button>
                   <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
                     <Settings2 size={17} />
-                    <span>设置</span>
+                    <span>{t("设置")}</span>
                     <kbd>Ctrl+,</kbd>
                   </button>
                 </div>
 
                 {/* The last entry is set apart, as the reference sets its final entry apart:
                     it changes the window rather than navigating anywhere. */}
-                <div className="account-menu account-menu--separated" role="menu" aria-label="窗口">
+                <div className="account-menu account-menu--separated" role="menu" aria-label={t("窗口")}>
                   {/* A toggle, naming the direction it will take — like the title bar's own control. It used to
                       read 收起侧栏 and call setSidebarCompact(true) whatever the state was, so the entry repeated
                       an action that had already happened and offered no way back. */}
                   <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setSidebarCompact((current) => !current); setAccountMenuOpen(false); }}>
                     {sidebarCompact ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-                    <span>{sidebarCompact ? '展开侧栏' : '收起侧栏'}</span>
+                    <span>{sidebarCompact ? t("展开侧栏") : t("收起侧栏")}</span>
                   </button>
                 </div>
               </div>
@@ -3336,9 +3348,9 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
             >
               <span className="brand__mark" aria-hidden="true"><img src={brandIcon} alt="" width={34} height={34} /></span>
               <div>
-                <strong>{live ? '服务在线' : staticDemo ? '离线预览' : '服务未连接'}</strong>
+                <strong>{live ? t("服务在线") : staticDemo ? t("离线预览") : t("服务未连接")}</strong>
                 {/* The count is its own text node so it reads on its own. */}
-                <span>{`${sessions.length} 个进程`}</span>
+                <span>{t('{count} 个进程', { count: sessions.length })}</span>
               </div>
               <ChevronUp size={17} />
             </button>
@@ -3348,18 +3360,18 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       )}
 
       <main className="workspace">
-        {preferenceError && <p className="notice notice--error" role="alert">{preferenceError}</p>}
-        <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label="打开菜单" aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">Local control</span><h1>{page === 'overview' ? '进程监控' : page === 'process' ? '进程详情' : page === 'agents' ? '智能体窗口' : page === 'timeline' ? '事件记录' : 'Watchdog 设置'}</h1></div></div><div className="topbar__actions"><button className="button button--primary agent-launch-button" type="button" aria-label="启动智能体" onClick={() => setLauncherOpen(true)}><CirclePlay size={16} />启动智能体</button><span className="poll-age"><Activity size={14} />{health.lastPollAtMs === null ? '尚未轮询' : `轮询 ${formatDuration(Math.max(0, Date.now() - health.lastPollAtMs))} 前`}</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />DRY RUN</span>}<button className="icon-button" type="button" title="刷新" aria-label="刷新" onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />紧急停止</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />启动 Watchdog</button>}</div></header>
+        {preferenceError && <p className="notice notice--error" role="alert">{messageText(preferenceError, locale)}</p>}
+        <header className="topbar"><div className="topbar__title"><button className="mobile-menu icon-button" type="button" aria-label={t("打开菜单")} aria-controls="watchdog-sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><div><span className="eyebrow">{t("Local control")}</span><h1>{page === 'overview' ? t("进程监控") : page === 'process' ? t("进程详情") : page === 'agents' ? t("智能体窗口") : page === 'timeline' ? t("事件记录") : t("Watchdog 设置")}</h1></div></div><div className="topbar__actions"><button className="button button--primary agent-launch-button" type="button" aria-label={t("启动智能体")} onClick={() => setLauncherOpen(true)}><CirclePlay size={16} />{t("启动智能体")}</button><span className="poll-age"><Activity size={14} />{health.lastPollAtMs === null ? t("尚未轮询") : t("轮询 {duration} 前", { duration: formatDuration(Math.max(0, Date.now() - health.lastPollAtMs)) })}</span>{config.dryRun && <span className="mode-badge"><ShieldAlert size={15} />{t("DRY RUN")}</span>}<button className="icon-button" type="button" title={t("刷新")} aria-label={t("刷新")} onClick={() => void refresh()}><RefreshCw size={17} /></button>{health.running ? <button className="button button--stop" type="button" onClick={() => void emergencyStop()} disabled={saving}><Power size={16} />{t("紧急停止")}</button> : <button className="button button--start" type="button" onClick={() => void startWatchdog()} disabled={saving}><CirclePlay size={16} />{t("启动 Watchdog")}</button>}</div></header>
 
         {notice !== null
           && notifications.inPanel
           && (notice.tone === 'error' ? notifications.onError : notifications.onSuccess)
-          && <div className="notice" role="status"><span>{notice.text}</span><button className="icon-button" type="button" aria-label="关闭通知" onClick={() => setNotice(null)}><X size={15} /></button></div>}
+          && <div className="notice" role="status"><span>{messageText(notice.text, locale)}</span><button className="icon-button" type="button" aria-label={t("关闭通知")} onClick={() => setNotice(null)}><X size={15} /></button></div>}
 
         {page === 'overview' && <div className="page-content">
-          <section className="metric-strip" aria-label="运行概览"><div><span>发现进程</span><strong>{liveSessions.length}</strong></div><div><span>可写入</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>Watchdog</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? '运行中' : live ? '已停止' : '离线'}</strong></div></section>
-          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">Sessions</span><h2>独立进程</h2></div><span className="section-meta"><span className={`status-light ${live ? 'is-online' : ''}`} />{live ? '实时同步' : staticDemo ? '离线预览' : '等待连接'}</span></div><ProcessTable sessions={liveSessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} onOpenTerminal={openSessionTerminal} /></section>
-          <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">Recent</span><h2>最近事件</h2></div><button className="text-button" type="button" onClick={() => navigate('timeline')}>查看全部</button></div><Timeline events={visibleEvents.slice(0, 5)} /></section>
+          <section className="metric-strip" aria-label={t("运行概览")}><div><span>{t("发现进程")}</span><strong>{liveSessions.length}</strong></div><div><span>{t("可写入")}</span><strong>{ready}</strong></div><div><span>Codex Goal</span><strong>{goalCount}</strong></div><div><span>Watchdog</span><strong className={health.running ? 'text-ready' : 'text-warn'}>{health.running ? t("运行中") : live ? t("已停止") : t("离线")}</strong></div></section>
+          <section className="content-section"><div className="section-heading"><div><span className="eyebrow">{t("Sessions")}</span><h2>{t("独立进程")}</h2></div><span className="section-meta"><span className={`status-light ${live ? 'is-online' : ''}`} />{live ? t("实时同步") : staticDemo ? t("离线预览") : t("等待连接")}</span></div><ProcessTable sessions={liveSessions} config={config} busy={busy} allowReveal={allowReveal} onPause={(session) => void mutateSession(session, 'pause')} onInject={(session) => void mutateSession(session, 'inject')} onFocus={(session) => void focusSession(session)} onOpenTerminal={openSessionTerminal} /></section>
+          <section className="content-section compact-events"><div className="section-heading"><div><span className="eyebrow">{t("Recent")}</span><h2>{t("最近事件")}</h2></div><button className="text-button" type="button" onClick={() => navigate('timeline')}>{t("查看全部")}</button></div><Timeline events={visibleEvents.slice(0, 5)} /></section>
         </div>}
 
         {/* The session chosen in the sidebar list. The id is resolved against the
@@ -3400,8 +3412,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
           window.open(url.href, '_blank', 'noopener,noreferrer');
         }} /></div>}
 
-        {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">Audit</span><h2>决策与写入</h2></div><span className="section-meta">{visibleEvents.length} 条</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={changeThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={desktopSettingsReady} desktopPlatform={bridge?.platform} desktopSettingsBusy={desktopSettingsBusy} desktopSettingsError={desktopSettingsError} staticDemo={staticDemo} origin={`${window.location.origin}${import.meta.env.BASE_URL}`} connected={live} /></div>}
+        {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">{t("Audit")}</span><h2>{t("决策与写入")}</h2></div><span className="section-meta">{t("{count} 条", { count: visibleEvents.length })}</span></div><Timeline events={visibleEvents} /></section></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={changeThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={desktopSettingsReady} desktopPlatform={bridge?.platform} desktopSettingsBusy={desktopSettingsBusy} desktopSettingsError={desktopSettingsError === null ? null : messageText(desktopSettingsError, locale)} staticDemo={staticDemo} origin={`${window.location.origin}${import.meta.env.BASE_URL}`} connected={live} /></div>}
       </main>
 
       {launcherOpen && <AgentLauncher api={agentsApi} demo={staticDemo} onClose={() => setLauncherOpen(false)} onLaunch={(session) => {
