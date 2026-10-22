@@ -504,7 +504,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 @media (max-width: 700px) {
   .workspace { padding: 0 15px 32px; }
-  .topbar { min-height: 82px; align-items: center; }
+  .topbar { min-height: 82px; align-items: center; flex-wrap: wrap; gap: 12px; padding-block: 12px; }
+  .topbar__title { min-width: 0; }
+  .topbar__actions { flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }
   /* Narrow widths drop the history arrows and the menu labels so the panel
      toggle and the existing mobile menu button stay reachable; the row itself
      keeps its height and never widens the page. The desktop reserve is released

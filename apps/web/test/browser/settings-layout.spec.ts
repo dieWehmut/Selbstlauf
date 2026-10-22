@@ -8,6 +8,11 @@ test('the closed settings drawer leaves the full viewport for content and its cl
   const bounds = (await workspace.boundingBox())!;
   expect(Math.round(bounds.x)).toBe(0);
   expect(Math.round(bounds.width)).toBe(390);
+  for (const button of await page.locator('.topbar__actions button').all()) {
+    const action = (await button.boundingBox())!;
+    expect(action.x, await button.getAttribute('aria-label') ?? 'topbar action').toBeGreaterThanOrEqual(0);
+    expect(action.x + action.width).toBeLessThanOrEqual(390);
+  }
   await page.getByRole('button', { name: '打开菜单', exact: true }).click();
   const close = page.locator('.sidebar--settings').getByRole('button', { name: '关闭菜单', exact: true });
   await expect(close).toBeVisible();
