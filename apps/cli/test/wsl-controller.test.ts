@@ -36,12 +36,13 @@ async function fixture(initialDistribution: string | null) {
   const snapshots: { distribution: string; directory: string; unc: string }[] = [];
   let blockedDiscovery: Promise<void> | null = null;
   let markDiscoveryStarted: (() => void) | null = null;
+  let clock = 5000;
   const controller = new WatchdogController({
     configStore: store,
     auditStore: new AuditStore(join(root, 'audit.jsonl')),
     currentProcessId: 999,
     platform: 'win32',
-    now: () => 5000,
+    now: () => clock,
     codexStatePath: nativeState,
     codexGoalPath: nativeState,
     provider: { listProcesses: async () => {
@@ -80,6 +81,7 @@ async function fixture(initialDistribution: string | null) {
   });
   return {
     controller, store, probes, snapshots,
+    advanceClock(milliseconds: number) { clock += milliseconds; },
     blockNextDiscovery() {
       let release!: () => void;
       blockedDiscovery = new Promise<void>((resolve) => { release = resolve; });
@@ -235,3 +237,29 @@ test('saving a new distribution waits for the old read-only poll before releasin
     await f.cleanup();
   }
 });
+
+for (const policy of [{ enabled: false, dryRun: false }, { enabled: true, dryRun: true }]) {
+  test(`a pending WSL discovery obeys immediately saved enabled=${policy.enabled}, dryRun=${policy.dryRun} before it can continue`, async (t) => {
+    const assertNoInput = forbidInput(t);
+    const f = await fixture('A');
+    let release: (() => void) | undefined;
+    try {
+      await f.store.save({ ...await f.store.load(), enabled: true, dryRun: false, defaultIdleTimeoutMs: 1, defaultCooldownMs: 1 });
+      await f.controller.poll();
+      f.advanceClock(100);
+      const blocked = f.blockNextDiscovery();
+      release = blocked.release;
+      const poll = f.controller.poll();
+      await blocked.started;
+      const disabled = await f.store.save({ ...await f.store.load(), ...policy, wslDistribution: 'B' });
+      const change = f.controller.configChanged(disabled);
+      blocked.release();
+      await Promise.all([poll, change]);
+      assertNoInput();
+      assert.equal((await f.controller.list()).find((row) => row.distribution === undefined)?.enabled, policy.enabled);
+    } finally {
+      release?.();
+      await f.cleanup();
+    }
+  });
+}
