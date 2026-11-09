@@ -12,6 +12,7 @@ import type { ManagedAgentSessions } from '../agents/managed-sessions.js';
 import { AgentSessionError } from '../agents/types.js';
 import { LiveSocketServer } from './live-socket.js';
 import type { SessionOutput } from '../runtime/session-output.js';
+import { RemoteControlError, type RemoteControlManager } from './remote-control.js';
 type Awaitable<T> = T | Promise<T>;
 
 export interface InjectionResult {
@@ -118,6 +119,7 @@ export class WatchdogHttpServer {
   private nextClientId = 1;
   private lifecycle: WatchdogLifecycle = {};
   private watchdogRunning = true;
+  private remoteControl: RemoteControlManager | undefined;
 
   public constructor(options: WatchdogHttpServerOptions) {
     this.configStore = options.configStore;
@@ -152,6 +154,10 @@ export class WatchdogHttpServer {
 
   public setLifecycle(lifecycle: WatchdogLifecycle): void {
     this.lifecycle = lifecycle;
+  }
+
+  public setRemoteControl(control: RemoteControlManager): void {
+    this.remoteControl = control;
   }
 
   public async start(): Promise<void> {
@@ -233,6 +239,39 @@ export class WatchdogHttpServer {
     }
     const base = this.url();
     const url = new URL(request.url ?? '/', base);
+
+    if (url.pathname === '/api/remote' || url.pathname.startsWith('/api/remote/')) {
+      // Pairing secrets must also resist DNS rebinding and cross-site reads.
+      // Same-origin browser GETs omit Origin; their Host and Fetch Metadata
+      // establish the local authority. Native local clients may omit metadata.
+      if (!this.isAllowedOrigin(`http://${request.headers.host ?? ''}`) ||
+          (request.headers.origin !== undefined && !this.isAllowedOrigin(request.headers.origin)) ||
+          (request.headers['sec-fetch-site'] !== undefined && request.headers['sec-fetch-site'] !== 'same-origin')) {
+        throw new HttpError(403, 'local management authority required');
+      }
+      if (method === 'GET' && url.pathname === '/api/remote') return this.json(response, 200, this.remoteControl?.view() ?? { enabled: false, host: '127.0.0.1', port: 48_921, name: 'Selbstlauf', devices: [] });
+      if (this.remoteControl === undefined) throw new HttpError(501, 'mobile remote control is not configured');
+      if (method === 'POST' && url.pathname === '/api/remote/enable') {
+        const state = await this.remoteControl.enable(await readJson(request, this.maxJsonBytes, false));
+        await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'remote-enable', host: state.host, port: state.port } });
+        return this.json(response, 200, state);
+      }
+      if (method === 'POST' && url.pathname === '/api/remote/disable') {
+        const state = await this.remoteControl.disable();
+        await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'remote-disable' } });
+        return this.json(response, 200, state);
+      }
+      if (method === 'POST' && url.pathname === '/api/remote/pairing') {
+        return this.json(response, 200, await this.remoteControl.refreshPairing());
+      }
+      const deviceRoute = /^\/api\/remote\/devices\/([^/]+)$/u.exec(url.pathname);
+      if (method === 'DELETE' && deviceRoute !== null) {
+        const state = await this.remoteControl.revokeDevice(safeDecode(deviceRoute[1]));
+        await this.audit({ timestampMs: this.now(), type: 'user-override', details: { action: 'remote-device-revoke' } });
+        return this.json(response, 200, state);
+      }
+      throw new HttpError(404, 'not found');
+    }
 
     if (url.pathname === '/api/agents/catalog' && method === 'GET') {
       if (this.agents === undefined) throw new HttpError(501, '智能体终端服务未配置。');
@@ -642,7 +681,7 @@ export class WatchdogHttpServer {
 
   private handleError(response: ServerResponse, error: unknown): void {
     if (response.writableEnded) return;
-    const status = error instanceof HttpError || error instanceof AgentSessionError || error instanceof CodexProfileStoreError ? error.status : isValidationError(error) ? 400 : 500;
+    const status = error instanceof HttpError || error instanceof AgentSessionError || error instanceof CodexProfileStoreError || error instanceof RemoteControlError ? error.status : isValidationError(error) ? 400 : 500;
     const message = status >= 500 && !(error instanceof AgentSessionError) ? 'internal server error' : error instanceof Error ? error.message : 'bad request';
     this.json(response, status, { ok: false, error: message });
   }

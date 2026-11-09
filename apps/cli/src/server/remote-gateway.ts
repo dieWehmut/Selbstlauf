@@ -162,7 +162,16 @@ export class RemoteGateway {
   }
 
   public pairedDevices(): readonly Omit<StoredDevice, 'tokenHash'>[] {
-    return this.devices.map(({ tokenHash: _tokenHash, ...device }) => ({ ...device }));
+    return this.devices.filter((device) => device.expiresAtMs > this.now())
+      .map(({ tokenHash: _tokenHash, ...device }) => ({ ...device }));
+  }
+
+  /** Trusted local management only; never mapped by the remote allowlist. */
+  public async revokeDevice(id: string): Promise<boolean> {
+    if (!this.devices.some((device) => device.id === id)) return false;
+    this.devices = this.devices.filter((device) => device.id !== id);
+    await this.persist();
+    return true;
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -284,6 +293,7 @@ export class RemoteGateway {
       },
       ...(body.length === 0 || method === 'GET' ? {} : { body }),
       redirect: 'error',
+      signal: AbortSignal.timeout(20_000),
     });
     const result = Buffer.from(await upstream.arrayBuffer());
     if (result.length > 4 * 1_024 * 1_024) throw new RemoteHttpError(502, 'local response is too large');
@@ -361,7 +371,7 @@ function allowedTarget(method: string, path: string, search: string): string | n
   const session = /^\/sessions\/([^/]+)\/(output|pause|resume|inject|focus)$/u.exec(path);
   if (session !== null && ((method === 'GET' && session[2] === 'output') ||
       (method === 'POST' && session[2] !== 'output'))) return `/api${path}`;
-  const agent = /^\/agents\/([^/]+)(?:\/(output|input|interrupt|terminate))?$/u.exec(path);
+  const agent = /^\/agents\/([^/]+)(?:\/(output|input|resize|interrupt|terminate))?$/u.exec(path);
   if (agent === null) return null;
   const action = agent[2];
   if (method === 'GET' && action === 'output') return `/api${path}${search}`;
@@ -447,7 +457,7 @@ async function saveDevices(path: string, document: DeviceStoreDocument): Promise
   }
 }
 
-async function replaceAtomically(source: string, destination: string): Promise<void> {
+export async function replaceAtomically(source: string, destination: string): Promise<void> {
   try {
     await rename(source, destination);
     return;
@@ -510,5 +520,6 @@ function closeServer(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!server.listening) { resolve(); return; }
     server.close((error) => error === undefined ? resolve() : reject(error));
+    server.closeAllConnections();
   });
 }

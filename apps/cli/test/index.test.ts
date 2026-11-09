@@ -3,6 +3,7 @@ import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { request as httpRequest } from 'node:http';
 
 import { ClaudeLeaseStore } from '../src/claude/lease-store.js';
 import { parseWatchdogArguments, startWatchdogProcess } from '../src/index.js';
@@ -53,6 +54,46 @@ test('process composition starts and stops the authenticated remote facade when 
       headers: { authorization: `Bearer ${paired.token}` },
     });
     assert.equal(health.status, 200);
+    const local = processHandle.server.url();
+    const management = await fetch(`${local}/api/remote`);
+    const managed = await management.json() as { enabled: boolean; pairing: { code: string }; devices: { id: string; name: string }[] };
+    assert.equal(managed.enabled, true);
+    assert.equal(managed.devices[0]?.name, 'Test phone');
+    assert.notEqual(managed.pairing.code, pairing.code);
+    assert.ok(!JSON.stringify(managed).includes(paired.token));
+    assert.ok(!JSON.stringify(managed).includes('tokenHash'));
+    const forbiddenHeaders: Record<string, string>[] = [
+      { origin: 'https://evil.example' },
+      { 'sec-fetch-site': 'cross-site' },
+    ];
+    for (const headers of forbiddenHeaders) {
+      assert.equal((await fetch(`${local}/api/remote`, { headers })).status, 403);
+    }
+    // fetch replaces Host in Node 24; send the rebinding authority over HTTP
+    // directly so this regression checks the real header reaching the server.
+    assert.equal(await new Promise<number | undefined>((resolve, reject) => {
+      const request = httpRequest(`${local}/api/remote`, { headers: { host: `rebound.example:${new URL(local).port}` } }, (response) => {
+        response.resume();
+        resolve(response.statusCode);
+      });
+      request.on('error', reject);
+      request.end();
+    }), 403);
+    assert.equal((await fetch(`${local}/api/remote/pairing`, { method: 'POST' })).status, 403);
+    const refreshed = await fetch(`${local}/api/remote/pairing`, { method: 'POST', headers: { origin: local } });
+    const fresh = await refreshed.json() as { pairing: { code: string } };
+    assert.equal(refreshed.status, 200);
+    assert.notEqual(fresh.pairing.code, managed.pairing.code);
+    assert.equal((await fetch(`${remote.url()}/remote/v1/remote`, { headers: { authorization: `Bearer ${paired.token}` } })).status, 404);
+    assert.equal((await fetch(`${remote.url()}/remote/v1/remote/pairing`, { method: 'POST', headers: { authorization: `Bearer ${paired.token}` } })).status, 404);
+    for (const path of ['/remote/enable', '/remote/disable']) {
+      assert.equal((await fetch(`${remote.url()}/remote/v1${path}`, { method: 'POST', headers: { authorization: `Bearer ${paired.token}` } })).status, 404);
+    }
+    const revoked = await fetch(`${local}/api/remote/devices/${managed.devices[0]!.id}`, { method: 'DELETE', headers: { origin: local } });
+    assert.equal(revoked.status, 200);
+    assert.deepEqual((await revoked.json() as { devices: unknown[] }).devices, []);
+    assert.equal((await fetch(`${remote.url()}/remote/v1/health`, { headers: { authorization: `Bearer ${paired.token}` } })).status, 401);
+    assert.equal((await fetch(`${local}/api/remote/devices/missing`, { method: 'DELETE', headers: { origin: local } })).status, 404);
     const pid = JSON.parse(await readFile(processHandle.pidFile, 'utf8')) as { remotePort?: string };
     assert.equal(pid.remotePort, new URL(remote.url()).port);
   } finally {
@@ -78,6 +119,8 @@ test('process composition exposes an explicit Claude Hook installer without modi
   }, emptySessions);
   try {
     const origin = processHandle.server.url();
+    assert.equal((await (await fetch(`${origin}/api/remote`)).json() as { enabled: boolean }).enabled, false);
+    assert.equal((await fetch(`${origin}/api/remote/pairing`, { method: 'POST', headers: { origin } })).status, 409);
     const leaseStore = new ClaudeLeaseStore(join(stateDirectory, 'claude-leases.json'));
     assert.equal(await readFile(settingsPath, 'utf8'), original);
     assert.deepEqual(await processHandle.claudeHook.status(), {

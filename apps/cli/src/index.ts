@@ -6,7 +6,8 @@ import { join, resolve } from 'node:path';
 import { AuditStore } from './store/audit-store.js';
 import { ConfigStore } from './store/config-store.js';
 import { WatchdogHttpServer, type SessionController } from './server/http-server.js';
-import { RemoteGateway } from './server/remote-gateway.js';
+import type { RemoteGateway } from './server/remote-gateway.js';
+import { RemoteControlManager } from './server/remote-control.js';
 import { WatchdogController } from './runtime/watchdog-controller.js';
 import { WatchdogInstallation } from './lifecycle/installation.js';
 import { ClaudeLeaseStore } from './claude/lease-store.js';
@@ -154,19 +155,16 @@ export async function startWatchdogProcess(
     },
   });
   await server.start();
-  let remoteGateway: RemoteGateway | undefined;
+  const remoteControl = new RemoteControlManager({
+    localBaseUrl: server.url(),
+    settingsPath: join(stateDirectory, 'remote-control.json'),
+    deviceStatePath: options.remote?.statePath ?? join(stateDirectory, 'remote-devices.json'),
+  });
   try {
-    if (options.remote !== undefined) {
-      remoteGateway = new RemoteGateway({
-        localBaseUrl: server.url(),
-        statePath: options.remote.statePath ?? join(stateDirectory, 'remote-devices.json'),
-        host: options.remote.host,
-        port: options.remote.port,
-        name: options.remote.name,
-      });
-      await remoteGateway.start();
-    }
+    await remoteControl.start(options.remote);
+    server.setRemoteControl(remoteControl);
   } catch (error) {
+    await remoteControl.stop();
     await agents.stop();
     await server.stop();
     throw error;
@@ -183,12 +181,12 @@ export async function startWatchdogProcess(
         executablePath: resolve(process.execPath),
         entryPath: resolve(process.argv[1] ?? fileURLToPath(import.meta.url)),
         entry: 'watchdog',
-        ...(remoteGateway === undefined ? {} : { remotePort: new URL(remoteGateway.url()).port }),
+        ...(remoteControl.gateway === undefined ? {} : { remotePort: new URL(remoteControl.gateway.url()).port }),
       }, null, 2)}\n`,
       { encoding: 'utf8', mode: 0o600, flag: 'wx' },
     );
   } catch (error) {
-    await remoteGateway?.stop();
+    await remoteControl.stop();
     await controller?.stop();
     await agents.stop();
     await server.stop();
@@ -202,7 +200,7 @@ export async function startWatchdogProcess(
   const stop = async () => {
     if (stopped) return;
     stopped = true;
-    await remoteGateway?.stop();
+    await remoteControl.stop();
     await controller?.stop();
     await agents.stop();
     await server.stop();
@@ -212,7 +210,7 @@ export async function startWatchdogProcess(
   uninstallProcess = async () => {
     if (stopped) return;
     stopped = true;
-    await remoteGateway?.stop();
+    await remoteControl.stop();
     await agents.stop();
     await server.stop();
     const { rm } = await import('node:fs/promises');
@@ -222,7 +220,7 @@ export async function startWatchdogProcess(
     server,
     pidFile,
     claudeHook,
-    ...(remoteGateway === undefined ? {} : { remoteGateway }),
+    get remoteGateway() { return remoteControl.gateway; },
     stop,
   };
 }

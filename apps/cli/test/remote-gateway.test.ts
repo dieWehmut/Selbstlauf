@@ -157,6 +157,9 @@ test('requires authentication, exposes only the mobile allowlist, and blocks cus
   assert.equal(inject.response.status, 200);
   const output = await call(gateway.url(), '/agents/agent-1/output?after=7', { token });
   assert.equal(output.json.path, '/api/agents/agent-1/output?after=7');
+  const resized = await call(gateway.url(), '/agents/agent-1/resize', { token, method: 'POST', body: { cols: 80, rows: 24 } });
+  assert.equal(resized.response.status, 200);
+  assert.deepEqual(resized.json.body, { cols: 80, rows: 24 });
 
   for (const forbidden of ['/config', '/uninstall', '/environment/upgrade']) {
     assert.equal((await call(gateway.url(), forbidden, { method: 'POST', token, body: {} })).response.status, 404);
@@ -166,6 +169,7 @@ test('requires authentication, exposes only the mobile allowlist, and blocks cus
     '/api/agents',
     '/api/sessions/codex%3A1/inject',
     '/api/agents/agent-1/output?after=7',
+    '/api/agents/agent-1/resize',
   ]);
   assert.ok(forwarded.every((entry) => entry.origin === local.url));
 });
