@@ -36,6 +36,8 @@ interface RemoteControlOptions {
 
 const DEVICES_KEY = "selbstlauf.devices";
 const ACTIVE_DEVICE_KEY = "selbstlauf.active-device";
+// Match the desktop's replay buffer; live xterm pages still receive all data.
+const MAX_AGENT_HISTORY_CHARS = 2 * 1024 * 1024;
 
 function browserStorage(): StorageLike | undefined {
   try {
@@ -480,6 +482,11 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
       );
       if (current !== client || version !== generation || disposed) return;
       agentOutput.value = page.reset ? page.data : agentOutput.value + page.data;
+      if (agentOutput.value.length > MAX_AGENT_HISTORY_CHARS) {
+        let start = agentOutput.value.length - MAX_AGENT_HISTORY_CHARS;
+        if (/[\uDC00-\uDFFF]/u.test(agentOutput.value[start]!)) start += 1;
+        agentOutput.value = agentOutput.value.slice(start);
+      }
       agentOutputPage.value = page;
       cursor = page.offset;
       selectedAgent.value = page.session;

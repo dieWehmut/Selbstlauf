@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { RemoteError, type RemoteClient, type SessionOutput } from "../src/client";
+import { RemoteError, type RemoteClient, type SessionOutput, type AgentSession } from "../src/client";
 import { useRemoteControl } from "../src/composables/use-remote-control";
 import type { CredentialStore } from "../src/credentials";
 
@@ -62,6 +62,28 @@ function setup(first = fixture(), second = fixture()) {
 }
 
 describe("useRemoteControl", () => {
+  it("bounds replay memory without dropping live output or its cursor", async () => {
+    const remoteFixture = fixture();
+    const original = remoteFixture.request.getMockImplementation()!;
+    const size = 2 * 1024 * 1024;
+    let page = { data: "a".repeat(size), fromOffset: 0, offset: size, reset: false, session: remoteFixture.agent };
+    remoteFixture.request.mockImplementation(async (path, method, data) => path.includes("/output?after=") ? page : original(path, method, data));
+    const { control, scheduled } = setup(remoteFixture);
+    expect(await control.connect()).toBe(true);
+    await control.openAgent(remoteFixture.agent as AgentSession);
+    const live = "😀" + "b".repeat(size - 1);
+    page = { ...page, data: live, fromOffset: size, offset: size + live.length };
+    scheduled.shift()!.work();
+    await vi.waitFor(() => expect(control.agentOutputPage.value?.offset).toBe(page.offset));
+    expect(control.agentOutput.value).toBe("b".repeat(size - 1));
+    expect(control.agentOutputPage.value?.data).toBe(live);
+    page = { ...page, data: "NEW", fromOffset: page.offset, offset: page.offset + 3, reset: true };
+    scheduled.shift()!.work();
+    await vi.waitFor(() => expect(control.agentOutput.value).toBe("NEW"));
+    expect(remoteFixture.request).toHaveBeenLastCalledWith(`/agents/agent-1/output?after=${page.fromOffset}`);
+    control.dispose();
+  });
+
   it("pairs once, stores only the credential reference, and restores a full snapshot", async () => {
     const remoteFixture = fixture();
     const storage = new MemoryStorage();
