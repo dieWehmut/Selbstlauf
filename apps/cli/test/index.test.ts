@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { request as httpRequest } from 'node:http';
+import { once } from 'node:events';
+import { connect, type Socket } from 'node:net';
+import { WebSocket } from 'ws';
 
 import { ClaudeLeaseStore } from '../src/claude/lease-store.js';
 import { parseWatchdogArguments, startWatchdogProcess } from '../src/index.js';
@@ -27,6 +30,80 @@ test('CLI remote flags are explicit, bounded, and keep remote control disabled b
   assert.equal(parseWatchdogArguments(['--help']).help, true);
   assert.throws(() => parseWatchdogArguments(['--remote-port', '70000']), /between 0 and 65535/u);
   assert.throws(() => parseWatchdogArguments(['--unknown']), /unknown argument/u);
+});
+
+test('shutdown closes stalled HTTP, browser preconnect and active event connections before removing the PID record', { timeout: 5_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-shutdown-sockets-'));
+  const service = await startWatchdogProcess({ stateDirectory: join(root, 'ai-cli-bypass', 'continuation'), port: 0 }, emptySessions);
+  const base = service.server.url();
+  const url = new URL(base);
+  const sockets: Socket[] = [];
+  let websocket: WebSocket | undefined;
+  let stopping: Promise<void> | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const socket = async () => {
+    const client = connect({ host: url.hostname, port: Number(url.port) });
+    sockets.push(client);
+    client.on('error', () => undefined);
+    await once(client, 'connect');
+    return client;
+  };
+  try {
+    await socket(); // A browser may open a TCP connection before sending headers.
+    const pending = await socket();
+    pending.write(`PUT /api/config HTTP/1.1\r\nHost: ${url.host}\r\nOrigin: ${base}\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{`);
+    const events = await socket();
+    const ready = once(events, 'data');
+    events.write(`GET /api/events HTTP/1.1\r\nHost: ${url.host}\r\nAccept: text/event-stream\r\n\r\n`);
+    assert.match(String((await ready)[0]), /event: ready/u);
+    websocket = new WebSocket(`${base.replace('http:', 'ws:')}/api/socket`, { headers: { origin: base } });
+    websocket.on('error', () => undefined);
+    await once(websocket, 'open');
+    const closed = sockets.map((client) => new Promise<void>((resolve) => client.once('close', () => resolve())));
+    closed.push(new Promise<void>((resolve) => websocket!.once('close', () => resolve())));
+    stopping = service.stop();
+    await Promise.race([
+      Promise.all([stopping, ...closed]),
+      new Promise<never>((_resolve, reject) => { timeout = setTimeout(() => reject(new Error('service shutdown left an active connection')), 2_000); }),
+    ]);
+    assert.ok(sockets.every((client) => client.destroyed));
+    assert.equal(websocket.readyState, WebSocket.CLOSED);
+    assert.equal(await pathExists(service.pidFile), false);
+  } finally {
+    clearTimeout(timeout);
+    for (const client of sockets) client.destroy();
+    websocket?.terminate();
+    await (stopping ?? service.stop());
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a rejected WebSocket upgrade cannot keep shutdown waiting on a half-open client', { timeout: 5_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-shutdown-upgrade-'));
+  const service = await startWatchdogProcess({ stateDirectory: join(root, 'ai-cli-bypass', 'continuation'), port: 0 }, emptySessions);
+  const url = new URL(service.server.url());
+  const client = connect({ host: url.hostname, port: Number(url.port), allowHalfOpen: true });
+  client.on('error', () => undefined);
+  let stopping: Promise<void> | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await once(client, 'connect');
+    const denied = once(client, 'data');
+    client.write(`GET /api/socket HTTP/1.1\r\nHost: ${url.host}\r\nOrigin: https://evil.example\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: YWJjZGVmZ2hpamtsbW5vcA==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+    assert.match(String((await denied)[0]), /^HTTP\/1\.1 403 Forbidden/u);
+    // Keep our write side open even after the response's FIN, like an uncooperative client.
+    stopping = service.stop();
+    await Promise.race([
+      stopping,
+      new Promise<never>((_resolve, reject) => { timeout = setTimeout(() => reject(new Error('rejected upgrade blocked shutdown')), 2_000); }),
+    ]);
+    assert.equal(await pathExists(service.pidFile), false);
+  } finally {
+    clearTimeout(timeout);
+    client.destroy();
+    await (stopping ?? service.stop());
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('process composition starts and stops the authenticated remote facade when requested', async () => {

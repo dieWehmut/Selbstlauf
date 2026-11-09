@@ -172,7 +172,7 @@ export class WatchdogHttpServer {
       });
       server.on('upgrade', (request, socket, head) => {
         if (request.url !== '/api/socket' || !isLoopbackAddress(request.socket.remoteAddress) || !this.isAllowedOrigin(request.headers.origin)) {
-          socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+          socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n', () => socket.destroy());
           return;
         }
         this.sockets.upgrade(request, socket, head);
@@ -856,5 +856,8 @@ function closeServer(server: Server): Promise<void> {
   if (!server.listening) return Promise.resolve();
   return new Promise((resolvePromise, reject) => {
     server.close((error) => (error === undefined ? resolvePromise() : reject(error)));
+    // A stalled request or browser preconnect must not keep desktop quit waiting.
+    // Upgraded WebSockets are terminated separately before this helper is called.
+    server.closeAllConnections();
   });
 }
