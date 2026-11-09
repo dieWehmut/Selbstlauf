@@ -1,172 +1,107 @@
 import { useI18n, type Locale } from '../i18n';
-import { Pin, PinOff } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { ChevronDown, ChevronRight, Monitor, Pin, PinOff, Terminal } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { SessionView } from '../api/client';
-import { conversationLabel, conversationShortId, formatDuration, groupSessionsByHost, quietMs, sessionTone, sessionToneLabel, toolLabel } from './session-groups';
+import { conversationLabel, conversationShortId, formatDuration, groupSessionsByEnvironment, quietMs, sessionActivity, sessionActivityLabel, sessionEnvironment, sessionProject, toolLabel } from './session-groups';
 import { ToolIcon } from './ToolIcon';
 
-/**
- * The list of discovered processes, grouped the way the reference sidebar groups its
- * conversations: a small grey heading, then compact two-line rows, with the selected row
- * highlighted across its full width and its pin control revealed on hover.
- *
- * Two lines per row:
- *
- *     ● Codex                                    12m 33s
- *       Goal · active · 01a0bd1e
- *
- * The host is not repeated on the row: it is the group heading directly above it. The
- * conversation id is shown, shortened, because two sessions of the same tool in the same
- * host are otherwise indistinguishable — that is what the id is for.
- *
- * Each row is a container with two children rather than one button, because a `<button>`
- * cannot contain another `<button>`: the pin control would be invalid HTML and unreachable.
- * The container is a `group` and the row body is the button that opens the process.
- */
 export function SidebarProcessList(props: {
   readonly sessions: readonly SessionView[];
   readonly selectedId: string | null;
   readonly onSelect: (session: SessionView) => void;
   readonly filter: string;
   readonly onFilterChange: (value: string) => void;
-  /** Ids in pin order; the pinned ones are lifted into their own group on top. */
   readonly pinnedIds: readonly string[];
   readonly onTogglePin: (session: SessionView) => void;
 }) {
   const { t, locale } = useI18n();
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const query = props.filter.trim().toLowerCase();
-  const visible = query.length === 0
-    ? props.sessions
-    : props.sessions.filter((session) => {
-      // Everything a row displays must be searchable, including the conversation line:
-      // `Goal`, `等待输入` and `未关联` are visible text, so searching them must find the
-      // row that shows them.
-      const haystack = [
-        toolLabel(session.tool),
-        session.host?.label ?? '',
-        session.host?.windowTitle ?? '',
-        String(session.rootPid),
-        session.conversationId ?? '',
-        conversationLine(session, locale),
-        session.sessionCwd ?? '',
-      ].join(' ').toLowerCase();
-      return haystack.includes(query);
-    });
-
-  const groups = groupSessionsByHost(visible, props.pinnedIds, locale);
+  const visible = props.sessions.filter((session) => {
+    const haystack = [toolLabel(session.tool), session.host?.label, session.host?.windowTitle,
+      `${toolLabel(session.tool)} · PID ${session.rootPid}`, session.conversationId, conversationLine(session, locale), session.conversationTitle,
+      sessionProject(session, locale).label, sessionEnvironment(session, locale).label,
+      sessionActivityLabel(sessionActivity(session), locale)].join(' ').toLowerCase();
+    return !query || haystack.includes(query);
+  });
+  const groups = groupSessionsByEnvironment(visible, props.pinnedIds, locale);
   const pinned = new Set(props.pinnedIds);
-
-  /**
-   * Restore focus after a pin moves its row.
-   *
-   * Pinning lifts the row into the 置顶 group, so React unmounts the old row and mounts a new one —
-   * which destroys the button that had focus. Measured before this existed: pressing Enter on a pin
-   * dropped focus to `<body>`, and the next Tab restarted at the top of the document. A keyboard user
-   * pinning several rows was sent back to the beginning after each one.
-   *
-   * The row is identified by session id rather than by position, because the whole point is that its
-   * position changed.
-   */
+  const toggle = (id: string) => setCollapsed((previous) => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  // Searching reveals matching children even if their environment was previously collapsed.
+  const isOpen = (id: string) => query.length > 0 || !collapsed.has(id);
   const pendingFocus = useRef<string | null>(null);
-
   useEffect(() => {
     const id = pendingFocus.current;
     if (id === null) return;
     pendingFocus.current = null;
-    // The moved row may be in a different group now, so it is looked up by its own id.
-    const selector = `[data-session-id="${CSS.escape(id)}"] .sidebar-row__pin`;
-    const target = document.querySelector<HTMLElement>(selector);
-    // Focusing the control that was activated keeps :focus-visible matching, so the ring stays put.
-    target?.focus();
+    document.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(id)}"] .sidebar-row__pin`)?.focus();
   });
 
   return (
     <div className="sidebar-processes">
+      <div className="sidebar-processes__title"><strong>{t('智能体')}</strong><span>{props.sessions.length}</span></div>
       <div className="sidebar-processes__search">
-        <input
-          type="search"
-          aria-label={t("搜索进程")}
-          placeholder={t("搜索进程…")}
-          value={props.filter}
-          onChange={(event) => props.onFilterChange(event.target.value)}
-          // Inside the app shell rather than a form, but Enter must not do anything
-          // surprising if that ever changes.
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.preventDefault();
-          }}
-        />
+        <input type="search" aria-label={t('搜索进程')} placeholder={t('搜索项目或会话…')}
+          value={props.filter} onChange={(event) => props.onFilterChange(event.target.value)}
+          onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} />
       </div>
-
-      <div className="sidebar-processes__scroll" role="group" aria-label={t("进程列表")}>
-        {groups.length === 0 && (
-          <p className="sidebar-processes__empty">
-            {query.length === 0 ? t("尚未发现进程") : t("没有匹配的进程")}
-          </p>
-        )}
+      <div className="sidebar-processes__scroll" role="group" aria-label={t('进程列表')}>
+        {groups.length === 0 && <p className="sidebar-processes__empty">{query ? t('没有匹配的进程') : t('尚未发现进程')}</p>}
         {groups.map((group) => (
-          <div className="sidebar-processes__group" key={group.label}>
-            <span className="sidebar-processes__heading">{group.label}</span>
-            {group.sessions.map((session) => {
-              const tone = sessionTone(session);
-              const selected = session.id === props.selectedId;
-              const isPinned = pinned.has(session.id);
-              const line = conversationLine(session, locale);
-              return (
-                <div
-                  key={session.id}
-                  data-session-id={session.id}
-                  className={`sidebar-row ${selected ? 'is-selected' : ''} ${isPinned ? 'is-pinned' : ''}`}
-                >
-                  <button
-                    type="button"
-                    className="sidebar-row__open"
-                    aria-current={selected ? 'true' : undefined}
-                    title={`${toolLabel(session.tool)} · PID ${session.rootPid} · ${sessionToneLabel(tone, locale)} · ${line}`}
-                    onClick={() => props.onSelect(session)}
-                  >
-                    <span className={`process-dot process-dot--${tone}`} aria-hidden="true" />
-                    <span className="sidebar-row__text">
-                      <span className="sidebar-row__top">
-                        {/* The tool's own icon, so a row is identifiable at a glance rather than by reading the label. */}
-                        <ToolIcon tool={session.tool} />
-                        <span className="sidebar-row__label">{toolLabel(session.tool)}</span>
-                        <span className="sidebar-row__meta">{formatDuration(quietMs(session))}</span>
+          <section className="sidebar-processes__group" key={group.id}>
+            <button type="button" className="sidebar-processes__heading" aria-expanded={isOpen(group.id)} onClick={() => toggle(group.id)}>
+              {isOpen(group.id) ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              {group.id === 'windows' ? <Monitor size={14} /> : <Terminal size={14} />}
+              <span>{group.label}</span><span className="sidebar-group__count">{group.projects.reduce((sum, project) => sum + project.sessions.length, 0)}</span>
+            </button>
+            {isOpen(group.id) && group.projects.map((project) => (
+              <div className="sidebar-project" key={project.id} data-project-id={`${group.id}:${project.id}`} data-project-path={project.path ?? ''}>
+                {project.sessions.map((session) => {
+                  const activity = sessionActivity(session);
+                  const selected = session.id === props.selectedId;
+                  const isPinned = pinned.has(session.id);
+                  const conversation = session.conversationTitle?.trim() || conversationLine(session, locale);
+                  const identity = `${toolLabel(session.tool)} · PID ${session.rootPid}`;
+                  const description = `${project.label}\n${identity} · ${sessionActivityLabel(activity, locale)}\n${conversation}`;
+                  return <div key={session.id} data-session-id={session.id} className={`sidebar-row ${selected ? 'is-selected' : ''} ${isPinned ? 'is-pinned' : ''}`}>
+                    <button type="button" className="sidebar-row__open" aria-current={selected ? 'true' : undefined}
+                      aria-label={description} title={description} onClick={() => props.onSelect(session)}>
+                      <ToolIcon tool={session.tool} size={22} />
+                      <span className="sidebar-row__text">
+                        <span className="sidebar-row__top">
+                          <span className="sidebar-row__label">{project.name}</span>
+                          {project.sessions.length > 1 && <span className="sidebar-row__pid">{session.rootPid}</span>}
+                          <span className={`agent-activity agent-activity--${activity}`}><span aria-hidden="true" />{sessionActivityLabel(activity, locale)}</span>
+                        </span>
+                        <span className="sidebar-row__bottom">
+                          <span className="sidebar-row__path" title={project.label}>{project.path ?? identity}</span>
+                          <span className="sidebar-row__meta" title={t('距上次活动')}>{formatDuration(quietMs(session))}</span>
+                        </span>
                       </span>
-                      <span className="sidebar-row__conversation" title={session.conversationId ?? undefined}>
-                        {line}
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="sidebar-row__pin"
-                    aria-pressed={isPinned}
-                    aria-label={t(isPinned ? '取消置顶 PID {pid}' : '置顶 PID {pid}', { pid: session.rootPid })}
-                    title={isPinned ? t("取消置顶") : t("置顶")}
-                    onClick={() => {
-                      // Remember which row to return focus to: pinning moves it, which unmounts the
-                      // button being pressed.
-                      pendingFocus.current = session.id;
-                      props.onTogglePin(session);
-                    }}
-                  >
-                    {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                    </button>
+                    <button type="button" className="sidebar-row__pin" aria-pressed={isPinned}
+                      aria-label={t(isPinned ? '取消置顶 PID {pid}' : '置顶 PID {pid}', { pid: session.rootPid })}
+                      title={isPinned ? t('取消置顶') : t('置顶')}
+                      onClick={() => { pendingFocus.current = session.id; props.onTogglePin(session); }}>
+                      {isPinned ? <PinOff size={13} /> : <Pin size={13} />}
+                    </button>
+                  </div>;
+                })}
+              </div>
+            ))}
+          </section>
         ))}
       </div>
     </div>
   );
 }
 
-/**
- * The conversation line a row shows: what kind of conversation it is, and a short id so two
- * sessions of one tool in one host stay distinguishable.
- */
+/** Search and accessible description fallback when an agent publishes no conversation title. */
 export function conversationLine(session: SessionView, locale?: Locale): string {
   const kind = conversationLabel(session, locale);
   const short = conversationShortId(session.conversationId);

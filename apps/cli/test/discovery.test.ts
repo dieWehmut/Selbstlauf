@@ -579,3 +579,22 @@ test('WindowsProcessProvider reads the working directory of a live same-user pro
     await rm(workingDirectory, { recursive: true, force: true });
   }
 });
+
+
+test('explicit project directory overrides launcher cwd and resolves relative directories', () => {
+  const base: RawProcessRecord = { pid: 991, parentPid: 0, name: 'codex.exe', commandLine: 'codex.exe -C ../Actual', executablePath: null, creationTimeMs: 1, userSid: currentUserSid, workingDirectory: '/home/han/launcher' };
+  assert.equal(groupProcesses([base], { currentUserSid })[0]?.workingDirectory, '/home/han/Actual');
+  assert.equal(groupProcesses([{ ...base, commandLine: 'codex.exe -C /work/Actual' }], { currentUserSid })[0]?.workingDirectory, '/work/Actual');
+});
+
+
+test('Codex config -c is not cwd -C, and --cd accepts native and relative roots', () => {
+  const base: RawProcessRecord = { pid: 992, parentPid: 0, name: 'codex.exe', commandLine: 'codex.exe -c model=gpt-6', executablePath: null, creationTimeMs: 1, userSid: currentUserSid, workingDirectory: '/home/han/launcher' };
+  const cwd = (commandLine: string, workingDirectory = base.workingDirectory) => groupProcesses([{ ...base, commandLine, workingDirectory }], { currentUserSid })[0]?.workingDirectory;
+  assert.equal(cwd(base.commandLine!), '/home/han/launcher');
+  assert.equal(cwd('codex.exe -c model=gpt-6 -C ../Actual'), '/home/han/Actual');
+  assert.equal(cwd('codex.exe --cd=/work/Actual'), '/work/Actual');
+  assert.equal(cwd('codex.exe --cd ../Actual'), '/home/han/Actual');
+  assert.equal(cwd('codex.exe --cd="C:/work/My Project"', 'C:/launcher'), 'C:/work/My Project');
+  assert.equal(cwd('codex.exe --cd ../Actual', 'C:/work/launcher'), 'C:\\work\\Actual');
+});

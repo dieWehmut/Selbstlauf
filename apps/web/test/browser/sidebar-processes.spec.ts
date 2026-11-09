@@ -1,15 +1,7 @@
 import { expect, test } from '@playwright/test';
 
-/**
- * The sidebar's process list, the detail page it opens, and the bottom bar's menu.
- *
- * The list is modelled on the reference sidebar: grouped rows under small headings
- * with a full-width highlight on the selected one. The menu must open *upwards* out
- * of the sidebar footer — a downward menu would fall off the bottom of the window —
- * so that direction is asserted from geometry rather than from the menu merely being
- * visible.
- */
-test('groups the sidebar processes by host and opens the detail page', async ({ page }, testInfo) => {
+/** The merged root rows remain keyboard-selectable and scroll independently of navigation. */
+test('groups the sidebar processes by environment and project and opens the detail page', async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));
 
@@ -19,13 +11,12 @@ test('groups the sidebar processes by host and opens the detail page', async ({ 
   const list = page.getByRole('group', { name: '进程列表' });
   await expect(list).toBeVisible();
 
-  // Group headings are the run locations the process table shows, and the fixture
-  // includes one session with no host, which must appear under the named fallback.
+  // Sessions are grouped by execution environment, including sessions with no host.
   const headings = await list.locator('.sidebar-processes__heading').allTextContents();
-  expect(headings.length).toBeGreaterThan(1);
-  expect(headings).toContain('未识别宿主');
+  expect(headings.length).toBeGreaterThan(0);
+  expect(headings.some((heading) => heading.startsWith('Windows'))).toBe(true);
 
-  const rows = list.getByRole('button');
+  const rows = list.locator('.sidebar-row__open');
   await expect(rows.first()).toBeVisible();
 
   /**
@@ -72,60 +63,7 @@ test('groups the sidebar processes by host and opens the detail page', async ({ 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
 
-test('the bottom bar menu opens upwards, not downwards', async ({ page }, testInfo) => {
-  const pageErrors: string[] = [];
-  page.on('pageerror', (error) => pageErrors.push(String(error)));
-
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto('/');
-
-  const trigger = page.locator('.account-bar__button');
-  const menu = page.getByRole('menu', { name: '账户与状态菜单' });
-  await expect(menu).toHaveCount(0);
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-
-  await trigger.click();
-  await expect(menu).toBeVisible();
-  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
-
-  // Geometry is the only thing that proves direction: the menu's bottom edge must sit
-  // at or above the trigger's top edge, and the menu must be fully on screen.
-  const menuBox = (await menu.boundingBox())!;
-  const barBox = (await trigger.boundingBox())!;
-  expect(
-    Math.round(menuBox.y + menuBox.height),
-    'the menu did not open upwards out of the bottom bar',
-  ).toBeLessThanOrEqual(Math.round(barBox.y) + 1);
-  expect(menuBox.y, 'the menu extends above the top of the window').toBeGreaterThanOrEqual(0);
-  expect(Math.round(menuBox.height)).toBeGreaterThan(0);
-  // It must stay inside the sidebar's width rather than spilling over the content.
-  const sidebarBox = (await page.locator('.sidebar').boundingBox())!;
-  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(sidebarBox.x + sidebarBox.width + 1);
-
-  await page.screenshot({ path: testInfo.outputPath('bottom-menu-upward.png') });
-
-  // Escape closes it, and so does a press outside.
-  await page.keyboard.press('Escape');
-  await expect(menu).toHaveCount(0);
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
-
-  await trigger.click();
-  await expect(menu).toBeVisible();
-  await page.locator('.workspace').click({ position: { x: 600, y: 500 } });
-  await expect(menu).toHaveCount(0);
-
-  // A menu entry must actually do something: collapsing from here hides the sidebar. It lives
-  // in the popup's final group, which the popup sets apart because it changes the window
-  // rather than navigating.
-  await trigger.click();
-  await page.getByRole('menu', { name: '窗口' }).getByRole('menuitem', { name: '收起侧栏' }).click();
-  await expect(page.locator('.sidebar')).toBeHidden();
-  await expect(page.locator('.titlebar').getByRole('button', { name: '展开侧栏' })).toBeVisible();
-
-  expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
-});
-
-test('the list scrolls on its own rather than pushing the navigation or footer away', async ({ page }, testInfo) => {
+test('the list scrolls on its own without moving fixed navigation', async ({ page }, testInfo) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(String(error)));
 
@@ -154,7 +92,7 @@ test('the list scrolls on its own rather than pushing the navigation or footer a
 
   // The navigation and the footer must both still be on screen: the list scrolls
   // instead of pushing them away.
-  for (const selector of ['.sidebar nav', '.account-bar__button']) {
+  for (const selector of ['.navigation-rail']) {
     const box = (await page.locator(selector).boundingBox())!;
     expect(box.y, `${selector} was pushed above the window`).toBeGreaterThanOrEqual(0);
     expect(box.y + box.height, `${selector} was pushed below the window`).toBeLessThanOrEqual(420);

@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { SessionView } from '../src/api/client';
 import {
-  PINNED_GROUP_LABEL,
-  groupSessionsByHost,
+  groupSessionsByEnvironment,
   livePinnedIds,
   togglePinnedId,
 } from '../src/sidebar/session-groups';
@@ -39,32 +38,13 @@ const sessions = [
 ];
 
 describe('pinned sessions', () => {
-  it('lifts the pinned sessions into their own group on top', () => {
-    const groups = groupSessionsByHost(sessions, ['b2']);
-    expect(groups[0].label).toBe(PINNED_GROUP_LABEL);
-    expect(groups[0].sessions.map((entry) => entry.id)).toEqual(['b2']);
-    // Tapby still holds the other session, and nothing was duplicated.
-    const tabby = groups.find((group) => group.label === 'Tabby');
-    expect(tabby?.sessions.map((entry) => entry.id)).toEqual(['a1']);
-    const all = groups.flatMap((group) => group.sessions.map((entry) => entry.id));
-    expect(all.sort()).toEqual(['a1', 'b2', 'c3', 'd4']);
-  });
-
-  it('shows no pinned group at all when nothing is pinned', () => {
-    const groups = groupSessionsByHost(sessions, []);
-    expect(groups.some((group) => group.label === PINNED_GROUP_LABEL)).toBe(false);
-    expect(groups.map((group) => group.label)).toEqual(['Tabby', 'Visual Studio Code', '未识别宿主']);
-  });
-
-  it('keeps pin order, so the most recently pinned comes first', () => {
-    const groups = groupSessionsByHost(sessions, ['c3', 'a1']);
-    expect(groups[0].sessions.map((entry) => entry.id)).toEqual(['c3', 'a1']);
-  });
-
-  it('ignores an id with no live session, so a pin survives a restart', () => {
-    const groups = groupSessionsByHost(sessions, ['gone9', 'a1']);
-    expect(groups[0].sessions.map((entry) => entry.id)).toEqual(['a1']);
-    expect(groups.flatMap((group) => group.sessions)).toHaveLength(sessions.length);
+  it('keeps pinned sessions inside their environment and project, without duplication', () => {
+    const input = sessions.map((s, i) => ({ ...s, sessionCwd: i < 2 ? 'C:/project/a' : 'C:/project/b' }));
+    const groups = groupSessionsByEnvironment(input, ['b2', 'gone9', 'b2']);
+    const projects = groups.flatMap((g) => g.projects);
+    expect(projects).toHaveLength(2);
+    expect(projects.find((p) => p.sessions.some((s) => s.id === 'b2'))?.sessions.map((s) => s.id)).toEqual(['b2', 'a1']);
+    expect(projects.flatMap((p) => p.sessions.map((s) => s.id)).sort()).toEqual(['a1', 'b2', 'c3', 'd4']);
   });
 
   it('toggles an id without duplicating or reordering the rest', () => {
@@ -82,9 +62,4 @@ describe('pinned sessions', () => {
     expect(livePinnedIds([], sessions)).toEqual([]);
   });
 
-  it('does not repeat an id that was already pinned', () => {
-    // A corrupt stored value with a repeat must not produce two groups' worth of rows.
-    const groups = groupSessionsByHost(sessions, ['a1', 'a1']);
-    expect(groups[0].sessions.map((entry) => entry.id)).toEqual(['a1']);
-  });
 });

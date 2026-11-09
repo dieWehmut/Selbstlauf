@@ -1,4 +1,7 @@
 import {
+  Home,
+  Clock3,
+  Puzzle,
   Activity,
   ArrowLeft,
   ArrowRight,
@@ -15,9 +18,7 @@ import {
   Monitor,
   Moon,
   Network,
-  ChevronUp,
   PanelLeft,
-  PanelLeftClose,
   PanelLeftOpen,
   PawPrint,
   Plug,
@@ -37,8 +38,6 @@ import {
   X,
 } from 'lucide-react';
 import { useConfigDraft } from './settings/config-drafts';
-/** Bundled with the app so the Pages sub-path rewrites it like any other asset. */
-import brandIcon from './assets/brand.png';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { getLocale, translate, useI18n, type Locale, type MessageParams } from './i18n';
 import { LanguageSection } from './i18n/LanguageSection';
@@ -67,7 +66,7 @@ import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SessionOutputPanel } from './process/SessionOutputPanel';
 import type { SessionOutputView } from './api/client';
 import { SidebarProcessList } from './sidebar/SidebarProcessList';
-import { sessionTone, sessionToneLabel, conversationLabel, formatDuration, quietMs, togglePinnedId, toolLabel } from './sidebar/session-groups';
+import { sessionTone, sessionToneLabel, conversationLabel, formatDuration, quietMs, togglePinnedId, toolLabel, sessionProject } from './sidebar/session-groups';
 import { describeAuditDetails } from './timeline/audit-details';
 import { createAgentApi, type AgentApi } from './api/agents';
 import { AgentLauncher } from './agents/AgentLauncher';
@@ -93,7 +92,6 @@ import {
   PINNED_SESSIONS_DEFAULTS,
   PLUGINS_DEFAULTS,
   PREF_KEYS,
-  PROFILE_DEFAULTS,
   TIMELINE_LIMIT_MAX,
   TRUSTED_CONTACT_DEFAULTS,
   hashPin,
@@ -103,7 +101,6 @@ import {
   isPetPref,
   isPinnedSessionsPref,
   isPluginsPref,
-  isProfilePref,
   isTrustedContactPref,
   readPref,
   subscribePref,
@@ -111,7 +108,6 @@ import {
   type Density,
   type NotificationsPref,
   type PetPref,
-  type ProfilePref,
 } from './settings/desktop-prefs';
 
 /**
@@ -438,7 +434,7 @@ function isThemePalette(value: unknown): boolean {
 function fontStack(choice: FontChoice): string {
   if (choice === 'mono') return "var(--mono)";
   if (choice === 'serif') return "Georgia, 'Times New Roman', serif";
-  return "'Segoe UI Variable', 'Segoe UI', sans-serif";
+  return "var(--font-family-base)";
 }
 
 /** Load the saved overrides; a missing or corrupt entry just means "default". */
@@ -851,7 +847,7 @@ function HostCell({ session }: { session: SessionView }) {
    * A WSL session shows both facts: the terminal it was launched from, and that it runs inside a distribution.
    *
    * Measured, the terminal is discoverable — the interop socket pairs the session with the `wsl.exe` under
-   * Tabby — so the session is grouped under Tabby like any other. But it still has no window of its own, and
+   * Tabby — the terminal badge can identify Tabby while the sidebar groups by environment and project. It still has no window of its own, and
    * saying only "Tabby" would imply one exists, so the distribution is named alongside it.
    */
   if (session.distribution) {
@@ -917,7 +913,7 @@ function ProcessTable(props: {
             {props.sessions.map((session) => (
               <tr key={session.id} className={!session.alive ? 'is-muted' : undefined}>
                 <td>
-                  <div className="process-id"><ToolMark tool={session.tool} /><div><strong>{toolLabel(session.tool)}</strong><span>PID {session.rootPid}{session.childPids.length > 0 ? ` + ${session.childPids.length}` : ''}{session.sessionCwd ? ` · ${session.sessionCwd}` : ''}</span></div></div>
+                  <div className="process-id"><ToolMark tool={session.tool} /><div><strong>{toolLabel(session.tool)}</strong><span>PID {session.rootPid}{session.childPids.length > 0 ? ` + ${session.childPids.length}` : ''}</span>{session.sessionCwd && <span className="process-project-root" title={session.sessionCwd}>{sessionProject(session).name}</span>}</div></div>
                 </td>
                 <td><HostCell session={session} /></td>
                 <td><CapabilityBadge session={session} /></td>
@@ -933,7 +929,7 @@ function ProcessTable(props: {
       <div className="session-cards">
         {props.sessions.map((session) => (
           <article className="session-card" key={session.id}>
-            <header><div className="process-id"><ToolMark tool={session.tool} /><div><strong>{toolLabel(session.tool)}</strong><span>PID {session.rootPid}{session.sessionCwd ? ` · ${session.sessionCwd}` : ''}</span></div></div><CapabilityBadge session={session} /></header>
+            <header><div className="process-id"><ToolMark tool={session.tool} /><div><strong>{toolLabel(session.tool)}</strong><span>PID {session.rootPid}</span>{session.sessionCwd && <span className="process-project-root" title={session.sessionCwd}>{sessionProject(session).name}</span>}</div></div><CapabilityBadge session={session} /></header>
             <dl>
               <div className="session-card__host"><dt>{t("运行位置")}</dt><dd><HostCell session={session} /></dd></div>
               <div><dt>{t("对话")}</dt><dd>{conversationLabel(session)}</dd></div>
@@ -1620,7 +1616,7 @@ function AppearancePanel(props: {
         </AppearanceRow>
         <AppearanceRow label={t("UI 字体")}>
           <select aria-label={t("UI 字体")} value={ui.family} onChange={(event) => setUi({ family: event.target.value as FontChoice })}>
-            <option value="system">{t("系统默认")}</option>
+            <option value="system">{t("霞鹜文楷")}</option>
             <option value="mono">{t("等宽")}</option>
             <option value="serif">{t("衬线")}</option>
           </select>
@@ -1640,7 +1636,7 @@ function AppearancePanel(props: {
             }}
           >
             <option value="same">{t("与界面字体相同")}</option>
-            <option value="system">{t("系统默认")}</option>
+            <option value="system">{t("霞鹜文楷")}</option>
             <option value="mono">{t("等宽")}</option>
             <option value="serif">{t("衬线")}</option>
           </select>
@@ -1756,8 +1752,6 @@ function SettingsPanel(props: {
   /** Apply a theme/config blob read from the clipboard by the import section. */
   onImportThemeText: (text: string) => Promise<void>;
   onImportConfigText: (text: string) => Promise<void>;
-  /** Lets the sidebar brand block adopt the imported 显示名称. */
-  onDisplayNameChange: (name: string) => void;
   allowReveal: boolean;
   onAllowRevealChange: (allowed: boolean) => void;
   closeToTray: boolean | null;
@@ -1932,7 +1926,7 @@ function SettingsPanel(props: {
         <ImportSection onImportTheme={props.onImportThemeText} onImportConfig={props.onImportConfigText} config={props.config} />
       )}
       {activeSection === 'profile' && (
-        <ProfileSection onDisplayNameChange={props.onDisplayNameChange} />
+        <ProfileSection />
       )}
       {activeSection === 'pet' && <PetSection pet={props.pet} onChange={props.onPetChange} />}
       {activeSection === 'shortcuts' && <ShortcutsSection />}
@@ -2255,14 +2249,8 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   /** The sidebar list's own filter, kept out of the page's state. */
   const [processFilter, setProcessFilter] = useState('');
-  /** The bottom bar's menu, which opens upwards out of the sidebar footer. */
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  /** The open menu, so a press inside it is not mistaken for a press outside. */
-  const accountMenuRef = useRef<HTMLDivElement | null>(null);
   /** Which settings rail entry is in view; the tray can open one by name. */
   const [settingsSection, setSettingsSection] = useState<string>(DEFAULT_SETTINGS_SECTION);
-  /** The name the sidebar brand block shows once 个人资料 sets one. */
-  const [displayName, setDisplayName] = useState(() => readPref<ProfilePref>(PREF_KEYS.profile, PROFILE_DEFAULTS, isProfilePref).displayName);
   /**
    * The pinned sessions, in pin order.
    *
@@ -2499,7 +2487,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         '1': 'overview',
         '2': 'timeline',
         '3': 'settings',
-        // The bottom bar's menu advertises Ctrl+, beside 设置, the conventional binding
+        // Ctrl+, is the conventional settings binding
         // for preferences. It was shown without ever being bound, so the hint promised
         // something the app did not do.
         ',': 'settings',
@@ -2513,27 +2501,6 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [page]);
-
-  // The bottom bar's menu closes the way the title bar's dropdowns do: on Escape, and
-  // on the press that starts outside it rather than on a completed click.
-  useEffect(() => {
-    if (!accountMenuOpen) return undefined;
-    const close = (event: MouseEvent) => {
-      // Same reason as the title bar's dropdowns: closing on the mousedown of the
-      // item itself would unmount the menu before its onClick could run.
-      if (event.target instanceof Node && accountMenuRef.current?.contains(event.target)) return;
-      setAccountMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setAccountMenuOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [accountMenuOpen]);
 
   /**
    * Notification preferences.
@@ -2583,7 +2550,6 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   useEffect(() => {
     const unsubscribe = [
       subscribePref(PREF_KEYS.notifications, () => setNotifications(readPref(PREF_KEYS.notifications, NOTIFICATIONS_DEFAULTS, isNotificationsPref))),
-      subscribePref(PREF_KEYS.profile, () => setDisplayName(readPref(PREF_KEYS.profile, PROFILE_DEFAULTS, isProfilePref).displayName)),
       subscribePref(PREF_KEYS.personalization, () => setPersonalization(readPref(PREF_KEYS.personalization, PERSONALIZATION_DEFAULTS, isPersonalizationPref))),
       subscribePref(PREF_KEYS.pet, () => setPet(readPref(PREF_KEYS.pet, PET_DEFAULTS, isPetPref))),
       subscribePref(PREF_KEYS.computerControl, () => setAllowReveal(readPref(PREF_KEYS.computerControl, { allowReveal: true }, isRevealPref).allowReveal)),
@@ -3210,13 +3176,13 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
    * The top navigation.
    *
    * 设置 is deliberately not here: the settings rail becomes the left column on that page, and
-   * settings is reached from the bottom bar's popup or `Ctrl+,`, the way the reference puts it
+   * settings is reached from the fixed icon rail or `Ctrl+,`, keeping it
    * in the account menu rather than in the page list.
    */
   const nav = [
-    { id: 'overview' as const, label: '进程', icon: LayoutDashboard },
+    { id: 'overview' as const, label: '进程', icon: Home },
     { id: 'agents' as const, label: '智能体窗口', icon: Terminal },
-    { id: 'timeline' as const, label: '事件', icon: ListTree },
+    { id: 'timeline' as const, label: '事件', icon: Clock3 },
   ];
 
   /**
@@ -3243,6 +3209,17 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         bridge={bridge}
         onAction={runMenuAction}
       />
+      <nav className="navigation-rail" aria-label={t("主导航")}>
+        <div className="navigation-rail__top">
+          {nav.map((item) => <button key={item.id} className={`navigation-rail__button ${page === item.id || (item.id === 'overview' && page === 'process') ? 'is-active' : ''}`} type="button" aria-label={t(item.label)} title={t(item.label)} aria-current={page === item.id || (item.id === 'overview' && page === 'process') ? 'page' : undefined} onClick={() => { navigate(item.id); setSidebarOpen(false); }}><item.icon size={25} /></button>)}
+          <button className="navigation-rail__button" type="button" aria-label={t("插件")} title={t("插件")} onClick={() => { navigate('settings'); setSettingsSection('plugins'); setSidebarOpen(false); }}><Puzzle size={25} /></button>
+        </div>
+        <div className="navigation-rail__bottom">
+          <button className="navigation-rail__button" type="button" aria-label={t("宠物")} title={t("宠物")} onClick={() => { navigate('settings'); setSettingsSection('pet'); setSidebarOpen(false); }}><PawPrint size={25} /></button>
+          <button className="navigation-rail__button" type="button" aria-label={t(theme === 'dark' ? '浅色' : '深色')} title={t(theme === 'dark' ? '浅色' : '深色')} onClick={() => changeThemePreference(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <Sun size={25} /> : <Moon size={25} />}</button>
+          <button className={`navigation-rail__button ${settingsMode ? 'is-active' : ''}`} type="button" aria-label={t("设置")} title={t("设置")} aria-current={settingsMode ? 'page' : undefined} onClick={() => { navigate('settings'); setSidebarOpen(false); }}><Settings2 size={25} /></button>
+        </div>
+      </nav>
       <button className={`mobile-overlay ${sidebarOpen ? 'is-open' : ''}`} type="button" aria-label={t("关闭菜单")} onClick={() => setSidebarOpen(false)} />
       {settingsMode ? (
         /* The settings column. On the settings page this *is* the left rail, so it owns
@@ -3269,16 +3246,13 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         </aside>
       ) : (
       <aside id="watchdog-sidebar" className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-        {/* No brand block at the top: it repeated the app's own name on every page without
-            carrying anything actionable, and the identity it showed lives in the bottom
-            bar instead. The close control the drawer needs at narrow widths stays, and
-            hides itself at column widths where there is no drawer to close. */}
+        {/* The close control is only visible when the project list is a drawer. */}
         <button className="sidebar-close icon-button" type="button" aria-label={t("关闭菜单")} onClick={() => setSidebarOpen(false)}><X size={18} /></button>
-        <nav aria-label={t("主导航")}>{nav.map((item) => <button key={item.id} className={`nav-button ${page === item.id ? 'is-active' : ''}`} type="button" aria-current={page === item.id ? 'page' : undefined} title={sidebarCompact ? t(item.label) : undefined} onClick={() => { navigate(item.id); setSidebarOpen(false); }}><item.icon size={18} /><span>{t(item.label)}</span></button>)}</nav>
-        {/* The discovered processes, grouped by the application they run inside. This
+
+        {/* The discovered processes, grouped by environment and project root. This
             is the list the reference sidebar's structure is modelled on: a heading per
             group and a full-width highlight on the selected row. It scrolls on its own
-            so a long list never pushes the navigation or the footer out of reach. */}
+            so a long list keeps the fixed navigation in reach. */}
         <SidebarProcessList
           sessions={liveSessions}
           selectedId={selectedSessionId}
@@ -3292,102 +3266,6 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
           pinnedIds={pinnedIds}
           onTogglePin={togglePinned}
         />
-        {/* The bottom bar. Selecting it opens a menu upwards, out of the sidebar's
-            bottom edge, the way the reference sidebar's user bar does. It is a menu
-            rather than a row of buttons so the sidebar footer stays one line however
-            many entries it grows. */}
-        <div className="sidebar__footer">
-          <div className={`account-bar ${accountMenuOpen ? 'is-open' : ''}`} ref={accountMenuRef}>
-            {accountMenuOpen && (
-              // The status block sits outside the `role="menu"`, in the popup region that
-              // contains it. A menu may only hold menu items, separators and groups, so a
-              // plain status block among the items is invalid and some screen readers skip
-              // the whole menu for it. The status is still announced, because it is a
-              // region with its own label.
-              <div className="account-popup" role="region" aria-label={t("账户与状态")}>
-                {/* One header block, then rows — the grammar the reference popup uses. Two
-                    stacked header blocks read as two headers; the identity is the header and
-                    the service facts become label/value rows like any other.
-                    Only real values appear here: the app has no billing, invites or account,
-                    so none of those are invented to look like the reference. */}
-                <div className="account-popup__header">
-                  <span className="brand__mark" data-testid="brand-mark" aria-hidden="true"><img src={brandIcon} alt="" width={34} height={34} /></span>
-                  <div>
-                    <strong>{displayName.trim().length > 0 ? displayName : 'Selbstlauf'}</strong>
-                    <span>{t("continuation watchdog")}</span>
-                  </div>
-                </div>
-
-                <div className="account-popup__facts">
-                  <div className="account-popup__fact">
-                    <span className={`process-dot process-dot--${live ? 'writable' : 'error'}`} aria-hidden="true" />
-                    <span>{t("连接状态")}</span>
-                    <strong className={live ? 'text-ready' : 'text-warn'}>
-                      {live ? t("在线") : staticDemo ? t("离线预览") : t("未连接")}
-                    </strong>
-                  </div>
-                  <div className="account-popup__fact">
-                    <span className={`process-dot process-dot--${ready > 0 ? 'writable' : 'monitor'}`} aria-hidden="true" />
-                    <span>{t("发现进程")}</span>
-                    <strong>{sessions.length}</strong>
-                  </div>
-                  <div className="account-popup__fact">
-                    <span className="process-dot process-dot--writable" aria-hidden="true" />
-                    <span>{t("可写入")}</span>
-                    <strong>{ready}</strong>
-                  </div>
-                </div>
-
-                <div className="account-menu" role="menu" aria-label={t("账户与状态菜单")}>
-                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { changeThemePreference(theme === 'dark' ? 'light' : 'dark'); setAccountMenuOpen(false); }}>
-                    {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
-                    <span>{t(theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题')}</span>
-                  </button>
-                  {/* The pet has its own settings section, so this is a real destination
-                      rather than a decoration, and it is reachable from here. No key is shown beside it: Ctrl+3
-                      is bound to 切换到设置 and lands on the settings page's first section, not on the pet, and
-                      the 键盘快捷键 section documents it that way. */}
-                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setSettingsSection('pet'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
-                    <PawPrint size={17} />
-                    <span>{t("显示宠物")}</span>
-                  </button>
-                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { navigate('settings'); setAccountMenuOpen(false); setSidebarOpen(false); }}>
-                    <Settings2 size={17} />
-                    <span>{t("设置")}</span>
-                    <kbd>Ctrl+,</kbd>
-                  </button>
-                </div>
-
-                {/* The last entry is set apart, as the reference sets its final entry apart:
-                    it changes the window rather than navigating anywhere. */}
-                <div className="account-menu account-menu--separated" role="menu" aria-label={t("窗口")}>
-                  {/* A toggle, naming the direction it will take — like the title bar's own control. It used to
-                      read 收起侧栏 and call setSidebarCompact(true) whatever the state was, so the entry repeated
-                      an action that had already happened and offered no way back. */}
-                  <button className="account-menu__item" type="button" role="menuitem" onClick={() => { setSidebarCompact((current) => !current); setAccountMenuOpen(false); }}>
-                    {sidebarCompact ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-                    <span>{sidebarCompact ? t("展开侧栏") : t("收起侧栏")}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-            <button
-              className="account-bar__button"
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={accountMenuOpen}
-              onClick={() => setAccountMenuOpen((current) => !current)}
-            >
-              <span className="brand__mark" aria-hidden="true"><img src={brandIcon} alt="" width={34} height={34} /></span>
-              <div>
-                <strong>{live ? t("服务在线") : staticDemo ? t("离线预览") : t("服务未连接")}</strong>
-                {/* The count is its own text node so it reads on its own. */}
-                <span>{t('{count} 个进程', { count: sessions.length })}</span>
-              </div>
-              <ChevronUp size={17} />
-            </button>
-          </div>
-        </div>
       </aside>
       )}
 
@@ -3445,7 +3323,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         }} /></div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">{t("Audit")}</span><h2>{t("决策与写入")}</h2></div><span className="section-meta">{t("{count} 条", { count: visibleEvents.length })}</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={changeThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} onDisplayNameChange={setDisplayName} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={desktopSettingsReady} desktopPlatform={bridge?.platform} desktopSettingsBusy={desktopSettingsBusy} desktopSettingsError={desktopSettingsError === null ? null : messageText(desktopSettingsError, locale)} staticDemo={staticDemo} origin={`${window.location.origin}${import.meta.env.BASE_URL}`} connected={live} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={changeThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={desktopSettingsReady} desktopPlatform={bridge?.platform} desktopSettingsBusy={desktopSettingsBusy} desktopSettingsError={desktopSettingsError === null ? null : messageText(desktopSettingsError, locale)} staticDemo={staticDemo} origin={`${window.location.origin}${import.meta.env.BASE_URL}`} connected={live} /></div>}
       </main>
 
       {launcherOpen && <AgentLauncher api={agentsApi} demo={staticDemo} onClose={() => setLauncherOpen(false)} onLaunch={(session) => {

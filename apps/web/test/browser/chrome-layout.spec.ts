@@ -1,77 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-/**
- * Three layout changes asked for directly:
- *
- *  1. the bottom status bar sits flush in the sidebar's bottom corners — no gap at the sides or the
- *     bottom — and is shorter than a panel;
- *  2. the popup it opens is flush against that bar rather than floating above it with a gap;
- *  3. the page heading row scrolls away instead of staying pinned, so a scrolled page does not keep an
- *     empty strip across its top.
- *
- * Measured by geometry rather than by class name, because each of these is a statement about where
- * something is.
- */
-test('the bottom bar sits flush in the sidebar corners and is shorter', async ({ page }) => {
+/** The list fills the sidebar, while only the window title bar stays pinned on scroll. */
+test('the project list uses the space freed by the removed footer', async ({ page }) => {
   await page.setViewportSize({ width: 1249, height: 704 });
   await page.goto('/');
-  await expect(page.locator('.sidebar')).toBeVisible();
-
-  const measured = await page.evaluate(() => {
-    const bar = document.querySelector('.account-bar__button');
-    const sidebar = document.querySelector('.sidebar');
-    const b = bar!.getBoundingClientRect();
-    const s = sidebar!.getBoundingClientRect();
-    const style = getComputedStyle(bar!);
-    return {
-      gapLeft: Math.round(b.left - s.left),
-      gapRight: Math.round(s.right - b.right),
-      gapBottom: Math.round(s.bottom - b.bottom),
-      height: Math.round(b.height),
-      radius: style.borderRadius,
-      borderTop: style.borderTopWidth,
-    };
-  });
-
-  console.log(`bar: left gap ${measured.gapLeft}, right gap ${measured.gapRight}, bottom gap ${measured.gapBottom}, height ${measured.height}`);
-  // Flush at the three edges: a pixel of rounding is acceptable, a padding-sized gap is not.
-  expect(measured.gapLeft, 'the bar is inset from the left edge').toBeLessThanOrEqual(1);
-  expect(measured.gapRight, 'the bar is inset from the right edge').toBeLessThanOrEqual(1);
-  expect(measured.gapBottom, 'the bar is inset from the bottom edge').toBeLessThanOrEqual(1);
-  // Shorter than the 51px card it used to be.
-  expect(measured.height, 'the bar is still a tall panel').toBeLessThan(48);
-  // Square at the corners it now reaches.
-  expect(measured.radius).toBe('0px');
-  console.log(`  flush and ${measured.height}px tall (was 51px)`);
-});
-
-test('the popup is flush against the bar it opens from', async ({ page }) => {
-  await page.setViewportSize({ width: 1249, height: 704 });
-  await page.goto('/');
-  await page.locator('.account-bar__button').click();
-  await expect(page.locator('.account-popup')).toBeVisible();
-
-  const measured = await page.evaluate(() => {
-    const popup = document.querySelector('.account-popup');
-    const bar = document.querySelector('.account-bar__button');
-    const sidebar = document.querySelector('.sidebar');
-    const p = popup!.getBoundingClientRect();
-    const b = bar!.getBoundingClientRect();
-    const s = sidebar!.getBoundingClientRect();
-    const style = getComputedStyle(popup!);
-    return {
-      gapToBar: Math.round(b.top - p.bottom),
-      gapLeft: Math.round(p.left - s.left),
-      gapRight: Math.round(s.right - p.right),
-      bottomRadius: style.borderBottomLeftRadius,
-    };
-  });
-
-  console.log(`popup: ${measured.gapToBar}px above the bar, side gaps ${measured.gapLeft}/${measured.gapRight}, bottom radius ${measured.bottomRadius}`);
-  expect(measured.gapToBar, 'the popup floats above the bar instead of touching it').toBeLessThanOrEqual(1);
-  expect(measured.gapLeft, 'the popup is inset from the sidebar edge').toBeLessThanOrEqual(1);
-  expect(measured.gapRight).toBeLessThanOrEqual(1);
-  expect(measured.bottomRadius, 'the popup is rounded where it meets the bar').toBe('0px');
+  await expect(page.locator('.account-bar, .account-popup')).toHaveCount(0);
+  const sidebar = (await page.locator('.sidebar').boundingBox())!;
+  const list = (await page.locator('.sidebar-processes__scroll').boundingBox())!;
+  expect(sidebar.y + sidebar.height - list.y - list.height).toBeLessThanOrEqual(20);
 });
 
 test('the page heading scrolls away while the title bar stays pinned', async ({ page }) => {

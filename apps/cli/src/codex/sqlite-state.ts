@@ -22,6 +22,7 @@ export interface SqliteRuntimeModule {
 }
 
 export interface CodexThreadState {
+  readonly title?: string | null;
   readonly id: string;
   readonly cwd: string | null;
   readonly rolloutPath: string | null;
@@ -144,6 +145,7 @@ export function openCodexState(path: string, options: OpenCodexStateOptions = {}
           return [
             Object.freeze({
               id: row.id,
+              ...(typeof row.title === 'string' ? { title: row.title } : {}),
               cwd: toNullableString(row.cwd),
               rolloutPath: toNullableString(row.rolloutPath),
               createdAtMs: toNullableNumber(row.createdAtMs),
@@ -183,6 +185,7 @@ function prepareGoalStatement(database: SqliteDatabase, table: string): SqliteSt
 function prepareThreadStatement(database: SqliteDatabase, table: string): SqliteStatement {
   const columns = discoverColumns(database, table);
   requireColumns(columns, table, ['id']);
+  const title = columnOrNull(columns, 'title');
   const cwd = columnOrNull(columns, 'cwd');
   const rolloutPath = columnOrNull(columns, 'rollout_path');
   const status = columnOrNull(columns, 'status');
@@ -191,6 +194,7 @@ function prepareThreadStatement(database: SqliteDatabase, table: string): Sqlite
   return database.prepare(
     `SELECT "id" AS id,
             ${cwd} AS cwd,
+            ${title} AS title,
             ${rolloutPath} AS rolloutPath,
             ${createdAt} AS createdAtMs,
             ${updatedAt} AS updatedAtMs,

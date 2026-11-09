@@ -34,9 +34,9 @@ test('collapsing the sidebar hides it and restores the full content width', asyn
   const collapsed = (await workspace.boundingBox())!;
   // The content must start at the window's left edge, which is what proves no 76px
   // strip was left behind.
-  expect(Math.round(collapsed.x), 'content did not reclaim the sidebar column').toBeLessThanOrEqual(1);
+  expect(Math.round(collapsed.x), 'content did not reclaim the sidebar column').toBe(64);
   expect(collapsed.width).toBeGreaterThan(expanded.width);
-  expect(Math.round(collapsed.width)).toBe(1280);
+  expect(Math.round(collapsed.width)).toBe(1216);
   // Nothing may spill sideways now that the grid lost a column.
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   await page.screenshot({ path: testInfo.outputPath('sidebar-collapsed-1280.png') });
@@ -75,13 +75,10 @@ test('a collapsed sidebar does not remove the mobile drawer', async ({ page }, t
   // thing the rail used to hide. The sidebar has no brand header any more, so the labels
   // are what is checked.
   const box = (await sidebar.boundingBox())!;
-  expect(Math.round(box.width), 'the drawer is not the full sidebar width').toBe(236);
-  await expect(sidebar.locator('nav').getByRole('button', { name: '进程' })).toBeVisible();
-  await expect(sidebar.locator('.sidebar-row__conversation').first()).toBeVisible();
-  const labelVisible = await sidebar.locator('.nav-button span').first().evaluate(
-    (el) => getComputedStyle(el).display !== 'none',
-  );
-  expect(labelVisible, 'the drawer is showing the icon-only rail, not the labelled sidebar').toBe(true);
+  expect(Math.round(box.width), 'the drawer is not the full sidebar width').toBe(300);
+  await expect(page.locator('.navigation-rail').getByRole('button', { name: '进程' })).toBeVisible();
+  await expect(sidebar.locator('.sidebar-row__path').first()).toBeVisible();
+  await expect(sidebar.locator('.sidebar-row__label').first()).toBeVisible();
 
   await page.screenshot({ path: testInfo.outputPath('sidebar-drawer-900.png') });
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);

@@ -25,7 +25,7 @@ import { describe, expect, it } from 'vitest';
 
 /** Vitest runs with the workspace as its working directory, which is `apps/web`. */
 const SRC = join(process.cwd(), 'src');
-const STYLESHEETS = [join(SRC, 'styles', 'index.css'), join(SRC, 'settings', 'sections.css')];
+const STYLESHEETS = [join(SRC, 'styles', 'index.css'), join(SRC, 'settings', 'sections.css'), join(SRC, 'styles', 'fonts.css'), join(SRC, 'styles', 'navigation-rail.css'), join(SRC, 'sidebar', 'sidebar-projects.css')];
 
 /**
  * Attributes the browser sets rather than the app.

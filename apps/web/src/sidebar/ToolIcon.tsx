@@ -1,22 +1,13 @@
 import { useState } from 'react';
 import { Bot, Network, Terminal } from 'lucide-react';
 
-/**
- * Each tool's own icon, shared by every surface that lists a session.
- *
- * The art is the publishers' own, taken from the most faithful source available on this machine:
- *
- *   codex   the running Codex app window's icon, read from the window itself — the genuine OpenAI mark
- *   dsh     the DeepSeek whale, from the harness's own `favicon.svg`
- *   claude  the Anthropic mark from anthropic.com's favicon, because the Claude CLI ships no icon at all (it is
- *           terminal-only) and the desktop app is not installed here
- *
- * A missing asset falls back to a glyph rather than leaving a broken image, so the list stays readable if the
- * files are ever absent — which is worth keeping, because the images are shipped assets and can go missing.
+/** Shared official provider marks, matching the agent list reference.
+ * Assets reused from the local Orchester project; Claude is its orange mark,
+ * Codex is the monochrome OpenAI mark (inverted by CSS for the dark theme).
  */
 export const TOOL_ICON_SRC: Readonly<Record<string, string>> = Object.freeze({
   codex: 'tool-icons/codex.png',
-  claude: 'tool-icons/claude.png',
+  claude: 'tool-icons/claude.svg',
   dsh: 'tool-icons/dsh.png',
 });
 
@@ -39,7 +30,7 @@ export function ToolIcon({ tool, size = 14 }: { readonly tool: string; readonly 
   return (
     <span className="tool-icon" aria-hidden="true">
       <img
-        className="tool-icon__image"
+        className={`tool-icon__image tool-icon__image--${tool}`}
         src={source}
         alt=""
         width={size}

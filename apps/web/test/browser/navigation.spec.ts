@@ -15,10 +15,10 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/');
 
-  const sidebar = page.locator('.sidebar');
+  const navigation = page.locator('.navigation-rail');
   await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
 
-  await sidebar.getByRole('button', { name: '事件' }).click();
+  await navigation.getByRole('button', { name: '事件' }).click();
   await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();
 
   await page.keyboard.press('Control+,');
@@ -63,7 +63,7 @@ test('navigates every page and preserves edits across a round trip', async ({ pa
   for (let i = 0; i < 3; i += 1) {
     await page.getByRole('button', { name: /返回应用/u }).click();
     await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
-    await sidebar.getByRole('button', { name: '事件' }).click();
+    await navigation.getByRole('button', { name: '事件' }).click();
     await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();
     await page.keyboard.press('Control+,');
     await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();

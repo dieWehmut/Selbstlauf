@@ -12,8 +12,7 @@ import type { SessionHostView, SessionView } from '../../src/api/client';
  * only place arbitrary session data can be served.
  *
  * The counts are checked against *another surface* rather than against arithmetic here: 可写入 against the
- * badges the table paints, Codex Goal against the conversation cells, 发现进程 against the rows and the
- * account bar. A number that agrees with the code that produced it but not with what is on screen is the
+ * badges the table paints, Codex Goal against the conversation cells, 发现进程 against the sidebar and table rows. A number that agrees with the code that produced it but not with what is on screen is the
  * defect this is looking for.
  */
 
@@ -37,6 +36,11 @@ async function serveFullConsole(page: Page): Promise<readonly SessionView[]> {
       id: `scale:${index}`,
       rootPid: 100 + index,
       conversationId: `conv-${index}`,
+      conversationTitle: null,
+      sessionCwd: index % 2 === 0 ? `C:/work/${index % 4 === 0 ? 'alpha' : 'beta'}` : `/home/han/project/${index % 4 === 1 ? 'alpha' : 'beta'}`,
+      platform: index % 2 === 0 ? 'win32' : 'linux',
+      distribution: index % 2 === 0 ? undefined : 'Ubuntu',
+      runningTurn: index % 3 === 0 ? true : index % 3 === 1 ? false : undefined,
       quietForMs: 30_000 + index * 1_000,
       // A quarter of them are goals, and every fifth cannot be written to, so both counts are non-trivial.
       goal: index % 4 === 0 ? { status: 'active', updatedAtMs: 1 } : null,
@@ -64,7 +68,7 @@ async function serveFullConsole(page: Page): Promise<readonly SessionView[]> {
   return sessions;
 }
 
-test('forty sessions render completely, group by host, and agree with every count', async ({ page }, testInfo) => {
+test('forty sessions retain separate root rows, group by environment and project, and agree with every count', async ({ page }, testInfo) => {
   const served = await serveFullConsole(page);
   await page.setViewportSize({ width: 1249, height: 704 });
   await page.goto('/');
@@ -75,23 +79,26 @@ test('forty sessions render completely, group by host, and agree with every coun
   await expect(page.locator('.process-table tbody tr')).toHaveCount(COUNT);
 
   const measured = await page.evaluate(() => {
-    const text = (selector: string) => document.querySelector(selector)?.textContent?.trim() ?? '';
     const strip = [...document.querySelectorAll('.metric-strip > div')].map((cell) => ({
       label: cell.querySelector('span')?.textContent?.trim() ?? '',
       value: cell.querySelector('strong')?.textContent?.trim() ?? '',
     }));
     const groups = [...document.querySelectorAll('.sidebar-processes__group')].map((group) => ({
-      heading: group.querySelector('.sidebar-processes__heading')?.textContent?.trim() ?? '',
+      heading: group.querySelector('.sidebar-processes__heading > span')?.textContent?.trim() ?? '',
+      projects: [...group.querySelectorAll('.sidebar-project')].map((project) => ({
+        path: project.getAttribute('data-project-path'),
+        ids: [...project.querySelectorAll('.sidebar-row')].map((row) => row.getAttribute('data-session-id')),
+      })),
       rows: group.querySelectorAll('.sidebar-row').length,
     }));
     const rows = [...document.querySelectorAll('.process-table tbody tr')].map((row) => ({
       writable: row.querySelector('.capability--ready') !== null,
       goal: (row.querySelector('td:nth-child(4) .conversation')?.textContent ?? '').startsWith('Goal'),
     }));
-    // The sidebar's own dot comes from the same single owner (`writeEligibility`), so it has to agree.
-    const dots = {
-      writable: document.querySelectorAll('.sidebar-row .process-dot--writable').length,
-      monitor: document.querySelectorAll('.sidebar-row .process-dot--monitor').length,
+    const activities = {
+      running: document.querySelectorAll('.sidebar-row .agent-activity--running').length,
+      idle: document.querySelectorAll('.sidebar-row .agent-activity--idle').length,
+      unknown: document.querySelectorAll('.sidebar-row .agent-activity--unknown').length,
     };
     const sidebar = document.querySelector('.sidebar-processes__scroll')!;
     const root = document.documentElement;
@@ -99,8 +106,8 @@ test('forty sessions render completely, group by host, and agree with every coun
       strip,
       groups,
       rows,
-      dots,
-      account: text('.account-bar__button'),
+      activities,
+      disambiguatedRows: document.querySelectorAll('.sidebar-row__pid').length,
       sidebarRows: document.querySelectorAll('.sidebar-row').length,
       sidebarScrolls: sidebar.scrollHeight > sidebar.clientHeight,
       sidebarOverflow: sidebar.scrollWidth - sidebar.clientWidth,
@@ -122,7 +129,8 @@ test('forty sessions render completely, group by host, and agree with every coun
   expect(measured.sidebarRows, 'the sidebar did not list every session').toBe(COUNT);
   expect(measured.rows.length, 'the table did not list every session').toBe(COUNT);
   expect(value('发现进程'), 'the metric strip disagrees with the rows').toBe(String(COUNT));
-  expect(measured.account, 'the account bar disagrees with the rows').toContain(`${COUNT} 个进程`);
+  expect(measured.disambiguatedRows, 'sessions sharing a root need visible PIDs').toBe(COUNT);
+  await expect(page.locator('.account-bar, .account-popup, .sidebar-tools, .sidebar-project__heading')).toHaveCount(0);
 
   // The strip's other two counts against what the table actually painted.
   expect(value('可写入'), 'the strip disagrees with the writable badges').toBe(String(measured.rows.filter((row) => row.writable).length));
@@ -130,16 +138,20 @@ test('forty sessions render completely, group by host, and agree with every coun
   expect(measured.rows.filter((row) => row.writable).length, 'the fixture made every session writable').toBeLessThan(COUNT);
   expect(measured.rows.filter((row) => row.goal).length, 'the fixture made every session a goal').toBeLessThan(COUNT);
 
-  // The third surface: the sidebar's dots come from the same write rule as the badges, so the counts match.
-  console.log(`sidebar dots: ${measured.dots.writable} writable, ${measured.dots.monitor} monitor`);
-  expect(measured.dots.writable, 'the sidebar dots disagree with the writable badges').toBe(measured.rows.filter((row) => row.writable).length);
-  expect(measured.dots.writable + measured.dots.monitor, 'a row has no dot, or a tone nothing counted').toBe(COUNT);
+  // Agent activity describes execution state independently of write capability.
+  expect(measured.activities.running).toBe(served.filter((session) => session.runningTurn === true).length);
+  expect(measured.activities.idle).toBe(served.filter((session) => session.runningTurn === false).length);
+  expect(measured.activities.unknown).toBe(served.filter((session) => session.runningTurn == null).length);
 
-  // Grouping: one heading per served host, and every session in the group it belongs to.
-  const expectedPerHost = HOSTS.map((host) => ({ heading: host.label, rows: served.filter((session) => session.host?.label === host.label).length }));
-  expect(measured.groups.map((group) => group.heading).sort()).toEqual(expectedPerHost.map((host) => host.heading).sort());
-  for (const host of expectedPerHost) {
-    expect(measured.groups.find((group) => group.heading === host.heading)?.rows, `${host.heading} has the wrong number of rows`).toBe(host.rows);
+  // Shared roots retain all sessions under their environment, regardless of host program.
+  expect(measured.groups.map((group) => group.heading)).toEqual(['Windows', 'WSL · Ubuntu']);
+  for (const group of measured.groups) {
+    const sessions = served.filter((session) => group.heading === 'Windows' ? session.platform === 'win32' : session.distribution === 'Ubuntu');
+    expect(group.rows).toBe(sessions.length);
+    expect(group.projects.map((project) => project.path).sort()).toEqual([...new Set(sessions.map((session) => session.sessionCwd))].sort());
+    for (const project of group.projects) {
+      expect(project.ids.sort()).toEqual(sessions.filter((session) => session.sessionCwd === project.path).map((session) => session.id).sort());
+    }
   }
 
   // The shell holds: the list scrolls inside itself, the page does not scroll sideways.
@@ -147,8 +159,17 @@ test('forty sessions render completely, group by host, and agree with every coun
   expect(measured.sidebarOverflow, 'the sidebar list scrolls sideways').toBeLessThanOrEqual(1);
   expect(measured.pageOverflow, 'the page scrolls sideways with forty sessions').toBeLessThanOrEqual(1);
 
-  // And the sidebar filter still finds one of forty.
+  // Two sessions sharing the same root still select their own process.
+  for (const index of [0, 4]) {
+    await page.locator(`[data-session-id="scale:${index}"] .sidebar-row__open`).click();
+    await expect(page.locator('.process-detail .process-id').first()).toContainText(`PID ${100 + index}`);
+    await expect(page.locator('.sidebar-row.is-selected')).toHaveAttribute('data-session-id', `scale:${index}`);
+  }
+
+  // Conversation metadata remains searchable without adding a second visible card.
   await page.getByRole('searchbox', { name: '搜索进程' }).fill('conv-17');
   await expect(page.locator('.sidebar-row')).toHaveCount(1);
-  await expect(page.locator('.sidebar-row__conversation')).toContainText('conv-17');
+  await expect(page.locator('.sidebar-row')).toHaveAttribute('data-session-id', 'scale:17');
+  await expect(page.locator('.sidebar-row__open')).toHaveAttribute('title', /conv-17/u);
+  await expect(page.locator('.sidebar-row__path')).toHaveText('/home/han/project/alpha');
 });

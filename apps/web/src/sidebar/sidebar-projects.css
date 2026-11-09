@@ -1,0 +1,35 @@
+/* Each process is one root-directory row, with its provider mark and current state. */
+.sidebar-processes { gap: 14px; overflow: hidden; }
+.sidebar-processes__title { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px 0; font-size: 16px; }
+.sidebar-processes__title > span, .sidebar-group__count { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.sidebar-processes__search { flex-shrink: 0; }
+.sidebar-processes__search input { font-size: 13px; height: 34px; }
+.sidebar-processes__scroll { flex: 1 1 auto; min-height: 0; gap: 18px; padding-right: 0; }
+.sidebar-processes__heading { display: flex; align-items: center; gap: 7px; width: 100%; padding: 3px 4px 8px; border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 500; text-transform: none; letter-spacing: 0; text-align: left; }
+.sidebar-processes__heading > span:not(.sidebar-group__count) { flex: 1; min-width: 0; text-overflow: ellipsis; overflow: hidden; }
+.sidebar-processes__heading svg { flex-shrink: 0; }
+.sidebar-processes__heading:hover { color: var(--text); background: var(--panel-raised); }
+.sidebar-project { display: grid; gap: 4px; }
+.sidebar-project + .sidebar-project { margin-top: 4px; }
+.sidebar-row { margin-left: 0; animation: none; }
+.sidebar-row__open { padding: 10px 8px; gap: 10px; align-items: center; }
+.sidebar-row__open > .tool-icon { flex: 0 0 22px; }
+.sidebar-row__text { gap: 3px; }
+.sidebar-row__top { gap: 7px; align-items: center; }
+.sidebar-row__label { color: var(--text); font-size: 14px; }
+.sidebar-row__bottom { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.sidebar-row__path { flex: 1; min-width: 0; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-row__meta, .sidebar-row__pid { flex: 0 0 auto; color: var(--faint); font-family: inherit; font-size: 10px; font-variant-numeric: tabular-nums; }
+.sidebar-row__pin { position: absolute; right: 0; top: 5px; width: 20px; height: 23px; margin: 0; background: var(--panel-raised); }
+.sidebar-row:hover .agent-activity, .sidebar-row:focus-within .agent-activity, .sidebar-row.is-pinned .agent-activity { margin-right: 16px; }
+.agent-activity { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.agent-activity > span { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.agent-activity--running > span { background: #c02687; }
+.agent-activity--idle > span { background: var(--green); }
+.agent-activity--stopped > span { background: var(--red); }
+.agent-activity--unknown > span { background: transparent; border: 1px solid var(--faint); }
+@media (max-height: 550px) {
+  .sidebar-processes { gap: 8px; }
+}
+:root[data-theme='dark'] .tool-icon__image--codex { filter: invert(1); }
+.process-id .process-project-root { font-family: inherit; font-size: 12px; color: var(--text); }

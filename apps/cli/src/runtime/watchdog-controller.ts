@@ -1,3 +1,4 @@
+import { readConversationMetadata } from './conversation-metadata.js';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { access, readdir } from 'node:fs/promises';
 import { rmSync } from 'node:fs';
@@ -96,6 +97,8 @@ export interface WatchdogControllerOptions {
 }
 
 export interface RuntimeSessionView extends SessionSnapshot {
+  readonly conversationTitle?: string | null;
+  readonly platform?: NodeJS.Platform;
   readonly quietForMs: number | null;
   readonly pendingPrompt: string | null;
   readonly lastDecision: string;
@@ -142,6 +145,8 @@ interface RuntimeSession {
   codexActivity: { snapshot(): Promise<{ readonly changed: boolean }> } | null;
   codexRolloutPath: string | null;
   codexCwd: string | null;
+  conversationTitle: string | null;
+  runningTurn: boolean | undefined;
   dshSession: DshSessionFile | null;
   dshActivity: DshSessionActivity | null;
   goal: GoalSnapshot | null;
@@ -671,6 +676,8 @@ export class WatchdogController {
       codexActivity: null,
       codexRolloutPath: null,
       codexCwd: null,
+      conversationTitle: null,
+      runningTurn: undefined,
       dshSession: null,
       dshActivity: null,
       goal: null,
@@ -1110,6 +1117,10 @@ export class WatchdogController {
         creationTimeMs: session.group.creationTimeMs ?? timestamp,
         commandLine: session.group.commandLine ?? undefined,
       }, claudeFiles);
+      if (session.conversationId !== association.conversationId) {
+        session.runningTurn = undefined;
+        session.conversationTitle = null;
+      }
       session.conversationId = association.conversationId;
       session.claudeFile = association.sessionPath === null
         ? null
@@ -1159,6 +1170,11 @@ export class WatchdogController {
       session.codexActivity = association.activity;
       session.codexRolloutPath = association.thread.rolloutPath;
       session.codexCwd = association.thread.cwd;
+      session.conversationTitle = association.thread.title ?? null;
+      if (session.conversationId !== association.thread.id) session.runningTurn = undefined;
+      const status = association.thread.status?.toLowerCase();
+      session.runningTurn = status === 'running' || status === 'working' || status === 'inprogress' ? true
+        : status === 'idle' || status === 'completed' || status === 'inactive' ? false : session.runningTurn;
       session.conversationId = association.thread.id;
       session.goal = session.codexAdapter.getGoal(context);
       session.transportKind = 'codex-app-server';
@@ -1167,6 +1183,8 @@ export class WatchdogController {
       session.codexActivity = null;
       session.codexRolloutPath = null;
       session.codexCwd = null;
+      session.conversationTitle = null;
+      session.runningTurn = undefined;
       session.conversationId = null;
       session.goal = null;
       session.transportKind = 'monitor-only';
@@ -1206,6 +1224,17 @@ export class WatchdogController {
       } catch (error) {
         session.transportError = errorMessage(error);
       }
+    }
+    const metadataPath = session.group.tool === 'codex' ? session.codexRolloutPath : session.claudeFile?.path;
+    if (metadataPath && (session.group.tool === 'codex' || session.group.tool === 'claude')) {
+      try {
+        const distro = session.group.distribution;
+        const readablePath = this.platform === 'win32' && distro !== undefined && /^[A-Za-z0-9._-]+$/u.test(distro) && metadataPath.startsWith('/')
+          ? `\\\\wsl.localhost\\${distro}${metadataPath.replaceAll('/', '\\')}` : metadataPath;
+        const metadata = await readConversationMetadata(readablePath, session.group.tool);
+        session.runningTurn = metadata.runningTurn;
+        if (session.group.tool === 'claude') session.conversationTitle = metadata.title ?? null;
+      } catch { session.runningTurn = undefined; /* Unreadable rollout has no current status evidence. */ }
     }
     await this.updateTransportActivity(session, timestamp);
   }
@@ -1461,6 +1490,9 @@ export class WatchdogController {
       quietForMs: lastActivityAtMs === null ? null : Math.max(0, this.now() - lastActivityAtMs),
       pendingPrompt: session.pendingPrompt,
       lastDecision: state?.lastDecision ?? 'new',
+      platform: session.group.distribution ? 'linux' : this.platform,
+      conversationTitle: session.conversationTitle,
+      ...(session.runningTurn === undefined ? {} : { runningTurn: session.runningTurn }),
       sessionCwd: session.dshSession?.cwd ?? session.codexCwd ?? session.claudeFile?.projectPath ?? session.group.workingDirectory ?? null,
       ...(session.group.tool === 'dsh' ? {
         runningTurn: session.dshSession?.turnOpen ?? false,

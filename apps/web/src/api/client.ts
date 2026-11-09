@@ -45,7 +45,11 @@ export interface SessionView {
   transportError?: string;
   /** The workspace resolved from the process or its associated conversation. */
   sessionCwd?: string | null;
-  /** DeepSeek Harness sessions report whether a step is still running. */
+  /** The associated conversation title, never a terminal window title. */
+  conversationTitle?: string | null;
+  /** Native execution platform; distribution identifies WSL regardless of filesystem. */
+  platform?: string;
+  /** Known turn state from the agent; absent means unknown. */
   runningTurn?: boolean;
   /** The application the session runs inside, when it could be resolved. */
   host?: SessionHostView | null;

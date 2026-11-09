@@ -10,7 +10,7 @@ import { SessionOutputPanel } from '../src/process/SessionOutputPanel';
 import { noWindowReason } from '../src/process/SessionWindowPreview';
 import { promptProblem } from '../src/process/SessionPromptComposer';
 import { describeShellReason } from '../src/process/shell-reasons';
-import { conversationLabel, groupSessionsByHost } from '../src/sidebar/session-groups';
+import { conversationLabel, groupSessionsByEnvironment } from '../src/sidebar/session-groups';
 import { writeEligibility } from '../src/session/write-eligibility';
 import { describeAuditDetails } from '../src/timeline/audit-details';
 
@@ -93,10 +93,10 @@ describe('pure helper locale arguments', () => {
     expect(noWindowReason(value, locale)).toContain('Ubuntu-用户');
     expect(promptProblem('x'.repeat(4097), locale)).toContain('4097');
     expect(relativeAge(0, 120_000, locale)).toContain('2');
-    const grouped = groupSessionsByHost([value], [value.id], locale);
-    expect(grouped[0].sessions[0]).toBe(value);
+    const grouped = groupSessionsByEnvironment([value], [value.id], locale);
+    expect(grouped[0].projects[0].sessions[0]).toBe(value);
     if (locale === 'en') {
-      expect(grouped[0].label).toBe('Pinned');
+      expect(grouped[0].label).toBe('WSL · Ubuntu-用户');
       expect(conversationLabel(session({ goal: { status: 'active', updatedAtMs: 0 } }), locale)).toBe('Goal · Active');
       expect(describeShellReason('type-command-failed: OS 错误', locale)).toBe('The typing command failed: OS 错误');
     }

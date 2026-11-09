@@ -1,3 +1,4 @@
+import { posix, win32 } from 'node:path';
 import type { RawProcessRecord } from './process-provider.js';
 import {
   classifySessionHost,
@@ -319,7 +320,7 @@ export function groupProcesses(
 
   return [...groups.values()]
     .map(({ tool, root, childPids }) => {
-      const workingDirectory = root.workingDirectory ?? extractWorkingDirectory(root.commandLine);
+      const workingDirectory = resolveWorkingDirectory(root.commandLine, root.workingDirectory);
       const host = classifySessionHost({
         rootPid: root.pid,
         rootName: root.name,
@@ -396,7 +397,16 @@ function hostFromWslTerminal(
 
 function extractWorkingDirectory(commandLine: string | null): string | null {
   if (typeof commandLine !== 'string') return null;
-  const match = /(?:^|\s)(?:--cwd|--directory|-C)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/iu.exec(commandLine);
+  const match = /(?:^|\s)(?:--cd|--cwd|--directory|-C)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/u.exec(commandLine);
   const value = match?.[1] ?? match?.[2] ?? match?.[3];
   return value === undefined || value.trim().length === 0 ? null : value;
+}
+
+function resolveWorkingDirectory(commandLine: string | null, processCwd?: string | null): string | null {
+  const explicit = extractWorkingDirectory(commandLine);
+  if (explicit === null) return processCwd ?? null;
+  const paths = /^[a-z]:[\\/]|^[\\]{2}/iu.test(explicit) || /^[a-z]:[\\/]|^[\\]{2}/iu.test(processCwd ?? '') ? win32 : posix;
+  if (paths.isAbsolute(explicit)) return explicit;
+  // A relative flag has no identity without its launching directory.
+  return processCwd ? paths.resolve(processCwd, explicit) : null;
 }

@@ -69,7 +69,7 @@ test('every page holds its layout across the breakpoint boundaries', async ({ pa
     const railBox = await page.locator('.settings-rail').boundingBox();
     const onScreen = railBox !== null && railBox.x + railBox.width > 0 && railBox.x < width;
     if (width >= 961 && !onScreen) problems.push(`${width}px 设置: rail is not on screen as the column`);
-    if (width < 961 && onScreen) problems.push(`${width}px 设置: rail is on screen although the drawer is closed`);
+    if (width < 961 && await page.locator('.settings-rail').isVisible()) problems.push(`${width}px 设置: rail is on screen although the drawer is closed`);
 
     await page.keyboard.press('Control+1');
     await page.waitForTimeout(200);

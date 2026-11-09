@@ -39,31 +39,12 @@ const PAINTED: readonly { readonly selector: string; readonly label: string; rea
   { selector: '.state-chip--ready', label: 'a ready state chip', kind: 'text' },
   { selector: '.capability--ready', label: 'a ready capability chip', kind: 'text' },
   { selector: '.button--stop', label: 'the emergency stop button', kind: 'text' },
-  /**
-   * A green mark rather than text.
-   *
-   * This was `.status-light.is-online`, which the static demo no longer paints: it says 离线预览 now, because a
-   * page with no service behind it should not report a live connection. The sidebar's writable dot is the same
-   * `--green` in the same non-text role, so the matrix still covers a filled indicator.
-   */
-  { selector: '.sidebar-row .process-dot--writable', label: 'a writable process dot', kind: 'non-text' },
-  /**
-   * The monitor dot, which is the app's third status colour — and the only one whose value is written as a
-   * literal fallback rather than a token (`var(--amber, #e6b65b)`), so nothing had ever measured it.
-   */
-  { selector: '.sidebar-row .process-dot--monitor', label: 'a monitor process dot', kind: 'non-text' },
+  { selector: '.agent-activity--idle > span', label: 'an idle agent dot', kind: 'non-text' },
   /**
    * The metric strip's own status word, which is the largest text the app paints in a status colour and had never
    * been measured: 18px green (or, with the watchdog stopped, the solved accent).
    */
   { selector: '.metric-strip .text-ready', label: 'the watchdog state word', kind: 'text' },
-  /**
-   * The connection dot in the account popup — the failure colour as a mark rather than as text.
-   *
-   * The popup only exists once it is opened, so `measure` opens it before reading; it is the one place the demo
-   * paints `--red` as a dot.
-   */
-  { selector: '.account-popup__fact .process-dot--error', label: 'the connection dot', kind: 'non-text' },
 ];
 
 async function openTheme(theme: 'dark' | 'light', page: Page, palette?: Record<string, unknown>): Promise<void> {
@@ -76,10 +57,6 @@ async function openTheme(theme: 'dark' | 'light', page: Page, palette?: Record<s
   await page.setViewportSize({ width: 1249, height: 704 });
   await page.goto('/');
   await expect(page.locator('.sidebar-row__open').first()).toBeVisible();
-  // The account popup is the only place the demo paints the failure colour as a mark, so it is opened before
-  // anything is measured. Opened rather than asserted: this spec measures paint, and other specs cover the popup.
-  await page.getByRole('button', { name: /个进程/u }).click();
-  await expect(page.getByRole('region', { name: '账户与状态' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.theme)).toBe(theme);
   // `sidebar-row-in` eases opacity from 0; a row read mid-animation reports a blended background.
   await expect

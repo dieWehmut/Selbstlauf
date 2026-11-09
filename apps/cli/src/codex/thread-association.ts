@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
+import { resolve, sep, posix } from 'node:path';
 
 export interface CodexProcessContext {
   readonly commandLine: string;
@@ -9,6 +9,7 @@ export interface CodexProcessContext {
 }
 
 export interface CodexThreadRecord {
+  readonly title?: string | null;
   readonly id: string;
   readonly cwd: string | null;
   readonly createdAtMs: number | null;
@@ -146,6 +147,8 @@ function matched(
  */
 function normalizePath(value: string): string {
   const trimmed = value.trim();
+  // Linux/WSL directory identity is case-sensitive, independent of the host OS.
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return posix.normalize(trimmed).replace(/\/$/u, '') || '/';
   let normalized: string;
   // Strip the extended-length prefix before collapsing separators, because
   // collapsing would merge the leading `\\` with the following backslash.

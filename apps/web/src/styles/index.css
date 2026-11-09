@@ -128,7 +128,7 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); li
 
 /* Chrome (navigation, badges, controls) follows the interface type; reading
    surfaces follow the content type, so the two can be set independently. */
-button, input, select, .nav-button, .eyebrow, .state-chip, .capability, .mode-badge, .section-meta { font-family: var(--ui-font, inherit); }
+button, input, select, .eyebrow, .state-chip, .capability, .mode-badge, .section-meta { font-family: var(--ui-font, inherit); }
 .settings-section, .process-table-wrap, .timeline, .about-card, .tool-card, .manual-commands__toggle, .hook-settings, .codex-endpoints { font-family: var(--ui-font, inherit); font-weight: var(--ui-weight, 400); }
 button, input { font: inherit; }
 button { cursor: pointer; }
@@ -171,7 +171,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 /* A floor on the nav and the footer, so that in a window too short to hold them the process
    list keeps a usable height rather than being crushed to nothing. The desktop app enforces
    minHeight 640, so this is for the browser build and any host without that floor. */
-.sidebar > nav, .sidebar > .sidebar__footer { flex: 0 0 auto; }
 /* Tighter than it was: with the brand block gone and the rows compact, a 20px gap between
    the navigation and the list read as a gap in the middle of the column rather than as
    separation. The footer keeps a bigger share because it is anchored at the bottom. */
@@ -181,22 +180,14 @@ button:disabled { cursor: not-allowed; opacity: .45; }
    rule sets `display: inline-grid` and comes later in the file: two single-class selectors
    of equal specificity would let the later one win and show this button everywhere. */
 .sidebar > .sidebar-close.icon-button { display: none; align-self: flex-end; margin-bottom: -8px; }
-.brand__mark { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 34px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
-.brand__mark img { width: 100%; height: 100%; object-fit: cover; }
 .sidebar-close { display: none; margin-left: auto; }
 .sidebar nav { display: grid; gap: 3px; }
 /* Motion: the label slides very slightly toward the row it is about to open, and the whole
    button eases its colour. Small and quick on purpose — a sidebar is used dozens of times a
    session, so anything slower or larger becomes an irritation rather than polish. */
-.nav-button { display: flex; align-items: center; gap: 11px; min-height: 38px; width: 100%; padding: 0 11px; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--muted); background: transparent; text-align: left; font-size: 13px; transition: background .16s ease, border-color .16s ease, color .16s ease; }
-.nav-button > svg { transition: transform .18s cubic-bezier(.2, .7, .3, 1); }
-.nav-button:hover { border-color: var(--line-soft); color: var(--text); background: var(--panel-raised); }
-.nav-button:hover > svg { transform: translateX(1px) scale(1.04); }
-.nav-button.is-active { border-color: var(--line-soft); color: var(--accent-strong); background: var(--panel-raised); box-shadow: inset 3px 0 var(--accent); }
 /* The footer sits flush in the sidebar's bottom corners rather than as a floating card.
    The negative margins cancel the sidebar's own padding, so the bar reaches the left, right and
    bottom edges with no gap; the height comes down so it reads as a status strip rather than a panel. */
-.sidebar__footer { display: grid; gap: 10px; margin: auto -12px -14px; }
 .status-light { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 13%, transparent); }
 .status-light.is-online { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 15%, transparent); }
 
@@ -872,8 +863,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .sidebar-row__label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-row__meta { flex: 0 0 auto; color: var(--faint); font: 10px var(--mono); }
 /* The conversation is the row's point, so it is muted-but-readable rather than faint. */
-.sidebar-row__conversation { display: block; color: var(--faint); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-row.is-selected .sidebar-row__conversation { color: var(--muted); }
 /* The pin control slides in on hover or keyboard focus, and stays visible while pinned so
    the state is never hidden. */
 .sidebar-row__pin {
@@ -925,93 +914,6 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .process-detail__siblings { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; border-top: 1px solid var(--line-whisper); }
 .process-detail__sibling { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius-xs); color: var(--muted); background: var(--panel); font-size: 12px; }
 .process-detail__sibling:hover { color: var(--text); background: var(--panel-raised); }
-
-/* ---------- The bottom bar and the menu it opens upwards ---------- */
-/* Flush against the sidebar's bottom corners: the bar is the window's own footer rather than a card
-   floating inside it, so it has no side or bottom border and no rounding at those edges. The height is
-   lower than a panel's, because it is one line of status with a chevron. */
-.account-bar { position: relative; }
-.account-bar__button {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  min-height: 40px;
-  padding: 5px 12px;
-  border: 0;
-  border-top: 1px solid var(--line-whisper);
-  border-radius: 0;
-  color: var(--text);
-  background: var(--panel);
-  text-align: left;
-}
-.account-bar__button:hover { background: var(--panel-raised); }
-.account-bar.is-open .account-bar__button { border-color: var(--line-soft); background: var(--panel-raised); }
-.account-bar__button > div { flex: 1 1 auto; min-width: 0; }
-.account-bar__button strong { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-bar__button > div > span { display: block; margin-top: 2px; color: var(--faint); font: 10px var(--mono); }
-.account-bar__button .brand__mark { width: 28px; height: 28px; flex: 0 0 28px; }
-/* Anchored to the bar's bottom edge and positioned upwards, so the popup opens out of
-   the sidebar footer rather than downwards off the bottom of the window. `max-height` keeps
-   it inside the window in a short one: without it the popup's top edge landed above the
-   window, so its first row — the identity — could not be read at all. It scrolls rather
-   than clipping. */
-/* Flush against the bar it opens from, and against the sidebar's side edges: no gap below it and no
-   side border or rounding at the bottom, so it reads as one surface with the bar rather than a card
-   hovering above it. Rounded only at the top, where it is a free edge. */
-.account-popup {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 100%;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100vh - var(--titlebar-height) - 24px);
-  overflow-y: auto;
-  padding: 6px;
-  border: 0;
-  border-top: 1px solid var(--line-soft);
-  border-radius: var(--radius) var(--radius) 0 0;
-  background: var(--panel-raised);
-  box-shadow: var(--shadow-lift);
-}
-.account-menu { display: flex; flex-direction: column; gap: 2px; }
-/* The popup's grammar, following the reference: one header block with a rule under it, then
-   label/value rows, then icon rows, and a separated final group. */
-.account-popup__header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 10px 10px;
-  border-bottom: 1px solid var(--line-whisper);
-}
-.account-popup__header strong { display: block; font-size: 13px; }
-.account-popup__header > div > span { display: block; margin-top: 1px; color: var(--faint); font: 10px var(--mono); }
-.account-popup__facts { display: flex; flex-direction: column; gap: 1px; padding: 6px 0; border-bottom: 1px solid var(--line-whisper); margin-bottom: 4px; }
-/* A label with its value pushed to the right edge, as the reference does for its figures. */
-.account-popup__fact { display: flex; align-items: center; gap: 9px; min-height: 26px; padding: 0 10px; color: var(--muted); font-size: 12px; }
-.account-popup__fact > span:not(.process-dot) { flex: 1 1 auto; }
-.account-popup__fact strong { flex: 0 0 auto; color: var(--text); font: 12px var(--mono); }
-/* The final group is set apart by a rule rather than by a gap alone. */
-.account-menu--separated { border-top: 1px solid var(--line-whisper); margin-top: 4px; padding-top: 4px; }
-.account-menu__item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-xs);
-  color: var(--muted);
-  background: transparent;
-  text-align: left;
-  font-size: 13px;
-}
-.account-menu__item:hover { color: var(--text); background: color-mix(in srgb, var(--panel) 80%, transparent); }
-.account-menu__item > span { flex: 1 1 auto; }
-.account-menu__item kbd { color: var(--faint); font: 10px var(--mono); }
 
 /* ---------- Motion preferences ---------- */
 /* Everything above is decorative: the interface is complete without it. A person who has asked

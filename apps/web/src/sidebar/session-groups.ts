@@ -2,137 +2,92 @@ import type { SessionView } from '../api/client';
 import { translate, getLocale, type Locale } from '../i18n';
 import { writeEligibility } from '../session/write-eligibility';
 
-/**
- * The sidebar's process list, grouped the way the reference sidebar groups its
- * conversations: a small grey section heading, then the rows, with the selected row
- * highlighted across its full width.
- *
- * Grouping is by the session's host — the application the CLI is running inside, which
- * the process table already shows as 运行位置 (`Tabby`, `Visual Studio Code`,
- * `dsh-shortcut`). That is the grouping a person recognises when looking for "the
- * Codex session I had open in Tabby", so the list reuses it rather than inventing a
- * second taxonomy.
- */
-
-export interface SessionGroup {
-  /** The host label, or the fallback for a session whose host was not identified. */
+/** A workspace belongs to an execution environment, never to a terminal window title. */
+export interface SessionProjectGroup {
+  readonly id: string;
   readonly label: string;
-  /** The host category, used only for ordering the groups predictably. */
-  readonly category: string;
+  readonly name: string;
+  readonly path: string | null;
   readonly sessions: readonly SessionView[];
 }
 
-/** Sessions whose host could not be identified. */
-export const UNKNOWN_HOST_LABEL = '未识别宿主';
-
-/** The heading for the pinned group, which sits above every host group. */
-export const PINNED_GROUP_LABEL = '置顶';
-
-/**
- * Order groups by category so the list is stable between polls, then by label.
- *
- * Without a fixed order the groups would reshuffle whenever a process appeared or
- * exited, which makes the list unusable for clicking.
- */
-const CATEGORY_ORDER: readonly string[] = [
-  'terminal',
-  'editor',
-  'desktop-app',
-  'browser',
-  'console',
-  'shell',
-  'unknown',
-];
-
-function categoryRank(category: string): number {
-  const index = CATEGORY_ORDER.indexOf(category);
-  return index === -1 ? CATEGORY_ORDER.length : index;
+export interface SessionEnvironmentGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly projects: readonly SessionProjectGroup[];
 }
 
-/**
- * Group sessions by host, with the pinned ones lifted into their own group on top.
- *
- * Pinning is how a person keeps the two or three sessions they are actually working in
- * within reach while the rest of the list churns; a pinned session is therefore *moved*
- * rather than duplicated, so the list stays a partition of the sessions and no row appears
- * twice.
- *
- * `pinnedIds` is in pin order, and that order is preserved inside the group: re-pinning
- * something moves it to the front, which is the behaviour of every list that supports this.
- * Ids with no matching session are ignored here rather than removed, so a session that
- * exits and comes back returns to its pin.
- */
-export function groupSessionsByHost(
+export const UNKNOWN_PROJECT_LABEL = '未识别项目目录';
+
+/** Keep the original root, including drive/UNC roots; never guess from a host window's title. */
+export function sessionProject(session: SessionView, locale: Locale = getLocale()): Omit<SessionProjectGroup, 'sessions'> {
+  const raw = session.sessionCwd?.trim();
+  if (!raw) return { id: 'unknown', label: translate(UNKNOWN_PROJECT_LABEL, {}, locale), name: translate(UNKNOWN_PROJECT_LABEL, {}, locale), path: null };
+  const windows = /^[a-z]:[\\/]/iu.test(raw) || raw.startsWith('\\\\')
+    || (raw.startsWith('//') && session.platform !== 'linux' && !session.distribution);
+  let path = windows ? raw.replace(/\\/gu, '/') : raw;
+  if (windows) path = path.replace(/^\/\/\?\/UNC\//iu, '//').replace(/^\/\/\?\//u, '');
+  const unc = windows && path.startsWith('//');
+  path = path.replace(/\/{2,}/gu, '/');
+  if (unc) path = `/${path}`;
+  if (path !== '/' && !/^[a-z]:\/$/iu.test(path)) path = path.replace(/\/+$/u, '');
+  const name = path.split('/').filter(Boolean).at(-1) ?? path;
+  return { id: windows ? path.toLowerCase() : path, label: path, name, path };
+}
+
+export function sessionEnvironment(session: SessionView, locale: Locale = getLocale()): { id: string; label: string } {
+  const distro = session.distribution?.trim();
+  if (distro) return { id: `wsl:${distro.toLowerCase()}`, label: `WSL · ${distro}` };
+  if (session.platform === 'linux' || (!session.platform && /^\/(?!\/)/u.test(session.sessionCwd ?? ''))) return { id: 'linux', label: 'Linux' };
+  if (session.platform === 'darwin') return { id: 'darwin', label: 'macOS' };
+  return { id: 'windows', label: 'Windows' };
+}
+
+/** Pins stay in their workspace so their root and environment never disappear. */
+export function groupSessionsByEnvironment(
   sessions: readonly SessionView[],
   pinnedIds: readonly string[] = [],
   locale: Locale = getLocale(),
-): readonly SessionGroup[] {
-  const pinnedRank = new Map<string, number>();
-  pinnedIds.forEach((id, index) => {
-    if (!pinnedRank.has(id)) pinnedRank.set(id, index);
-  });
-
-  const pinned: SessionView[] = [];
-  const rest: SessionView[] = [];
+): readonly SessionEnvironmentGroup[] {
+  const pins = new Map(pinnedIds.map((id, index) => [id, index]));
+  const environments = new Map<string, { id: string; label: string; projects: Map<string, SessionProjectGroup & { sessions: SessionView[] }> }>();
   for (const session of sessions) {
-    if (pinnedRank.has(session.id)) pinned.push(session);
-    else rest.push(session);
+    const env = sessionEnvironment(session, locale);
+    let group = environments.get(env.id);
+    if (!group) { group = { ...env, projects: new Map() }; environments.set(env.id, group); }
+    const project = sessionProject(session, locale);
+    const existing = group.projects.get(project.id);
+    if (existing) existing.sessions.push(session);
+    else group.projects.set(project.id, { ...project, sessions: [session] });
   }
+  return [...environments.values()]
+    .sort((a, b) => (a.id === 'windows' ? -1 : b.id === 'windows' ? 1 : a.label.localeCompare(b.label, locale)))
+    .map((env) => ({ ...env, projects: [...env.projects.values()]
+      .sort((a, b) => a.path === null ? 1 : b.path === null ? -1 : a.label.localeCompare(b.label, locale))
+      .map((project) => ({ ...project, sessions: project.sessions.sort((a, b) => {
+        const pin = (pins.get(a.id) ?? Infinity) - (pins.get(b.id) ?? Infinity);
+        if (pin && !Number.isNaN(pin)) return pin;
+        const activity = (b.lastActivityAtMs ?? 0) - (a.lastActivityAtMs ?? 0);
+        return activity || a.id.localeCompare(b.id);
+      }) })) }));
+}
 
-  const groups = new Map<string, { label: string; category: string; sessions: SessionView[] }>();
-  for (const session of rest) {
-    const host = session.host ?? null;
-    /**
-     * Groups follow the **application**, not the operating system.
-     *
-     * A session running inside WSL is grouped with the terminal that launched it — measured, a Codex session in
-     * Ubuntu started from Tabby carries a Tabby host, because the interop socket pairs it with the `wsl.exe`
-     * under that terminal. So a WSL session and a native one in the same terminal sit together, which is how a
-     * person thinks about them.
-     *
-     * The distribution is only a fallback, for a WSL session whose launching terminal could not be established.
-     * It is still better than the generic "host unrecognised", because the distribution is a true statement about
-     * where the session runs — just a less useful grouping.
-     */
-    const hasHost = host !== null && host.label.trim().length > 0;
-    const hasDistribution = session.distribution !== undefined && session.distribution.length > 0;
-    const label = hasHost
-      ? host.label
-      : hasDistribution ? `WSL: ${session.distribution}` : translate(UNKNOWN_HOST_LABEL, {}, locale);
-    const category = hasHost ? host.category : hasDistribution ? 'terminal' : 'unknown';
-    const existing = groups.get(label);
-    if (existing === undefined) {
-      groups.set(label, { label, category, sessions: [session] });
-    } else {
-      existing.sessions.push(session);
-    }
-  }
-
-  const hostGroups = [...groups.values()]
-    .map((group) => ({
-      ...group,
-      // Within a group, keep the furthest-silent first: those are the ones that need a
-      // decision. The list is for finding the session to act on, not for browsing.
-      sessions: [...group.sessions].sort((a, b) => (b.quietForMs ?? 0) - (a.quietForMs ?? 0)),
-    }))
-    .sort((a, b) => {
-      const byCategory = categoryRank(a.category) - categoryRank(b.category);
-      if (byCategory !== 0) return byCategory;
-      return a.label.localeCompare(b.label, locale);
-    });
-
-  if (pinned.length === 0) return hostGroups;
-
-  // Pinned rows keep pin order, so the most recently pinned sits first.
-  pinned.sort((a, b) => (pinnedRank.get(a.id) ?? 0) - (pinnedRank.get(b.id) ?? 0));
-  return [{ label: translate(PINNED_GROUP_LABEL, {}, locale), category: 'pinned', sessions: pinned }, ...hostGroups];
+export type SessionActivity = 'running' | 'idle' | 'stopped' | 'unknown';
+export function sessionActivity(session: SessionView): SessionActivity {
+  if (!session.alive) return 'stopped';
+  if (session.runningTurn === true) return 'running';
+  if (session.runningTurn === false) return 'idle';
+  return 'unknown';
+}
+export function sessionActivityLabel(activity: SessionActivity, locale?: Locale): string {
+  return translate({ running: '运行中', idle: '空闲', stopped: '已停止', unknown: '状态未知' }[activity], {}, locale);
 }
 
 /** The label shown beside a row: the tool name, matching the process table. */
 export function toolLabel(tool: string): string {
   switch (tool) {
     case 'codex': return 'Codex';
-    case 'claude': return 'Claude';
+    case 'claude': return 'Claude Code';
     case 'opencode': return 'opencode';
     case 'dsh': return 'DeepSeek Harness';
     default: return tool;

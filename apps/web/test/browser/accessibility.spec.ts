@@ -93,12 +93,12 @@ test.describe('accessibility audit', () => {
     await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();
     all.push(...await audit(page, '事件'));
 
-    // 置顶 — the pinned group, which introduces a second heading level and an extra control per row.
+    // Pinning retains the process in its project and changes the pin control state.
     await page.keyboard.press('Control+1');
     const firstRow = page.locator('.sidebar-row').first();
     await firstRow.hover();
     await firstRow.locator('.sidebar-row__pin').click();
-    await expect(page.locator('.sidebar-processes__heading', { hasText: '置顶' })).toHaveCount(1);
+    await expect(firstRow.locator('.sidebar-row__pin')).toHaveAttribute('aria-pressed', 'true');
     all.push(...await audit(page, '进程(已置顶)'));
 
     // The breadth of the audit is worth asserting: an audit that silently checked nothing would
@@ -118,7 +118,7 @@ test.describe('accessibility audit', () => {
    * This sweep visits pages in the state they open in, and several defects live only elsewhere: the rail's empty
    * state exists after typing a filter (where it sat inside the tablist — a `role="tablist"` holding one paragraph
    * and no tabs, which the default-state audit never saw because the rail is full when it opens), a menu exists
-   * only while it is open, and the account popup only after it is opened. Those are audited here.
+   * only while it is open. Those states are audited here.
    */
   test('the states a person has to reach have no serious violations either', async ({ page }) => {
     const pageErrors: string[] = [];
@@ -127,11 +127,6 @@ test.describe('accessibility audit', () => {
     await page.goto('/');
     await expect(page.locator('.sidebar')).toBeVisible();
     const all: AxeViolation[] = [];
-
-    // The account popup: two menus and a facts block that do not exist until it is opened.
-    await page.getByRole('button', { name: /个进程/u }).click();
-    await expect(page.getByRole('region', { name: '账户与状态' })).toBeVisible();
-    all.push(...await audit(page, '账户弹窗'));
 
     // A title-bar menu, open rather than absent.
     await page.getByRole('button', { name: '文件', exact: true }).click();
@@ -193,15 +188,8 @@ test.describe('accessibility audit', () => {
     ).toEqual([]);
   });
 
-  /**
-   * The transient surfaces, which the page-level audits above never see.
-   *
-   * A popup, a menu and a hover-revealed control only exist while they are open, so a page-level
-   * audit passes over all of them. This is the gap the earlier audits left: the bottom bar's popup
-   * was restructured this cycle into a header, label/value rows and two menu groups, and none of it
-   * had been audited. Opens each state, then audits it.
-   */
-  test('the bottom bar popup, its menus and the pin control have no serious violations', async ({ page }) => {
+  /** Menus and hover-revealed controls need audits while they are visible. */
+  test('the title bar menus and pin control have no serious violations', async ({ page }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(String(error)));
 
@@ -211,12 +199,7 @@ test.describe('accessibility audit', () => {
 
     const all: AxeViolation[] = [];
 
-    // Open the popup: header block, three fact rows, two menus and a separated final group.
-    await page.locator('.account-bar__button').click();
-    const popup = page.locator('.account-popup');
-    await expect(popup).toBeVisible();
-    all.push(...await audit(page, '底部面板'));
-
+    await expect(page.locator('.account-bar, .account-popup')).toHaveCount(0);
     // The title-bar dropdowns, which are a different menu implementation.
     for (const menu of ['文件', '编辑', '视图', '帮助']) {
       await page.locator('.titlebar').getByRole('button', { name: menu }).click();
@@ -240,21 +223,18 @@ test.describe('accessibility audit', () => {
     ).toEqual([]);
   });
 
-  test('the popup and its menus hold up in the light theme too', async ({ page }) => {
-    // The popup has its own surface colour and the shortcut hints are drawn faint, so it carries the
-    // same per-theme risk as the rest of the palette.
+  test('the fixed navigation remains accessible in the light theme', async ({ page }) => {
     await page.goto('/');
     await page.evaluate(() => localStorage.setItem('watchdog-theme', 'light'));
     await page.reload();
     await expect(page.locator('.sidebar')).toBeVisible();
-    await page.locator('.account-bar__button').click();
-    await expect(page.locator('.account-popup')).toBeVisible();
+    await expect(page.locator('.navigation-rail')).toBeVisible();
 
-    const all = await audit(page, '底部面板(亮色)');
+    const all = await audit(page, '固定导航(亮色)');
     const serious = all.filter((v) => v.impact === 'serious' || v.impact === 'critical');
     expect(
       serious,
-      `serious or critical violations in the popup (light theme):\n    ${describe(serious)}`,
+      `serious or critical violations in the fixed navigation (light theme):\n    ${describe(serious)}`,
     ).toEqual([]);
   });
 
@@ -262,8 +242,7 @@ test.describe('accessibility audit', () => {
    * The composer's own subtree, audited directly rather than as part of the page.
    *
    * A page-level audit that passes proves nothing about a specific component unless axe actually examined
-   * it — that is how the bottom-bar popup went unaudited for a cycle, since it is not open when a page is
-   * loaded. So this runs axe against the composer element itself and asserts a non-zero number of rules
+   * it. This runs axe against the composer element itself and asserts a non-zero number of rules
    * passed, which is the evidence that the subtree was inspected rather than skipped.
    */
   test('the session composer is audited as its own subtree, and its field is properly labelled', async ({ page }) => {

@@ -51,8 +51,10 @@ test('the pin is reachable by keyboard, shown, and usable', async ({ page }) => 
   expect(shown.width, 'a focused pin has no size').toBeGreaterThan(0);
 
   // And the keyboard can actually use it.
+  const focusedPid = await page.locator('.sidebar-row__pin:focus').getAttribute('aria-label');
   await page.keyboard.press('Enter');
-  await expect(page.locator('.sidebar-processes__heading', { hasText: '置顶' })).toHaveCount(1);
+  await expect(page.locator('.sidebar-row__pin:focus')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.sidebar-row__pin:focus')).toHaveAttribute('aria-label', `取消${focusedPid}`);
   const stillFocused = await page.evaluate(() => document.activeElement?.classList.contains('sidebar-row__pin') ?? false);
   expect(stillFocused, 'focus was lost after activating the pin').toBe(true);
 

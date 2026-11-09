@@ -100,7 +100,7 @@ test('every tool row shows its own application icon, and the image really loads'
 
 test('the icon falls back to a glyph rather than a broken image when the asset is missing', async ({ page }) => {
   // The images are shipped assets and can go missing; a broken image would be worse than the old glyph.
-  await page.route('**/tool-icons/*.png', (route) => route.abort());
+  await page.route('**/tool-icons/*', (route) => route.abort());
   await page.setViewportSize({ width: 1249, height: 704 });
   await page.goto('/');
   await expect(page.locator('.sidebar')).toBeVisible();

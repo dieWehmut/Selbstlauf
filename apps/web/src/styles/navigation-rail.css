@@ -1,0 +1,22 @@
+/* Persistent global navigation; the adjacent project column can collapse independently. */
+.app-shell { grid-template-columns: 64px 300px minmax(0, 1fr); }
+.navigation-rail { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; justify-content: space-between; min-height: 0; overflow-y: auto; padding: 10px 8px; background: var(--panel-soft); border-right: 1px solid var(--line-whisper); z-index: 21; }
+.navigation-rail__top, .navigation-rail__bottom { display: grid; gap: 8px; }
+.navigation-rail__bottom { margin-top: 24px; }
+.navigation-rail__button { display: grid; place-items: center; width: 48px; min-height: 48px; padding: 0; background: transparent; border: 0; border-radius: 12px; color: var(--muted); }
+.navigation-rail__button:hover, .navigation-rail__button.is-active { color: var(--text); background: var(--panel-raised); }
+.app-shell > .sidebar { grid-column: 2; grid-row: 2; }
+.app-shell > .workspace { grid-column: 3; grid-row: 2; }
+@media (min-width: 961px) {
+  .app-shell--settings { grid-template-columns: 64px 268px minmax(0, 1fr); }
+  .app-shell--compact, .app-shell--settings.app-shell--compact { grid-template-columns: 64px minmax(0, 1fr); }
+  .app-shell--compact > .workspace { grid-column: 2; }
+}
+@media (max-width: 960px) {
+  .app-shell, .app-shell--compact, .app-shell--settings { grid-template-columns: 56px minmax(0, 1fr); }
+  .navigation-rail { padding-inline: 4px; }
+  .app-shell > .workspace { grid-column: 2; }
+  .app-shell > .sidebar { left: 56px; width: min(300px, calc(100vw - 56px)); }
+  .app-shell > .sidebar:not(.is-open) { visibility: hidden; }
+  .mobile-overlay { left: 56px; }
+}

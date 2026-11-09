@@ -8,8 +8,7 @@ import { expect, test } from '@playwright/test';
  * The desktop shell creates its window with `DEFAULT_WINDOW_POLICY.title` = `Selbstlauf Console`, and Electron then
  * follows `document.title` once the page loads — so the `<title>` in `index.html` is what a person actually reads in
  * the taskbar, the Alt-Tab list and the browser tab. It said **Continuation Watchdog**, which is the product's
- * description (the account popup shows it as the subtitle under `Selbstlauf`), while the tray tooltip, the window
- * policy and the app's own header all name the product.
+ * description, while the tray tooltip and window policy name the product.
  *
  * The policy is read from its source rather than restated here: if the deskop window title changes, this fails and
  * points at both files instead of quietly agreeing with a stale copy.
@@ -30,8 +29,5 @@ test('the page title is the name the desktop window and the tray use', async ({ 
   await page.goto('/');
   await expect(page).toHaveTitle(expected);
 
-  // And the product's own header agrees with it, rather than the description standing in for the name.
-  await page.getByRole('button', { name: /个进程/u }).click();
-  const popup = page.getByRole('region', { name: '账户与状态' });
-  await expect(popup.locator('strong').first()).toHaveText('Selbstlauf');
+  await expect(page.locator('.account-bar, .account-popup')).toHaveCount(0);
 });

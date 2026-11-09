@@ -1,6 +1,12 @@
 import type { Translations } from './index';
 // Settings and reusable component messages, maintained with their callers.
 export const componentMessages: Translations = {
+  '霞鹜文楷': { zhTW: '霞鶩文楷', en: 'LXGW WenKai', ja: 'LXGW WenKai' },
+  '按智能体筛选': { zhTW: '依智慧代理篩選', en: 'Filter by agent', ja: 'エージェントで絞り込む' },
+  '搜索项目或会话…': { zhTW: '搜尋專案或對話…', en: 'Search projects or conversations…', ja: 'プロジェクト・会話を検索…' },
+  '未识别项目目录': { zhTW: '未識別專案目錄', en: 'Unknown project directory', ja: '不明なプロジェクトディレクトリ' },
+  '状态未知': { zhTW: '狀態未知', en: 'Unknown status', ja: '状態不明' },
+  '距上次活动': { zhTW: '距上次活動', en: 'Time since last activity', ja: '最後のアクティビティからの経過時間' },
   '个人': { zhTW: '個人', en: 'Personal', ja: '個人' },
   '常规': { zhTW: '一般', en: 'General', ja: '一般' },
   '外观': { zhTW: '外觀', en: 'Appearance', ja: '外観' },

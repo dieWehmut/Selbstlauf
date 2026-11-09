@@ -129,6 +129,7 @@ test('reads a real-shaped split Codex thread and goal database without requiring
         id: '019e9d1c-d87e-7fa1-b17c-2df1e400e882',
         cwd: 'C:/work/project',
         rolloutPath: 'C:/rollout.jsonl',
+        title: 'fixture',
         createdAtMs: 1_000_000,
         updatedAtMs: 2_000_000,
         status: null,
@@ -192,6 +193,15 @@ test('returns an explicit unsupported-runtime error when node:sqlite is unavaila
     () => openCodexState('ignored.sqlite', { sqliteModule: null }),
     (error: unknown) => error instanceof UnsupportedSqliteRuntimeError && /node:sqlite/.test(String(error)),
   );
+});
+
+test('keeps case-distinct WSL projects separate during thread association', () => {
+  const records: CodexThreadRecord[] = ['/home/han/Project', '/home/han/project'].map((cwd, index) => ({
+    id: `thread-${index}`, cwd, createdAtMs: 10_000, updatedAtMs: 20_000, rolloutPath: null,
+  }));
+  const result = associateCodexThread({ commandLine: 'codex', cwd: '/home/han/project/', creationTimeMs: 10_500 }, records);
+  assert.equal(result.kind, 'matched');
+  if (result.kind === 'matched') assert.equal(result.thread.id, 'thread-1');
 });
 
 test('matches a Windows extended-length thread cwd to a plain process working directory', () => {

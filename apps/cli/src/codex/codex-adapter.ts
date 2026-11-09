@@ -203,6 +203,7 @@ function toThreadRecord(thread: ReturnType<CodexStateReader['listThreads']>[numb
   return {
     id: thread.id,
     cwd: thread.cwd,
+    title: thread.title,
     createdAtMs: thread.createdAtMs,
     updatedAtMs: thread.updatedAtMs,
     rolloutPath: thread.rolloutPath,

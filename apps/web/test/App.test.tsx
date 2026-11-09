@@ -249,8 +249,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.keyDown(window, { key: '1', ctrlKey: true });
     expect(await screen.findByRole('heading', { name: '进程监控' })).toBeInTheDocument();
 
-    // Ctrl+, is what the bottom bar's menu advertises beside 设置. It was displayed
-    // without being bound, so pressing it did nothing while the menu claimed otherwise.
+    // The alternative settings shortcut must match the documented binding.
     fireEvent.keyDown(window, { key: ',', ctrlKey: true });
     expect(await screen.findByRole('heading', { name: 'Watchdog 设置' })).toBeInTheDocument();
 
@@ -287,35 +286,6 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     // The switch persists, so restore it for the tests that follow this one.
     localStorage.removeItem('watchdog-computer-control');
   });
-
-  /**
-   * 个人资料's display name is adopted by the bottom bar's popup.
-   *
-   * The sidebar has no header block any more, so the identity it used to show — the mark
-   * and the display name — lives in the popup the bottom bar opens.
-   */
-  it('shows the profile display name in the bottom bar popup', async () => {
-    render(<App api={api()} />);
-    // The top brand block is gone from the sidebar.
-    expect(document.querySelector('.sidebar > .brand')).toBeNull();
-
-    openSettings();
-    fireEvent.click(await screen.findByRole('tab', { name: '个人资料' }));
-    fireEvent.change(screen.getByLabelText('显示名称'), { target: { value: 'Orchester' } });
-
-    fireEvent.click(await screen.findByRole('button', { name: /返回应用/u }));
-
-    // The name is shown by the bottom bar's popup, so open it.
-    fireEvent.click(screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u }));
-    const region = screen.getByRole('region', { name: '账户与状态' });
-    expect(within(region).getByText('Orchester')).toBeInTheDocument();
-
-    // Leave the stored profile clean for the next test in this file.
-    localStorage.removeItem('watchdog-profile');
-  });
-
-
-
 
   it('previews each theme and applies a custom palette to the document', async () => {
     // The tab test above leaves 'system' stored; this test starts from dark.
@@ -760,21 +730,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     expect(JSON.parse(localStorage.getItem('watchdog-personalization') ?? '{}')).toEqual({ density: 'compact' });
   });
 
-
 describe('watchdog dashboard', () => {
-  it('shows no example sessions while the local service is still connecting', () => {
-    const fake = api();
-    const pendingHealth = deferred<HealthView>();
-    fake.health = vi.fn(() => pendingHealth.promise);
-    render(<App api={fake} />);
-
-    expect(screen.getByText('0 个进程')).toBeInTheDocument();
-    expect(screen.queryAllByRole('button', { name: /立即续写 PID/ })).toHaveLength(0);
-    fireEvent.click(screen.getByRole('button', { name: '事件' }));
-    expect(screen.getByText('暂无事件')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '进程' }));
-    expect(screen.queryByText('样例数据')).not.toBeInTheDocument();
-  });
 
   /**
    * The poll-age chip in the topbar.
@@ -932,8 +888,8 @@ describe('watchdog dashboard', () => {
       return cell as HTMLElement;
     });
     const sidebar = document.querySelector('.sidebar-row__label');
-    expect(sidebar?.textContent).toBe('opencode');
-    expect(table.textContent, 'the table calls an unknown tool Claude').toBe(sidebar?.textContent);
+    expect(document.querySelector('.sidebar-row__open')?.getAttribute('title')).toContain('opencode');
+    expect(table.textContent).toBe('opencode');
   });
 
   /**
@@ -986,110 +942,11 @@ describe('watchdog dashboard', () => {
     }
   });
 
-  /**
-   * Two surfaces labelled 服务状态 answered different questions.
-   *
-   * The overview strip's 服务状态 meant "is the watchdog running" (运行中 / 已停止 / 离线) and the account popup's
-   * 服务状态 meant "can this page reach the service" (在线 / 未连接). With a reachable service whose watchdog is
-   * stopped they disagreed on screen under the same words — 已停止 beside 在线 — and a screen reader heard the
-   * same label twice.
-   */
-  it('names the watchdog state and the connection state differently', async () => {
-    const fake = api();
-    fake.health = vi.fn(async () => ({ ok: true, running: false, dryRun: true, lastPollAtMs: Date.now() - 2_000 }));
-    render(<App api={fake} />);
-    await waitFor(() => expect(document.querySelector('.metric-strip')).not.toBeNull());
-
-    const cell = (label: string) => [...document.querySelectorAll('.metric-strip > div')]
-      .find((entry) => entry.querySelector('span')?.textContent === label);
-    const fact = (label: string) => [...document.querySelectorAll('.account-popup__fact')]
-      .find((entry) => entry.querySelector('span:nth-child(2)')?.textContent === label);
-
-    // The strip answers "is the watchdog running".
-    expect(cell('Watchdog')?.textContent ?? '(no Watchdog cell)', 'the strip does not name the watchdog').toContain('已停止');
-    // The popup answers "can this page reach the service" — and it can.
-    fireEvent.click(screen.getByRole('button', { name: /个进程/u }));
-    expect(await screen.findByRole('region', { name: '账户与状态' })).toBeInTheDocument();
-    expect(fact('连接状态')?.textContent ?? '(no 连接状态 row)', 'the popup does not name the connection').toContain('在线');
-    // And no surface uses the old shared words for either question.
-    expect(screen.queryByText('服务状态'), 'one label still answers both questions').toBeNull();
-  });
-
-  /**
-   * A hint beside a menu item has to be the key that does *that*.
-   *
-   * 显示宠物 carried Ctrl+3, which is bound to 切换到设置 — pressing it lands on the settings page's first
-   * section, not on the pet. The shortcuts section documents Ctrl+3 as 切换到设置, so the hint was on the wrong
-   * item rather than the binding being wrong: this is the same shape as the Ctrl+, hint that was once shown
-   * without being bound at all.
-   */
-  it('keeps a shortcut hint on the item the key actually opens', async () => {
-    render(<App api={api()} />);
-    fireEvent.click(screen.getByRole('button', { name: /个进程/u }));
-    expect(await screen.findByRole('region', { name: '账户与状态' })).toBeInTheDocument();
-
-    expect(
-      screen.getByRole('menuitem', { name: /显示宠物/u }).querySelector('kbd'),
-      'the pet item advertises a key that opens the settings page instead',
-    ).toBeNull();
-    // The one that is really bound to settings keeps its hint.
-    expect(screen.getByRole('menuitem', { name: /^设置/u }).querySelector('kbd')?.textContent).toBe('Ctrl+,');
-  });
-
-  /**
-   * The bottom bar's sidebar entry has to be a toggle, not a one-way action.
-   *
-   * It read 收起侧栏 and called `setSidebarCompact(true)` whatever the state was, so once the sidebar was compact
-   * the entry repeated an action that had already happened and offered no way back — while the title bar's own
-   * control toggles, and names the direction it will take.
-   */
-  it('toggles the sidebar from the bottom bar, and says which way it will go', async () => {
-    render(<App api={api()} />);
-    const openMenu = async () => {
-      fireEvent.click(screen.getByRole('button', { name: /个进程/u }));
-      return screen.findByRole('region', { name: '账户与状态' });
-    };
-    const entry = () => screen.getByRole('menuitem', { name: /侧栏/u });
-
-    await openMenu();
-    expect(entry().textContent).toBe('收起侧栏');
-    fireEvent.click(entry());
-    expect(document.querySelector('.app-shell')).toHaveClass('app-shell--compact');
-
-    await openMenu();
-    expect(entry().textContent, 'the entry repeats an action that already happened').toBe('展开侧栏');
-    fireEvent.click(entry());
-    expect(document.querySelector('.app-shell')).not.toHaveClass('app-shell--compact');
-  });
-
-  it('explains an empty process list instead of showing a table with no rows', async () => {
-    /**
-     * The connecting state above is also the state of a machine where nothing has been discovered:
-     * zero sessions. The overview rendered the table's header row and an empty card list, so the
-     * first screen of a quiet machine was six column titles and nothing else — and an empty table
-     * is announced as a table with no data, which reads as a rendering fault rather than a state.
-     * The sidebar list and the 事件 page both explain their empty state; this panel did not.
-     */
-    const fake = api();
-    fake.sessions = vi.fn(async () => []);
-    render(<App api={fake} />);
-
-    expect(await screen.findByText('0 个进程')).toBeInTheDocument();
-
-    const section = screen.getByRole('heading', { name: '独立进程' }).closest('section');
-    expect(section, 'the process section is not rendered at all').not.toBeNull();
-    expect(within(section!).getByText('尚未发现进程')).toBeInTheDocument();
-    expect(
-      within(section!).queryByRole('table'),
-      'an empty table is announced as a table with no data',
-    ).not.toBeInTheDocument();
-  });
-
   it('keeps example sessions in the static demo', () => {
     vi.stubEnv('VITE_STATIC_DEMO', 'true');
     const view = render(<App />);
     try {
-      expect(screen.getByText('4 个进程')).toBeInTheDocument();
+      expect(document.querySelector('.sidebar-processes__title')).toBeInTheDocument();
       expect(screen.getAllByText('PID 336756').length).toBeGreaterThan(0);
       /**
        * And it says it is a preview, on every surface that reports the connection.
@@ -1098,7 +955,7 @@ describe('watchdog dashboard', () => {
        * 服务在线, a green online light) for a page with no service behind it — which left these `staticDemo`
        * words as unreachable branches in the one build that needed them.
        */
-      expect(screen.getAllByText('离线预览').length, 'the demo does not say it is a preview').toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText('离线预览').length, 'the demo does not say it is a preview').toBeGreaterThanOrEqual(1);
       expect(screen.queryByText('样例数据'), 'the same state is described two ways').toBeNull();
       expect(screen.queryByText('实时同步'), 'the demo claims a live connection').toBeNull();
       expect(document.querySelector('.status-light')).not.toHaveClass('is-online');
@@ -1119,7 +976,7 @@ describe('watchdog dashboard', () => {
     });
     render(<App api={fake} />);
 
-    expect(await screen.findByText('服务在线')).toBeInTheDocument();
+    expect(await screen.findByText('实时同步')).toBeInTheDocument();
     expect(screen.getAllByText('PID 10').length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole('button', { name: '暂停 PID 10' })[0]);
     await waitFor(() => expect(screen.getAllByRole('button', { name: '恢复 PID 10' })[0]).toBeEnabled());
@@ -1131,11 +988,9 @@ describe('watchdog dashboard', () => {
     expect(await screen.findByRole('heading', { name: '本地环境检查' })).toBeInTheDocument();
     expect(screen.getByText('2.1.274')).toBeInTheDocument();
 
-    // The 服务在线 indicator belongs to the app sidebar, which 设置 replaces with the
-    // settings rail, so it is asserted on the way back — the state it reports must not
-    // have been disturbed by the pending environment scan.
+    // Returning to monitoring preserves the connection state after the environment scan.
     fireEvent.click(await screen.findByRole('button', { name: /返回应用/u }));
-    expect(await screen.findByText('服务在线')).toBeInTheDocument();
+    expect(await screen.findByText('实时同步')).toBeInTheDocument();
   });
 
   it('keeps monitoring online when the environment scan rejects', async () => {
@@ -1145,21 +1000,15 @@ describe('watchdog dashboard', () => {
     render(<App api={fake} />);
 
     await act(async () => pendingEnvironment.reject(new Error('npm lookup failed')));
-    expect(await screen.findByText('服务在线')).toBeInTheDocument();
+    expect(await screen.findByText('实时同步')).toBeInTheDocument();
     expect(screen.getAllByText('PID 10').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '紧急停止' })).toBeEnabled();
   });
 
-  /**
-   * The Selbstlauf mark, now in the bottom bar's popup rather than a sidebar header.
-   * The asset is imported, so Vite rewrites the URL for the Pages sub-path too.
-   */
-  it('shows the Selbstlauf mark in the bottom bar popup', async () => {
+  it('removes the account footer and provider summary', async () => {
     render(<App api={api()} />);
-    fireEvent.click(await screen.findByRole('button', { name: /服务在线|服务未连接|离线预览/u }));
-    const mark = await screen.findByTestId('brand-mark');
-    expect(mark.querySelector('img')?.getAttribute('src')).toContain('brand');
-    expect(mark.querySelector('img')?.getAttribute('alt')).toBe('');
+    await screen.findByRole('group', { name: '进程列表' });
+    expect(document.querySelector('.account-bar, .account-popup, .sidebar-tools')).toBeNull();
   });
 
   it('shows where each session runs and opens that window', async () => {
@@ -1187,19 +1036,12 @@ describe('watchdog dashboard', () => {
     expect(screen.getAllByText('未找到同目录 Codex 线程').length).toBeGreaterThan(0);
     expect(screen.getAllByText('等待静默').length).toBeGreaterThan(0);
     expect(screen.getAllByText('输出活跃').length).toBeGreaterThan(0);
-    // The app's own name is no longer shown on the dashboard: the sidebar has no brand
-    // block, and the identity lives in the bottom bar's popup.
+    // The compact sidebar has no separate brand block.
     expect(screen.queryByText('Selbstlauf')).not.toBeInTheDocument();
   });
 
-  /**
-   * Every sidebar row names its conversation, not only the selected one.
-   *
-   * Which conversation a process is in decides whether continuing it makes sense, so it
-   * belongs on the row rather than one click away. The value comes from the same helper
-   * the process table uses, so the two views cannot describe one session differently.
-   */
-  it('shows a conversation on every sidebar process row', async () => {
+  /** Every process retains one root row with an accessible identity and both actions. */
+  it('shows the root path on every sidebar process row', async () => {
     render(<App api={api()} />);
     const list = await screen.findByRole('group', { name: '进程列表' });
     // A row holds two controls — the body that opens the process and the pin — so the rows
@@ -1208,21 +1050,20 @@ describe('watchdog dashboard', () => {
     expect(rows.length).toBeGreaterThan(1);
 
     for (const row of rows) {
-      const conversation = row.querySelector('.sidebar-row__conversation');
-      expect(conversation, `a row has no conversation: ${row.textContent}`).not.toBeNull();
-      const text = conversation?.textContent ?? '';
-      expect(text.length, 'the conversation line is empty').toBeGreaterThan(0);
-      // The compact row shows the label and, when there is one, a short id.
-      expect(text).toMatch(/Goal|普通对话|等待输入|步骤执行中/u);
+      const path = row.querySelector('.sidebar-row__path');
+      expect(path, `a row has no path: ${row.textContent}`).not.toBeNull();
+      const text = path?.textContent ?? '';
+      expect(text.length, 'the root path line is empty').toBeGreaterThan(0);
+      expect(row.querySelector('.sidebar-row__open')?.getAttribute('title')).toContain('PID');
       // Every row still offers both actions.
       expect(row.querySelector('.sidebar-row__open'), 'row has no open control').not.toBeNull();
       expect(row.querySelector('.sidebar-row__pin'), 'row has no pin control').not.toBeNull();
     }
 
-    // The fixtures carry both cases, so both must be visible somewhere in the list.
-    const all = [...rows].map((row) => row.querySelector('.sidebar-row__conversation')?.textContent ?? '');
-    expect(all.some((text) => text.includes('Goal'))).toBe(true);
-    expect(all.some((text) => text.includes('普通对话'))).toBe(true);
+    // Known paths and unknown-root process identities both retain useful labels.
+    const all = [...rows].map((row) => row.querySelector('.sidebar-row__path')?.textContent ?? '');
+    expect(all.every((text) => text.length > 0)).toBe(true);
+    expect(all.some((text) => text.includes('ai-cli-bypass'))).toBe(true);
   });
 
   it('lists only the sessions that are still running', async () => {
@@ -1807,14 +1648,7 @@ describe('watchdog dashboard', () => {
   });
 });
 
-/**
- * Open 设置 the way the app now offers it.
- *
- * The top navigation no longer lists 设置 — the settings rail becomes the left column on that
- * page, and settings lives in the bottom bar's popup and on `Ctrl+,`, as the reference does.
- * Tests go through the shortcut because it is the shortest path a person has and it stays
- * valid whatever the popup looks like.
- */
+/** Open settings through the documented shortcut, available on every page. */
 function openSettings() {
   fireEvent.keyDown(document, { key: ',', ctrlKey: true });
 }
@@ -1848,24 +1682,8 @@ describe('window title bar', () => {
     render(<App api={api()} />);
     const toggle = within(titlebar()).getByRole('button', { name: '收起侧栏' });
     fireEvent.click(toggle);
-    // The toggle is wired to the same state the bottom bar's menu uses.
     expect(document.querySelector('.app-shell')).toHaveClass('app-shell--compact');
     expect(within(titlebar()).getByRole('button', { name: '展开侧栏' })).toBeInTheDocument();
-  });
-
-  it('lists discovered processes grouped by the host they run inside', async () => {
-    const fake = api();
-    render(<App api={fake} />);
-    await screen.findByText('0 个进程').catch(() => undefined);
-
-    // The fixtures carry no host, so every process must land in the named fallback
-    // group rather than being dropped from the list.
-    const list = await screen.findByRole('group', { name: '进程列表' });
-    expect(within(list).getByText('未识别宿主')).toBeInTheDocument();
-    const rows = list.querySelectorAll('.sidebar-row__open');
-    expect(rows).toHaveLength(4);
-    // Each row names its tool and its silence, which is what makes it findable.
-    expect(rows[0].textContent).toMatch(/Codex|Claude|DeepSeek Harness/u);
   });
 
   it('opens a process detail page when a session is chosen from the sidebar', async () => {
@@ -1912,78 +1730,6 @@ describe('window title bar', () => {
     expect(within(list).getByText('没有匹配的进程')).toBeInTheDocument();
     // The page itself must not have changed.
     expect(screen.getByRole('heading', { name: '进程监控' })).toBeInTheDocument();
-  });
-
-  it('opens the bottom bar menu upwards and closes it on Escape', async () => {
-    const fake = api();
-    render(<App api={fake} />);
-    await screen.findByText('0 个进程');
-
-    const trigger = screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u });
-    expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('menu', { name: '账户与状态菜单' })).not.toBeInTheDocument();
-
-    fireEvent.click(trigger);
-    const popup = screen.getByRole('region', { name: '账户与状态' });
-    expect(trigger).toHaveAttribute('aria-expanded', 'true');
-
-    // The popup follows the reference's grammar: one header block, then label/value facts,
-    // then icon rows, with the final group set apart.
-    expect(within(popup).getAllByRole('menu')).toHaveLength(2);
-    expect(popup.querySelectorAll('.account-popup__header')).toHaveLength(1);
-    expect(popup.querySelectorAll('.account-popup__fact')).toHaveLength(3);
-
-    const menu = screen.getByRole('menu', { name: '账户与状态菜单' });
-    // The entries, using capabilities the app already has. The theme entry names the scheme
-    // it switches *to*, so it is matched by shape rather than by an exact string that depends
-    // on the environment's colour scheme.
-    const labels = within(menu).getAllByRole('menuitem').map((item) => item.textContent);
-    expect(labels).toHaveLength(3);
-    expect(labels[0]).toMatch(/^切换到(亮色|暗色)主题$/u);
-    // No key beside the pet: Ctrl+3 is bound to 切换到设置 and lands on the settings page, not on the pet.
-    expect(labels[1]).toBe('显示宠物');
-    expect(labels[2]).toBe('设置Ctrl+,');
-    // The final group stands apart: it changes the window rather than navigating.
-    const separated = screen.getByRole('menu', { name: '窗口' });
-    expect(within(separated).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['收起侧栏']);
-
-    /**
-     * A `role="menu"` may only contain menu items, separators and groups.
-     *
-     * The service-status block used to sit inside the menu as a plain `<div>`, which is
-     * invalid and can make a screen reader skip the menu entirely. It now lives outside both
-     * menus, in the popup region that contains them, so each menu's own children are valid —
-     * checked here so it cannot drift back.
-     */
-    for (const each of [menu, separated]) {
-      for (const child of Array.from(each.children)) {
-        expect(child.getAttribute('role'), `${each.getAttribute('aria-label')} has a non-menuitem child`).toBe('menuitem');
-      }
-    }
-
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByRole('menu', { name: '账户与状态菜单' })).not.toBeInTheDocument();
-    expect(trigger).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('closes the bottom bar menu on a press outside it', async () => {
-    const fake = api();
-    render(<App api={fake} />);
-    await screen.findByText('0 个进程');
-    fireEvent.click(screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u }));
-    expect(screen.getByRole('menu', { name: '账户与状态菜单' })).toBeInTheDocument();
-
-    fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole('menu', { name: '账户与状态菜单' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: '账户与状态' })).not.toBeInTheDocument();
-  });
-
-  it('collapses the sidebar from the bottom bar menu', async () => {
-    render(<App api={api()} />);
-    await screen.findByText('0 个进程');
-    fireEvent.click(screen.getByRole('button', { name: /服务在线|服务未连接|离线预览/u }));
-    fireEvent.click(screen.getByRole('menuitem', { name: '收起侧栏' }));
-    expect(document.querySelector('.app-shell')).toHaveClass('app-shell--compact');
   });
 
   it('opens 文件 with 返回应用 and 隐藏到托盘 as menu items', async () => {
@@ -2217,7 +1963,7 @@ describe('working settings integration', () => {
     const fake = api();
     render(<App api={fake} />);
     openSettings();
-    for (const label of ['启用自动续写', '监控 Claude', '监控 Codex', '监控 DeepSeek Harness']) {
+    for (const label of ['启用自动续写', '监控 Claude Code', '监控 Codex', '监控 DeepSeek Harness']) {
       fireEvent.click(await screen.findByRole('checkbox', { name: label }));
     }
     expect(screen.queryByRole('checkbox', { name: 'Goal 状态 complete' })).toBeNull();
@@ -2304,5 +2050,37 @@ describe('working settings integration', () => {
     expect(await screen.findByText('已打开终端：konsole')).toBeInTheDocument();
     fireEvent.click(button);
     expect(await screen.findByText('终端应用未安装')).toBeInTheDocument();
+  });
+  it('explains an empty process list instead of showing a table with no rows', async () => {
+    /**
+     * The connecting state above is also the state of a machine where nothing has been discovered:
+     * zero sessions. The overview rendered the table's header row and an empty card list, so the
+     * first screen of a quiet machine was six column titles and nothing else — and an empty table
+     * is announced as a table with no data, which reads as a rendering fault rather than a state.
+     * The sidebar list and the 事件 page both explain their empty state; this panel did not.
+     */
+    const fake = api();
+    fake.sessions = vi.fn(async () => []);
+    render(<App api={fake} />);
+
+    const section = screen.getByRole('heading', { name: '独立进程' }).closest('section');
+    expect(section, 'the process section is not rendered at all').not.toBeNull();
+    expect(within(section!).getByText('尚未发现进程')).toBeInTheDocument();
+    expect(
+      within(section!).queryByRole('table'),
+      'an empty table is announced as a table with no data',
+    ).not.toBeInTheDocument();
+  });
+  it('shows no example sessions while the local service is still connecting', () => {
+    const fake = api();
+    const pendingHealth = deferred<HealthView>();
+    fake.health = vi.fn(() => pendingHealth.promise);
+    render(<App api={fake} />);
+
+    expect(screen.queryAllByRole('button', { name: /立即续写 PID/ })).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: '事件' }));
+    expect(screen.getByText('暂无事件')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '进程' }));
+    expect(screen.queryByText('样例数据')).not.toBeInTheDocument();
   });
 });
