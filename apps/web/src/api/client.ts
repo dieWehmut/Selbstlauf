@@ -114,6 +114,23 @@ export interface StartupTaskView {
   name?: string;
 }
 
+export interface RemoteControlSettings {
+  readonly host: string;
+  readonly port: number;
+  readonly name: string;
+}
+export type RemoteControlView = (RemoteControlSettings & { readonly enabled: false; readonly error?: string }) | (RemoteControlSettings & {
+  readonly enabled: true;
+  readonly url: string;
+  readonly pairing: { readonly code: string; readonly expiresAtMs: number };
+  readonly devices: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly createdAtMs: number;
+    readonly expiresAtMs: number;
+  }[];
+});
+
 export interface ClaudeHookStatusView {
   installed: boolean;
   enabled: boolean;
@@ -240,6 +257,11 @@ export function validateSessionOutput(value: unknown, sessionId: string): Sessio
 }
 
 export interface WatchdogApi {
+  remote?(): Promise<RemoteControlView>;
+  refreshRemotePairing?(): Promise<RemoteControlView>;
+  revokeRemoteDevice?(id: string): Promise<RemoteControlView>;
+  enableRemote?(settings: RemoteControlSettings): Promise<RemoteControlView>;
+  disableRemote?(): Promise<RemoteControlView>;
   health(): Promise<HealthView>;
   config(): Promise<WatchdogConfig>;
   updateConfig(config: WatchdogConfig): Promise<WatchdogConfig>;
@@ -296,6 +318,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function createApi(): WatchdogApi {
   return {
+    remote: () => request<RemoteControlView>('/remote'),
+    refreshRemotePairing: () => request<RemoteControlView>('/remote/pairing', { method: 'POST' }),
+    revokeRemoteDevice: (id) => request<RemoteControlView>(`/remote/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    enableRemote: (settings) => request<RemoteControlView>('/remote/enable', { method: 'POST', body: JSON.stringify(settings) }),
+    disableRemote: () => request<RemoteControlView>('/remote/disable', { method: 'POST' }),
     health: async () => {
       const response = await request<ServiceHealthResponse>('/health');
       return {

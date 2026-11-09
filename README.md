@@ -207,7 +207,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\stop-watchdog.ps
 
 ### 手机远程控制网关
 
-远程接口默认关闭；本机 WebUI 仍只监听 `127.0.0.1:48920`。构建后可显式启动带配对认证的手机网关：
+Android 客户端见 [apps/mobile](apps/mobile/README.md)，沿用 Orchester 的四栏导航、圆角卡片和六套主题，使用相同的霞鹜文楷。原生端支持配对、重连、会话控制与 xterm 终端输入输出。
+
+在桌面或本机 WebUI 的“设置 → 手机远控”选择连接范围并启用，手机在“设置 → 电脑设备”输入电脑 IP 与一次性配对码。网关与桌面共享服务和托管窗口，可刷新配对码、撤销手机或单独关闭远控；关闭远控不结束智能体。启用偏好随服务重启恢复，端口占用等启动错误可在管理页修复。
+
+远程接口默认关闭；本机 WebUI 仍只监听 `127.0.0.1:48920`。构建后也可从命令行显式启动带配对认证的手机网关：
 
 ```bash
 npm --workspace @ai-cli-bypass/cli run build

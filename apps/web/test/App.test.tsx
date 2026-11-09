@@ -128,7 +128,7 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     const rail = await screen.findByRole('tablist', { name: '设置分区' });
     const expected = [
       '常规', '外观', '通知', '键盘快捷键', '个人资料', '宠物',
-      '启动与托盘', '续写与进程', '导入', '电脑操控', '插件', '浏览器', '关于',
+      '启动与托盘', '续写与进程', '导入', '电脑操控', '手机远控', '插件', '浏览器', '关于',
     ];
     const labels = within(rail).getAllByRole('tab').map((tab) => tab.textContent);
     expect(labels).toEqual(expected);
@@ -167,6 +167,19 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     // Clearing restores the full list.
     fireEvent.change(search, { target: { value: '' } });
     expect(within(rail).getAllByRole('tab')).toHaveLength(expected.length);
+  });
+
+  it('opens mobile remote management and enables the current desktop service', async () => {
+    const fake = api();
+    fake.remote = vi.fn(async () => ({ enabled: false as const, host: '127.0.0.1', port: 48921, name: 'Desktop' }));
+    fake.enableRemote = vi.fn(async (settings) => ({ ...settings, enabled: true as const, url: 'http://127.0.0.1:48921', pairing: { code: '123456', expiresAtMs: Date.now() + 600_000 }, devices: [] }));
+    render(<App api={fake} />);
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '手机远控' }));
+    await screen.findByText(/手机远控尚未启用/);
+    fireEvent.click(screen.getByRole('button', { name: '启用手机远控' }));
+    expect(await screen.findByText('123456')).toBeInTheDocument();
+    expect(fake.enableRemote).toHaveBeenCalledWith({ host: '127.0.0.1', port: 48921, name: 'Desktop' });
   });
 
   it.each<Locale>(['zh-CN', 'zh-TW', 'en', 'ja'])('renders navigation and settings in %s while preserving edited user data and messages', async (locale) => {

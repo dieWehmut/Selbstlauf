@@ -1,0 +1,7 @@
+.remote-control code { overflow-wrap: anywhere; }
+.remote-control__pairing { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 20px; }
+.remote-control__code { font-size: 32px; font-weight: 600; letter-spacing: .15em; margin: 12px 0; }
+.remote-control__pairing span { color: var(--muted); font-size: 13px; }
+.remote-control__fields { margin-block: 20px; }
+.remote-control__fields label { display: grid; gap: 8px; }
+@media (max-width: 600px) { .remote-control__pairing { align-items: start; flex-direction: column; } }

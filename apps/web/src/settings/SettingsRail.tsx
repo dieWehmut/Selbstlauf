@@ -15,6 +15,7 @@ import {
   Plug,
   Power,
   Search,
+  Smartphone,
   Wrench,
 } from 'lucide-react';
 
@@ -70,6 +71,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = Object.freeze([
       Object.freeze({ id: 'config', label: '续写与进程', icon: Wrench }),
       Object.freeze({ id: 'import', label: '导入', icon: Download }),
       Object.freeze({ id: 'computer-control', label: '电脑操控', icon: MonitorCog }),
+      Object.freeze({ id: 'mobile-remote', label: '手机远控', icon: Smartphone }),
       Object.freeze({ id: 'plugins', label: '插件', icon: Plug }),
       Object.freeze({ id: 'browser', label: '浏览器', icon: Globe }),
       Object.freeze({ id: 'account', label: '关于', icon: Info }),

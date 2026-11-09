@@ -7,6 +7,21 @@ afterEach(() => {
 });
 
 describe('local service API client', () => {
+  it('uses only loopback management routes for pairing codes and device revocation', async () => {
+    const fetchMock = vi.fn(async () => json({ enabled: false }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = createApi();
+    await api.remote!();
+    await api.refreshRemotePairing!();
+    await api.revokeRemoteDevice!('phone:1');
+    await api.enableRemote!({ host: '127.0.0.1', port: 48921, name: 'Desktop' });
+    await api.disableRemote!();
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/remote', expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/remote/pairing', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/remote/devices/phone%3A1', expect.objectContaining({ method: 'DELETE' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/remote/enable', expect.objectContaining({ method: 'POST', body: JSON.stringify({ host: '127.0.0.1', port: 48921, name: 'Desktop' }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/remote/disable', expect.objectContaining({ method: 'POST' }));
+  });
   it('reads persisted audit entries from the service with the requested retention limit', async () => {
     const history = [{ id: 'persisted', timestampMs: 42, type: 'activity' }];
     const fetchMock = vi.fn(async () => json({ events: history }));
