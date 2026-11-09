@@ -92,23 +92,40 @@ const availableTools = computed(() => catalog.value?.tools.filter((tool) => tool
 const controlsAvailable = computed(() => connectionStatus.value === "connected");
 let pendingTab: Tab | undefined;
 let handlingHistory = false;
+const navigationWindow = window as Window & { selbstlaufNavigateBack?: () => boolean };
 
 function historyState(next: Screen) {
   return { selbstlaufScreen: next, selbstlaufTab: tab.value };
 }
 
 function navigate(next: Tab) {
-  if (screen.value !== tab.value && history.state?.selbstlaufScreen === screen.value) {
-    pendingTab = next;
-    history.back();
+  if (screen.value !== tab.value) {
+    returnToTab(next);
     return;
   }
+  pendingTab = undefined;
   tab.value = next;
   screen.value = next;
 }
 function back() {
-  if (screen.value !== tab.value && history.state?.selbstlaufScreen === screen.value) history.back();
-  else screen.value = tab.value;
+  returnToTab(tab.value);
+}
+function returnToTab(next: Tab) {
+  const detailEntry = screen.value !== tab.value && history.state?.selbstlaufScreen === screen.value;
+  pendingTab = detailEntry ? next : undefined;
+  handlingHistory = true;
+  tab.value = next;
+  screen.value = next;
+  // Vue owns subpage navigation. WebView's native history list can lag behind
+  // same-document pushState, so returning must not depend on canGoBack().
+  if (detailEntry) history.back();
+  else history.replaceState(historyState(next), "");
+  void nextTick(() => { handlingHistory = false; });
+}
+function nativeBack(): boolean {
+  if (screen.value === tab.value) return false;
+  returnToTab(tab.value);
+  return true;
 }
 function onHistoryBack(event: PopStateEvent) {
   const savedTab = event.state?.selbstlaufTab;
@@ -207,11 +224,13 @@ let heartbeat: ReturnType<typeof setInterval> | undefined;
 onMounted(async () => {
   history.replaceState(historyState(screen.value), "");
   window.addEventListener("popstate", onHistoryBack);
+  navigationWindow.selbstlaufNavigateBack = nativeBack;
   await remote.restore();
   heartbeat = setInterval(() => { if (connected.value) void remote.refresh(); }, 5_000);
 });
 onUnmounted(() => {
   window.removeEventListener("popstate", onHistoryBack);
+  if (navigationWindow.selbstlaufNavigateBack === nativeBack) delete navigationWindow.selbstlaufNavigateBack;
   if (heartbeat !== undefined) clearInterval(heartbeat);
   remote.dispose();
 });

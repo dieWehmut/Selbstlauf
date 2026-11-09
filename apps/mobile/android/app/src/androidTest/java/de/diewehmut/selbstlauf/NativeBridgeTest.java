@@ -8,6 +8,7 @@ import android.os.SystemClock;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import androidx.lifecycle.Lifecycle;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
@@ -41,11 +42,18 @@ public class NativeBridgeTest {
                 assertEquals("\"sea\"", evaluate(app, "document.documentElement.dataset.theme"));
                 assertEquals("\"#0e181a\"", evaluate(app, "getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()"));
                 assertEquals("\"sea\"", evaluate(app, "localStorage.getItem('selbstlauf.theme')"));
+                assertEquals("\"function\"", evaluate(app, "typeof window.selbstlaufNavigateBack"));
+                InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+                await(app, "document.querySelector('h1')?.textContent === '设置'");
                 app.recreate();
                 awaitBridge(app);
                 assertEquals("\"sea\"", evaluate(app, "document.documentElement.dataset.theme"));
             } finally {
-                evaluate(app, previous.equals("null") ? "localStorage.removeItem('selbstlauf.theme')" : "localStorage.setItem('selbstlauf.theme'," + previous + ")");
+                // Preserve the original navigation failure if Android closed
+                // the Activity; cleanup must not replace it with an NPE.
+                if (app.getState() != Lifecycle.State.DESTROYED) {
+                    evaluate(app, previous.equals("null") ? "localStorage.removeItem('selbstlauf.theme')" : "localStorage.setItem('selbstlauf.theme'," + previous + ")");
+                }
             }
         }
     }
@@ -142,6 +150,10 @@ public class NativeBridgeTest {
             await(app, "Array.from(document.querySelectorAll('.list-row')).some(e => e.textContent.includes('电脑设备'))");
             click(app, "电脑设备");
             await(app, "document.querySelectorAll('.form-panel input').length === 3");
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            await(app, "document.querySelector('h1')?.textContent === '设置'");
+            click(app, "电脑设备");
+            await(app, "document.querySelectorAll('.form-panel input').length === 3");
             evaluate(app, "let inputs=document.querySelectorAll('.form-panel input'); inputs[0].value=" + JSONObject.quote(address)
                 + ";inputs[0].dispatchEvent(new Event('input',{bubbles:true}));inputs[2].value=" + JSONObject.quote(code)
                 + ";inputs[2].dispatchEvent(new Event('input',{bubbles:true}));void 0");
@@ -159,6 +171,8 @@ public class NativeBridgeTest {
             await(app, "document.body.textContent.includes('已暂停')");
             click(app, "继续");
             await(app, "!document.body.textContent.includes('已暂停')");
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            await(app, "document.querySelector('h1')?.textContent === '会话'");
             evaluate(app, "document.querySelectorAll('nav button')[2].click()");
             await(app, "document.querySelector('select') !== null");
             evaluate(app, "let select=document.querySelector('select');select.value='shell';select.dispatchEvent(new Event('change',{bubbles:true}));void 0");
@@ -166,8 +180,14 @@ public class NativeBridgeTest {
             await(app, "document.querySelector('.terminal-output .xterm') !== null");
             evaluate(app, "let field=document.querySelector('textarea[aria-label=终端输入]');field.value='echo SELBSTLAUF_NATIVE_LINK';field.dispatchEvent(new Event('input',{bubbles:true}));void 0");
             click(app, "发送");
-            await(app, "document.querySelector('.xterm-accessibility-tree')?.textContent.includes('SELBSTLAUF_NATIVE_LINK')");
+            await(app, "Array.from(document.querySelectorAll('.xterm-accessibility-tree [role=listitem]')).some(row => row.textContent.trim() === 'SELBSTLAUF_NATIVE_LINK')");
             saveScreen("native-terminal.png");
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            await(app, "document.querySelector('h1')?.textContent === '智能体'");
+            await(app, "document.querySelector('.list-panel .list-row') !== null");
+            evaluate(app, "document.querySelector('.list-panel .list-row').click()");
+            await(app, "document.querySelector('.terminal-output .xterm') !== null");
+            await(app, "Array.from(document.querySelectorAll('.xterm-accessibility-tree [role=listitem]')).some(row => row.textContent.trim() === 'SELBSTLAUF_NATIVE_LINK')");
             click(app, "结束");
             await(app, "Array.from(document.querySelectorAll('button')).some(b => b.textContent.trim() === '删除' && !b.disabled)");
             click(app, "删除");
@@ -224,6 +244,7 @@ public class NativeBridgeTest {
     }
 
     private String evaluate(ActivityScenario<MainActivity> app, String script) throws Exception {
+        assertNotEquals("Activity was destroyed while evaluating: " + script, Lifecycle.State.DESTROYED, app.getState());
         CountDownLatch completed = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>();
         app.onActivity(activity -> activity.getBridge().getWebView().evaluateJavascript(script, value -> {

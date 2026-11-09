@@ -12,6 +12,7 @@ import com.getcapacitor.WebViewListener;
 
 public class MainActivity extends BridgeActivity {
     private boolean webReady;
+    private boolean backPending;
 
     @Override public void onCreate(Bundle savedInstanceState) {
         SplashScreen splash = SplashScreen.installSplashScreen(this);
@@ -33,16 +34,30 @@ public class MainActivity extends BridgeActivity {
         getWindow().getDecorView().postDelayed(() -> webReady = true, 3500);
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
+                if (backPending) return;
                 WebView webView = getBridge() == null ? null : getBridge().getWebView();
-                if (webView != null && webView.canGoBack()) {
-                    // Detail pages add a history entry; Back closes that page
-                    // through popstate before the Activity can leave the app.
-                    webView.goBack();
-                } else {
+                if (webView == null) {
                     setEnabled(false);
                     getOnBackPressedDispatcher().onBackPressed();
                     setEnabled(true);
+                    return;
                 }
+                backPending = true;
+                // App routes use same-document history. Ask the running Vue
+                // application before deciding whether Back may leave Android.
+                webView.evaluateJavascript(
+                    "typeof window.selbstlaufNavigateBack === 'function' ? window.selbstlaufNavigateBack() : null",
+                    handled -> {
+                        backPending = false;
+                        if ("true".equals(handled)) return;
+                        if ("null".equals(handled) && webView.canGoBack()) {
+                            webView.goBack();
+                            return;
+                        }
+                        setEnabled(false);
+                        getOnBackPressedDispatcher().onBackPressed();
+                        setEnabled(true);
+                    });
             }
         });
         splash.setOnExitAnimationListener(provider -> provider.getView().animate()
