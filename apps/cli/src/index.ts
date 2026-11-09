@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { AuditStore } from './store/audit-store.js';
 import { ConfigStore } from './store/config-store.js';
 import { WatchdogHttpServer, type SessionController } from './server/http-server.js';
+import { RemoteGateway } from './server/remote-gateway.js';
 import { WatchdogController } from './runtime/watchdog-controller.js';
 import { WatchdogInstallation } from './lifecycle/installation.js';
 import { ClaudeLeaseStore } from './claude/lease-store.js';
@@ -28,10 +29,18 @@ export interface WatchdogProcessOptions {
   readonly codexConfigPath?: string;
   readonly ptyBackend?: AgentPtyBackend;
   readonly agentWorkingDirectory?: string;
+  /** Enables the authenticated mobile facade. Omit to keep every API loopback-only. */
+  readonly remote?: {
+    readonly host?: string;
+    readonly port?: number;
+    readonly name?: string;
+    readonly statePath?: string;
+  };
 }
 
 export interface WatchdogProcess {
   readonly server: WatchdogHttpServer;
+  readonly remoteGateway?: RemoteGateway;
   readonly pidFile: string;
   readonly claudeHook: ClaudeHookInstallation;
   stop(): Promise<void>;
@@ -145,6 +154,23 @@ export async function startWatchdogProcess(
     },
   });
   await server.start();
+  let remoteGateway: RemoteGateway | undefined;
+  try {
+    if (options.remote !== undefined) {
+      remoteGateway = new RemoteGateway({
+        localBaseUrl: server.url(),
+        statePath: options.remote.statePath ?? join(stateDirectory, 'remote-devices.json'),
+        host: options.remote.host,
+        port: options.remote.port,
+        name: options.remote.name,
+      });
+      await remoteGateway.start();
+    }
+  } catch (error) {
+    await agents.stop();
+    await server.stop();
+    throw error;
+  }
   const pidFile = join(stateDirectory, 'watchdog.pid.json');
   try {
     await writeFile(
@@ -157,10 +183,12 @@ export async function startWatchdogProcess(
         executablePath: resolve(process.execPath),
         entryPath: resolve(process.argv[1] ?? fileURLToPath(import.meta.url)),
         entry: 'watchdog',
+        ...(remoteGateway === undefined ? {} : { remotePort: new URL(remoteGateway.url()).port }),
       }, null, 2)}\n`,
       { encoding: 'utf8', mode: 0o600, flag: 'wx' },
     );
   } catch (error) {
+    await remoteGateway?.stop();
     await controller?.stop();
     await agents.stop();
     await server.stop();
@@ -174,6 +202,7 @@ export async function startWatchdogProcess(
   const stop = async () => {
     if (stopped) return;
     stopped = true;
+    await remoteGateway?.stop();
     await controller?.stop();
     await agents.stop();
     await server.stop();
@@ -183,12 +212,19 @@ export async function startWatchdogProcess(
   uninstallProcess = async () => {
     if (stopped) return;
     stopped = true;
+    await remoteGateway?.stop();
     await agents.stop();
     await server.stop();
     const { rm } = await import('node:fs/promises');
     await rm(pidFile, { force: true });
   };
-  return { server, pidFile, claudeHook, stop };
+  return {
+    server,
+    pidFile,
+    claudeHook,
+    ...(remoteGateway === undefined ? {} : { remoteGateway }),
+    stop,
+  };
 }
 
 function defaultStateDirectory(): string {
@@ -240,12 +276,93 @@ function readPort(value: string | undefined): number {
   return Number.isInteger(port) && port >= 0 && port <= 65_535 ? port : 48_920;
 }
 
+export interface ParsedWatchdogArguments {
+  readonly help: boolean;
+  readonly options: WatchdogProcessOptions;
+}
+
+export function parseWatchdogArguments(argv: readonly string[]): ParsedWatchdogArguments {
+  let remote = false;
+  let remoteHost: string | undefined;
+  let remotePort: number | undefined;
+  let remoteName: string | undefined;
+  let help = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]!;
+    if (argument === '--remote') {
+      remote = true;
+    } else if (argument === '--remote-bind') {
+      remote = true;
+      remoteHost = requiredArgument(argv, ++index, argument);
+    } else if (argument === '--remote-port') {
+      remote = true;
+      remotePort = parseCliPort(requiredArgument(argv, ++index, argument), argument);
+    } else if (argument === '--remote-name') {
+      remote = true;
+      remoteName = requiredArgument(argv, ++index, argument);
+    } else if (argument === '--help' || argument === '-h') {
+      help = true;
+    } else {
+      throw new TypeError(`unknown argument: ${argument}`);
+    }
+  }
+  return {
+    help,
+    options: remote ? {
+      remote: {
+        ...(remoteHost === undefined ? {} : { host: remoteHost }),
+        ...(remotePort === undefined ? {} : { port: remotePort }),
+        ...(remoteName === undefined ? {} : { name: remoteName }),
+      },
+    } : {},
+  };
+}
+
 async function runCli(): Promise<void> {
-  const processHandle = await startWatchdogProcess();
+  const parsed = parseWatchdogArguments(process.argv.slice(2));
+  if (parsed.help) {
+    process.stdout.write(watchdogUsage());
+    return;
+  }
+  const processHandle = await startWatchdogProcess(parsed.options);
   const shutdown = () => void processHandle.stop().finally(() => process.exit(0));
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
   process.stdout.write(`watchdog listening at ${processHandle.server.url()}\n`);
+  if (processHandle.remoteGateway !== undefined) {
+    const pairing = processHandle.remoteGateway.pairingCode();
+    process.stdout.write([
+      `remote control listening at ${processHandle.remoteGateway.url()}`,
+      `pairing code: ${pairing.code}`,
+      `pairing code expires at: ${new Date(pairing.expiresAtMs).toISOString()}`,
+      '',
+    ].join('\n'));
+  }
+}
+
+function requiredArgument(argv: readonly string[], index: number, option: string): string {
+  const value = argv[index];
+  if (value === undefined || value.length === 0 || value.startsWith('--')) {
+    throw new TypeError(`${option} requires a value`);
+  }
+  return value;
+}
+
+function parseCliPort(value: string, option: string): number {
+  if (!/^\d{1,5}$/u.test(value)) throw new TypeError(`${option} requires a port between 0 and 65535`);
+  const port = Number(value);
+  if (port > 65_535) throw new TypeError(`${option} requires a port between 0 and 65535`);
+  return port;
+}
+
+function watchdogUsage(): string {
+  return [
+    'Usage: watchdog [--remote] [--remote-bind HOST] [--remote-port PORT] [--remote-name NAME]',
+    '',
+    'Remote control is disabled by default and otherwise binds to 127.0.0.1:48921.',
+    'Use --remote-bind 0.0.0.0 only on a trusted network and pair with the printed code.',
+    '',
+  ].join('\n');
 }
 
 function defaultStaticDirectory(): string | undefined {

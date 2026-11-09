@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { ClaudeLeaseStore } from '../src/claude/lease-store.js';
-import { startWatchdogProcess } from '../src/index.js';
+import { parseWatchdogArguments, startWatchdogProcess } from '../src/index.js';
 import type { SessionController } from '../src/server/http-server.js';
 
 const emptySessions: SessionController = {
@@ -14,6 +14,53 @@ const emptySessions: SessionController = {
   resume: () => false,
   inject: () => ({ ok: false, error: 'no sessions' }),
 };
+
+test('CLI remote flags are explicit, bounded, and keep remote control disabled by default', () => {
+  assert.deepEqual(parseWatchdogArguments([]), { help: false, options: {} });
+  assert.deepEqual(parseWatchdogArguments([
+    '--remote-bind', '0.0.0.0', '--remote-port', '49123', '--remote-name', 'Desk',
+  ]), {
+    help: false,
+    options: { remote: { host: '0.0.0.0', port: 49_123, name: 'Desk' } },
+  });
+  assert.equal(parseWatchdogArguments(['--help']).help, true);
+  assert.throws(() => parseWatchdogArguments(['--remote-port', '70000']), /between 0 and 65535/u);
+  assert.throws(() => parseWatchdogArguments(['--unknown']), /unknown argument/u);
+});
+
+test('process composition starts and stops the authenticated remote facade when requested', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-index-remote-'));
+  const stateDirectory = join(root, 'ai-cli-bypass', 'continuation');
+  const processHandle = await startWatchdogProcess({
+    stateDirectory,
+    host: '127.0.0.1',
+    port: 0,
+    remote: { host: '127.0.0.1', port: 0, name: 'Test workstation' },
+  }, emptySessions);
+  try {
+    assert.ok(processHandle.remoteGateway !== undefined);
+    const remote = processHandle.remoteGateway;
+    assert.equal((await fetch(`${remote.url()}/remote/v1/health`)).status, 401);
+    const pairing = remote.pairingCode();
+    const pairedResponse = await fetch(`${remote.url()}/remote/v1/pair`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: pairing.code, device_name: 'Test phone' }),
+    });
+    assert.equal(pairedResponse.status, 200);
+    const paired = await pairedResponse.json() as { token: string };
+    const health = await fetch(`${remote.url()}/remote/v1/health`, {
+      headers: { authorization: `Bearer ${paired.token}` },
+    });
+    assert.equal(health.status, 200);
+    const pid = JSON.parse(await readFile(processHandle.pidFile, 'utf8')) as { remotePort?: string };
+    assert.equal(pid.remotePort, new URL(remote.url()).port);
+  } finally {
+    await processHandle.stop();
+    assert.equal(await pathExists(processHandle.pidFile), false);
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('process composition exposes an explicit Claude Hook installer without modifying settings on start', async () => {
   const root = await mkdtemp(join(tmpdir(), 'watchdog-index-hook-'));

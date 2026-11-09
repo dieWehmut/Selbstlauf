@@ -205,6 +205,23 @@ Start-Process http://127.0.0.1:48920/
 powershell -ExecutionPolicy Bypass -File .\scripts\continuation\stop-watchdog.ps1
 ```
 
+### 手机远程控制网关
+
+远程接口默认关闭；本机 WebUI 仍只监听 `127.0.0.1:48920`。构建后可显式启动带配对认证的手机网关：
+
+```bash
+npm --workspace @ai-cli-bypass/cli run build
+node apps/cli/dist/src/index.js --remote
+```
+
+默认远程端口为 `127.0.0.1:48921`，适合通过 Android 模拟器的 `adb reverse` 使用。若要让同一可信局域网内的实体手机连接，必须明确指定监听地址：
+
+```bash
+node apps/cli/dist/src/index.js --remote --remote-bind 0.0.0.0 --remote-port 48921 --remote-name "我的工作站"
+```
+
+启动日志会显示一次性六位配对码及过期时间。配对后的 Bearer token 有效期为 30 天，服务端只在状态目录的 `remote-devices.json` 中保存其 SHA-256 哈希。远程网关只开放会话、托管智能体和 watchdog 启停接口，不开放配置、升级、安装或卸载接口。局域网模式没有 TLS，请仅在受信任网络或自建加密隧道中使用，并按需配置系统防火墙。
+
 安装为当前用户可重复执行；需要登录后自动启动时加上 `-Startup`：
 
 ```powershell
