@@ -1,16 +1,17 @@
 import { expect, test } from '@playwright/test';
 
-test('the closed settings drawer leaves the full viewport for content and its close control is reachable', async ({ page }) => {
+test('the closed settings drawer leaves the space beside fixed navigation for content and its close control is reachable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.keyboard.press('Control+,');
   const workspace = page.locator('.workspace');
   const bounds = (await workspace.boundingBox())!;
-  expect(Math.round(bounds.x)).toBe(0);
-  expect(Math.round(bounds.width)).toBe(390);
+  const navigationBox = (await page.locator('.navigation-rail').boundingBox())!;
+  expect(Math.round(bounds.x)).toBe(Math.round(navigationBox.x + navigationBox.width));
+  expect(Math.round(bounds.width)).toBe(390 - Math.round(navigationBox.width));
   for (const button of await page.locator('.topbar__actions button').all()) {
     const action = (await button.boundingBox())!;
-    expect(action.x, await button.getAttribute('aria-label') ?? 'topbar action').toBeGreaterThanOrEqual(0);
+    expect(action.x, await button.getAttribute('aria-label') ?? 'topbar action').toBeGreaterThanOrEqual(bounds.x);
     expect(action.x + action.width).toBeLessThanOrEqual(390);
   }
   await page.getByRole('button', { name: '打开菜单', exact: true }).click();
@@ -25,9 +26,8 @@ test('the closed settings drawer leaves the full viewport for content and its cl
  *
  * Three things were asked for, and each is a structural fact rather than a style:
  *
- *  1. the app's own sidebar is not shown on 设置 — the settings rail replaces it, so the
- *     page has one left rail instead of two stacked columns;
- *  2. that rail is the left column, occupying the slot and width the sidebar would;
+ *  1. the settings rail replaces the project column while global navigation stays visible;
+ *  2. that rail occupies the project column's slot beside global navigation;
  *  3. the title bar stays at the top of the window rather than scrolling away with the
  *     page, which it used to do because the shell scrolled as a document.
  *
@@ -43,10 +43,12 @@ test('replaces the app sidebar with the settings rail, and keeps the title bar a
 
   // The app sidebar is present on the dashboard, which is what makes its absence on
   // settings meaningful rather than a selector that never matched. It is identified by the
-  // process list and the nav, since it no longer has a brand header.
+  // process list. Global navigation occupies its own persistent column.
   await expect(page.locator('.sidebar:not(.sidebar--settings)')).toHaveCount(1);
   await expect(page.locator('.sidebar .sidebar-processes')).toHaveCount(1);
-  await expect(page.locator('.sidebar .nav-button').first()).toBeVisible();
+  const navigation = page.locator('.navigation-rail');
+  await expect(navigation.getByRole('button', { name: '进程', exact: true })).toBeVisible();
+  const navigationBox = (await navigation.boundingBox())!;
 
   await page.keyboard.press('Control+3');
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();
@@ -55,9 +57,10 @@ test('replaces the app sidebar with the settings rail, and keeps the title bar a
   await expect(page.locator('.sidebar:not(.sidebar--settings)'), 'the app sidebar is still on the settings page').toHaveCount(0);
   await expect(page.locator('.sidebar-processes')).toHaveCount(0);
   await expect(page.locator('.account-bar')).toHaveCount(0);
-  await expect(page.locator('.nav-button')).toHaveCount(0);
+  await expect(navigation).toBeVisible();
+  expect(await navigation.boundingBox()).toEqual(navigationBox);
 
-  // 2. The settings rail is the left column, and the content sits to its right.
+  // 2. The settings rail sits between global navigation and page content.
   const column = page.locator('.sidebar--settings');
   await expect(column).toHaveCount(1);
   const rail = page.getByRole('tablist', { name: '设置分区' });
@@ -65,7 +68,7 @@ test('replaces the app sidebar with the settings rail, and keeps the title bar a
   const columnBox = (await column.boundingBox())!;
   const railBox = (await rail.boundingBox())!;
   const contentBox = (await page.locator('.workspace').boundingBox())!;
-  expect(Math.round(columnBox.x), 'the rail is not at the left edge').toBeLessThanOrEqual(1);
+  expect(Math.round(columnBox.x), 'the settings rail does not start beside fixed navigation').toBe(Math.round(navigationBox.x + navigationBox.width));
   expect(columnBox.width, 'the rail column has no width').toBeGreaterThan(200);
   // The rail fills the column it was given, rather than floating inside it as a card.
   expect(railBox.x).toBeGreaterThanOrEqual(columnBox.x - 1);

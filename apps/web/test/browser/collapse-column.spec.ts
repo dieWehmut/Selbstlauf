@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 /**
- * Collapsing on 设置 must reclaim the rail's column.
+ * Collapsing on 设置 must reclaim the settings column beside fixed navigation.
  *
  * `.app-shell--settings` and `.app-shell--compact` are both single-class selectors, so
  * whichever came last in the stylesheet decided the grid. With the settings rule later,
@@ -24,13 +24,15 @@ test('collapsing on 设置 reclaims the left column instead of leaving it empty'
   const workspace = page.locator('.workspace');
   const toggle = page.locator('.titlebar').locator('.titlebar__button').first();
 
-  // Expanded: the rail column is reserved and the content sits to its right.
+  const navigation = page.locator('.navigation-rail');
+  const navigationBox = (await navigation.boundingBox())!;
+  // Expanded: navigation, settings rail, and content occupy three columns.
   const expanded = (await workspace.boundingBox())!;
   const expandedColumns = await shell.evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-  expect(expandedColumns.split(' ').length, 'the settings page does not have two columns').toBe(2);
+  expect(expandedColumns.split(' ').length, 'the settings page does not have three columns').toBe(3);
   expect(Math.round(expanded.x), 'the content does not start beside the rail').toBeGreaterThan(200);
 
-  // Collapsed: the rail is gone and the column with it.
+  // Collapsed: the settings column disappears while global navigation stays reachable.
   await expect(toggle).toHaveAttribute('aria-label', '收起侧栏');
   await toggle.click();
   await expect(page.locator('.settings-rail')).toBeHidden();
@@ -41,11 +43,14 @@ test('collapsing on 设置 reclaims the left column instead of leaving it empty'
   expect(
     Math.round(collapsed.x),
     'the collapsed page still reserves a column for the hidden rail',
-  ).toBeLessThanOrEqual(1);
+  ).toBe(Math.round(navigationBox.x + navigationBox.width));
   expect(
     Math.round(collapsed.width),
     `the content did not reclaim the width: ${collapsedColumns}`,
-  ).toBe(1249);
+  ).toBe(1249 - Math.round(navigationBox.width));
+  expect(collapsedColumns.split(' ').length).toBe(2);
+  await expect(navigation).toBeVisible();
+  expect(await navigation.boundingBox()).toEqual(navigationBox);
   // The panel the person was reading must still be rendered, not blanked with the rail.
   expect(await page.locator('.settings-content > *').count()).toBeGreaterThan(0);
 
@@ -72,13 +77,17 @@ test('collapsing still reclaims the column on the dashboard', async ({ page }) =
   const workspace = page.locator('.workspace');
   const toggle = page.locator('.titlebar').locator('.titlebar__button').first();
   const expanded = (await workspace.boundingBox())!;
+  const navigation = page.locator('.navigation-rail');
+  const navigationBox = (await navigation.boundingBox())!;
   await toggle.click();
   await expect(page.locator('.sidebar')).toBeHidden();
   const collapsed = (await workspace.boundingBox())!;
   // The same invariant as the settings page, so the shared rule cannot regress for one
   // page while passing for the other.
-  expect(Math.round(collapsed.x)).toBeLessThanOrEqual(1);
-  expect(Math.round(collapsed.width)).toBe(1249);
+  expect(Math.round(collapsed.x)).toBe(Math.round(navigationBox.x + navigationBox.width));
+  expect(Math.round(collapsed.width)).toBe(1249 - Math.round(navigationBox.width));
+  await expect(navigation).toBeVisible();
+  expect(await navigation.boundingBox()).toEqual(navigationBox);
   expect(collapsed.width).toBeGreaterThan(expanded.width);
 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);

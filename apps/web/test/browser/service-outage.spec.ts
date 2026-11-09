@@ -88,7 +88,7 @@ test('survives the service going away mid-session', async ({ page }, testInfo) =
   await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
 
   // Navigate anyway; every page must still render with the service gone.
-  await page.locator('.sidebar').getByRole('button', { name: '事件' }).click();
+  await page.locator('.navigation-rail').getByRole('button', { name: '事件' }).click();
   await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();
   await page.keyboard.press('Control+,');
   await expect(page.getByRole('heading', { name: 'Watchdog 设置' })).toBeVisible();

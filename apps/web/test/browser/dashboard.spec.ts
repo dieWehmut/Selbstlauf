@@ -47,11 +47,13 @@ test.describe('Selbstlauf watchdog workbench', () => {
     await expect(page.locator('.sidebar')).toHaveClass(/is-open/);
     await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
 
-    await expect.poll(async () => Math.round((await page.locator('.sidebar').boundingBox())?.x ?? -999)).toBe(0);
+    const navigationBox = (await page.locator('.navigation-rail').boundingBox())!;
+    await expect.poll(async () => Math.round((await page.locator('.sidebar').boundingBox())?.x ?? -999)).toBe(Math.round(navigationBox.x + navigationBox.width));
 
     const drawer = await page.locator('.sidebar').boundingBox();
     expect(drawer).not.toBeNull();
-    expect(drawer!.x).toBeGreaterThanOrEqual(0);
+    expect(drawer!.x).toBeGreaterThanOrEqual(navigationBox.x + navigationBox.width);
+    await expect(page.locator('.navigation-rail')).toBeVisible();
     expect(drawer!.x + drawer!.width).toBeLessThanOrEqual(390);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath('mobile-390x844.png'), fullPage: true });
@@ -227,6 +229,12 @@ test.describe('Selbstlauf watchdog workbench', () => {
     const panelBox = await panel.boundingBox();
     expect(panelBox).not.toBeNull();
     expect(panelBox!.x + panelBox!.width).toBeLessThanOrEqual(360);
+    expect(await page.locator('.workspace').evaluate((el) => el.scrollWidth - el.clientWidth), 'appearance content scrolls sideways beside fixed navigation').toBeLessThanOrEqual(1);
+    for (const control of await panel.locator('.text-button, input:not([type="radio"]), select, .appearance-slider').all()) {
+      const controlBox = (await control.boundingBox())!;
+      expect(controlBox.x, await control.getAttribute('aria-label') ?? 'appearance control').toBeGreaterThanOrEqual(panelBox!.x);
+      expect(controlBox.x + controlBox.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath('appearance-mobile-360x780.png'), fullPage: true });
   });

@@ -138,7 +138,7 @@ test('a session with absurd values does not break the shell', async ({ page }, t
   await page.screenshot({ path: testInfo.outputPath('extreme-overview.png'), fullPage: true });
 
   // The detail page, where the host label and the workspace path appear.
-  await page.locator('.sidebar-row__open').first().click();
+  await page.locator(`[data-session-id="${LONG.id}"] .sidebar-row__open`).click();
   await expect(page.getByRole('heading', { name: '进程详情' })).toBeVisible();
 
   const detail = await page.evaluate(() => {

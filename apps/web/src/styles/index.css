@@ -442,9 +442,9 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .timeline__title > span:last-child { color: var(--faint); font: 10px var(--mono); }
 .timeline p { margin: 5px 0 0; color: var(--muted); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty-state { padding: 36px; border-radius: var(--radius-lg); color: var(--muted); text-align: center; font-size: 13px; }
-.settings-section { padding: 22px; border: 1px solid var(--line-whisper); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow-soft); }
+.settings-section { min-width: 0; padding: 22px; border: 1px solid var(--line-whisper); border-radius: var(--radius-lg); background: var(--panel); box-shadow: var(--shadow-soft); }
 .settings-section--wide { grid-column: 1 / -1; }
-.section-title { justify-content: space-between; color: var(--muted); }
+.section-title { justify-content: space-between; flex-wrap: wrap; gap: 12px; color: var(--muted); }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 23px; }
 .field-stack { display: grid; gap: 14px; margin-top: 23px; }
 .settings-section label > span, .settings-section label > span { display: block; margin-bottom: 7px; color: var(--muted); font-size: 11px; }
@@ -616,15 +616,18 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .appearance-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 2px; border-top: 1px solid var(--line-whisper); }
 .appearance-row:first-child { border-top: 0; }
 .appearance-row__label { flex-shrink: 0; color: var(--text); font-size: 13px; font-weight: var(--ui-weight); }
-.appearance-row__control { display: flex; align-items: center; gap: 10px; }
+.appearance-row__control { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; max-width: 100%; }
 .appearance-row select { min-height: 34px; padding: 0 12px; border: 1px solid var(--line-whisper); border-radius: var(--radius-pill); color: var(--text); background: var(--panel-raised); font-size: 12px; transition: border-color .16s ease; }
 .appearance-row select:hover { border-color: var(--line-soft); }
 .appearance-swatch { display: inline-flex; align-items: center; gap: 10px; padding: 3px 14px 3px 3px; border: 1px solid var(--line-whisper); border-radius: var(--radius-pill); background: var(--panel-raised); }
 .appearance-swatch input[type='color'] { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; }
 .appearance-swatch code { color: var(--muted); font: 11px var(--mono); }
-.appearance-slider { display: inline-flex; align-items: center; gap: 14px; min-width: 0; }
-.appearance-slider input[type='range'] { width: 190px; min-width: 0; accent-color: var(--accent); }
+.appearance-slider { display: inline-flex; align-items: center; gap: 14px; min-width: 0; max-width: 100%; }
+.appearance-slider input[type='range'] { flex: 1 1 auto; width: 190px; min-width: 0; accent-color: var(--accent); }
 .appearance-slider code { min-width: 26px; color: var(--muted); font: 12px var(--mono); }
+@media (max-width: 410px) {
+  .appearance-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
 
 /* A translucent sidebar lets the page background show through, so it reads as
    one surface instead of two stacked panels. */
@@ -702,6 +705,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
  * declared rather than relying on one engine.
  */
 .settings-rail__list,
+.navigation-rail,
 .sidebar,
 .sidebar-processes__scroll,
 .workspace,
@@ -718,16 +722,19 @@ button:disabled { cursor: not-allowed; opacity: .45; }
  * A bar that appears only when the list overflows is the smaller cost.
  */
 .settings-rail__list::-webkit-scrollbar,
+.navigation-rail::-webkit-scrollbar,
 .sidebar::-webkit-scrollbar,
 .sidebar-processes__scroll::-webkit-scrollbar,
 .workspace::-webkit-scrollbar,
 .process-table-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
 .settings-rail__list::-webkit-scrollbar-track,
+.navigation-rail::-webkit-scrollbar-track,
 .sidebar::-webkit-scrollbar-track,
 .sidebar-processes__scroll::-webkit-scrollbar-track,
 .workspace::-webkit-scrollbar-track,
 .process-table-wrap::-webkit-scrollbar-track { background: transparent; }
 .settings-rail__list::-webkit-scrollbar-thumb,
+.navigation-rail::-webkit-scrollbar-thumb,
 .sidebar::-webkit-scrollbar-thumb,
 .sidebar-processes__scroll::-webkit-scrollbar-thumb,
 .workspace::-webkit-scrollbar-thumb,
@@ -738,6 +745,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   background-clip: content-box;
 }
 .settings-rail__list::-webkit-scrollbar-thumb:hover,
+.navigation-rail::-webkit-scrollbar-thumb:hover,
 .sidebar::-webkit-scrollbar-thumb:hover,
 .sidebar-processes__scroll::-webkit-scrollbar-thumb:hover,
 .workspace::-webkit-scrollbar-thumb:hover,
@@ -746,6 +754,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   background-clip: content-box;
 }
 .settings-rail__list::-webkit-scrollbar-corner,
+.navigation-rail::-webkit-scrollbar-corner,
 .sidebar::-webkit-scrollbar-corner,
 .sidebar-processes__scroll::-webkit-scrollbar-corner,
 .workspace::-webkit-scrollbar-corner,

@@ -16,7 +16,8 @@ async function openSettings(page: Page) {
 }
 
 async function section(page: Page, name: string) {
-  const tab = page.getByRole('tab', { name, exact: true });
+  // A selected section closes the mobile drawer, so its tab remains mounted but hidden.
+  const tab = page.getByRole('tab', { name, exact: true, includeHidden: true });
   const drawer = page.locator('.sidebar--settings');
   if ((page.viewportSize()?.width ?? 1440) <= 960 && !await drawer.evaluate((element) => element.classList.contains('is-open'))) {
     await page.getByRole('button', { name: '打开菜单' }).click();
@@ -61,7 +62,7 @@ test('saved config, integration states and personal settings survive production 
   await openSettings(page);
   await section(page, '常规');
   await page.getByRole('checkbox', { name: '启用自动续写', exact: true }).uncheck();
-  await page.getByRole('checkbox', { name: '监控 Claude', exact: true }).uncheck();
+  await page.getByRole('checkbox', { name: '监控 Claude Code', exact: true }).uncheck();
   await page.getByRole('checkbox', { name: 'Goal 状态 paused', exact: true }).uncheck();
   await page.getByLabel('轮询间隔（毫秒）').fill('4250');
   await page.getByLabel('Codex 普通对话', { exact: true }).fill('Pages 保存的提示词');
@@ -101,7 +102,7 @@ test('saved config, integration states and personal settings survive production 
   await openSettings(page);
   await section(page, '常规');
   await expect(page.getByRole('checkbox', { name: '启用自动续写', exact: true })).not.toBeChecked();
-  await expect(page.getByRole('checkbox', { name: '监控 Claude', exact: true })).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: '监控 Claude Code', exact: true })).not.toBeChecked();
   await expect(page.getByRole('checkbox', { name: 'Goal 状态 paused', exact: true })).not.toBeChecked();
   await expect(page.getByLabel('轮询间隔（毫秒）')).toHaveValue('4250');
   await expect(page.getByLabel('Codex 普通对话', { exact: true })).toHaveValue('Pages 保存的提示词');

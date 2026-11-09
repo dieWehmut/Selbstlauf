@@ -42,7 +42,7 @@ test('the desktop pet sits in the window corner, on every page', async ({ page }
   expect(overview.bottom, 'the pet is not near the bottom edge').toBeLessThanOrEqual(40);
 
   // The page changes, the ornament does not: that is the point of drawing it in the shell.
-  await page.locator('.sidebar').getByRole('button', { name: '事件' }).click();
+  await page.locator('.navigation-rail').getByRole('button', { name: '事件' }).click();
   await expect(page.getByRole('heading', { name: '事件记录' })).toBeVisible();
   await expect(pet, 'the pet vanished on another page').toBeVisible();
   const events = await corners();
