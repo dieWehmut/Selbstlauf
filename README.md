@@ -192,8 +192,12 @@ unless you changed them after installation.
 
 ## Continuation Watchdog
 
-The local watchdog monitors each same-user Claude/Codex process independently.
-It waits for the configured quiet period, records every decision, and uses
+The local watchdog discovers same-user Claude, Codex, DeepSeek Harness, Gemini CLI,
+Antigravity and Cursor processes. Gemini, Antigravity and Cursor support monitoring
+without automatic continuation; their monitoring switches are independent of the
+global automatic-continuation switch.
+For tools with a supported input transport, it waits for the configured quiet
+period, records every decision, and uses
 `继续` for ordinary sessions or `/goal resume` only for a resumable Codex goal.
 Set `dryRun` in the WebUI before enabling writes.
 
@@ -249,6 +253,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchd
 | Claude Code | `claude.ps1`、`claude-code` | `~/.claude/projects` 的 JSONL | Console / PTY / Stop Hook |
 | Codex CLI | `codex.exe`、`@openai/codex`、`codex.js` | `~/.codex` 的线程与 goal 状态库 | Codex App Server |
 | DeepSeek Harness | `dsh.exe` / `dsh.cmd`、`@deepseek-ai/dsh`、`deepseek-harness` 下的 `apps/cli/lib/bin.js` 与 `subprocess-local/runner.js` | `$DSH_HOME/sessions` 的会话目录与 `storages/session_projcache` 投影 | Harness 本机会话接口 |
+| Gemini CLI | `gemini`、`@google/gemini-cli` 的 Node 入口 | `~/.gemini/tmp/*/chats` 的 JSON / JSONL | 仅监控 |
+| Antigravity | 桌面主进程与关联的 language server | `~/.gemini/antigravity/conversation_summaries.db` | 仅监控 |
+| Cursor | 桌面主进程、agent-host daemon、独立 Cursor CLI | `~/.cursor`、`~/.cursor-agents` 与 Cursor 用户数据库 | 仅监控 |
+
+三种新工具显示进程位置、工作目录、会话标题、最近活动与可读的会话输出。只有工具明确记录的忙闲状态才会显示“执行中”或“等待输入”；缺少状态时显示“状态未知”。历史文件不会创建运行中的进程。IDE 可以展开多个工作区会话；无法唯一关联的 CLI 显示“未关联会话”。读取不到正文会说明原因，摘要不会冒充对话。
+
+在“设置”分别切换 Gemini CLI、Antigravity 和 Cursor 的监控，旧配置会自动补齐默认开关。Windows 和已配置 WSL 发行版分别读取各自用户的数据；WSL SQLite 使用包含 WAL 的临时本地快照，源数据库保持只读。
 
 DeepSeek Harness 的 `web` 宿主机是一个进程服务多个工作区，所以宿主机本身不是一个 agent：
 watchdog 会把每个仍然活跃的 harness 会话展开成独立的一行，会话 ID 取自 harness 自己的

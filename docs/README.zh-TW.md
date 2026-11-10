@@ -220,6 +220,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\continuation\uninstall-watchd
 | Claude Code | `claude.ps1`、`claude-code` | `~/.claude/projects` 的 JSONL | Console / PTY / Stop Hook |
 | Codex CLI | `codex.exe`、`@openai/codex`、`codex.js` | `~/.codex` 的執行緒與 goal 狀態庫 | Codex App Server |
 | DeepSeek Harness | `dsh.exe` / `dsh.cmd`、`@deepseek-ai/dsh`、`deepseek-harness` 下的 `apps/cli/lib/bin.js` 與 `subprocess-local/runner.js` | `$DSH_HOME/sessions` 的工作階段目錄與 `storages/session_projcache` 投影 | Harness 本機工作階段介面 |
+| Gemini CLI | `gemini`、`@google/gemini-cli` 的 Node 入口 | `~/.gemini/tmp/*/chats` 的 JSON / JSONL | 僅監控 |
+| Antigravity | 桌面主程序與 language server | `~/.gemini/antigravity/conversation_summaries.db` | 僅監控 |
+| Cursor | 桌面主程序、agent-host daemon、獨立 Cursor CLI | `~/.cursor`、`~/.cursor-agents` 與 Cursor 使用者資料庫 | 僅監控 |
+
+三種新工具提供位置、工作目錄、標題、最近活動與可讀輸出；忙閒狀態必須有工具明確記錄，缺少時顯示未知。歷史檔案不會建立執行中的程序，無法唯一關聯時會說明原因；摘要不會冒充對話。設定中的監控開關獨立於自動續寫，舊設定會補齊預設值。Windows 與已設定的 WSL 分別讀取自己的資料；WSL SQLite 使用含 WAL 的暫存本機快照，不寫入來源資料庫。
 
 DeepSeek Harness 的 `web` 宿主機是一個程序服務多個工作區，因此宿主機本身不是 agent：
 watchdog 會把每個仍活躍的 harness 工作階段展開成獨立的一列，工作階段 ID 取自 harness

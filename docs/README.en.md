@@ -188,8 +188,12 @@ changed them after installation.
 
 ## Continuation Watchdog
 
-The local watchdog monitors each same-user Claude/Codex process independently.
-It waits for the configured quiet period, records decisions, and uses `继续`
+The local watchdog discovers same-user Claude, Codex, DeepSeek Harness, Gemini CLI,
+Antigravity and Cursor processes. Gemini, Antigravity and Cursor support monitoring
+without automatic continuation; their monitoring switches are independent of the
+global automatic-continuation switch.
+For tools with a supported input transport, it waits for the configured quiet
+period, records decisions, and uses `继续`
 for ordinary sessions or `/goal resume` only for a resumable Codex goal.
 Enable writes only after reviewing the process and transport status in the UI.
 
@@ -228,6 +232,13 @@ and child processes into one logical session:
 | Claude Code | `claude.ps1`, `claude-code` | JSONL under `~/.claude/projects` | Console / PTY / Stop Hook |
 | Codex CLI | `codex.exe`, `@openai/codex`, `codex.js` | thread and goal databases under `~/.codex` | Codex App Server |
 | DeepSeek Harness | `dsh.exe` / `dsh.cmd`, `@deepseek-ai/dsh`, `apps/cli/lib/bin.js` and `subprocess-local/runner.js` under `deepseek-harness` | session directories under `$DSH_HOME/sessions` plus the `storages/session_projcache` projection | Harness local session API |
+| Gemini CLI | `gemini`, Node entries under `@google/gemini-cli` | JSON / JSONL under `~/.gemini/tmp/*/chats` | Monitor only |
+| Antigravity | desktop root and its language server | `~/.gemini/antigravity/conversation_summaries.db` | Monitor only |
+| Cursor | desktop root, agent-host daemon and standalone Cursor CLI | `~/.cursor`, `~/.cursor-agents` and Cursor user databases | Monitor only |
+
+These tools expose location, workspace, conversation title, recorded activity and readable conversation output. Busy/idle states require explicit tool metadata; missing state is shown as unknown. History alone never creates a running process. IDE hosts can expand multiple workspace conversations; ambiguous CLI associations remain unassociated. Missing output has a stated reason, and a summary is never presented as a transcript.
+
+Their Settings switches control monitoring independently of automatic continuation, with defaults for older configurations. Windows and the configured WSL distribution read their own user data. WSL SQLite databases are read through temporary local snapshots including WAL sidecars; source databases remain read-only.
 
 One DeepSeek Harness `web` host serves many workspaces, so the host process is
 not itself an agent: the watchdog expands every live harness session into its
