@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { DEFAULT_WSL_PROBE_TIMEOUT_MS, killWslProbeProcess } from './wsl-processes.js';
+
 const execFileAsync = promisify(execFile);
 
 /**
@@ -61,8 +63,9 @@ const TERMINAL_NAMES: readonly string[] = [
 
 export interface WslLauncherOptions {
   /** Overridden in tests so no child process is spawned. */
-  readonly runCommand?: (executable: string, args: readonly string[]) => Promise<string>;
+  readonly runCommand?: (executable: string, args: readonly string[], signal?: AbortSignal) => Promise<string>;
   readonly powershellPath?: string;
+  readonly timeoutMs?: number;
 }
 
 /**
@@ -125,21 +128,60 @@ export function parseWslLaunchers(stdout: string): WslLauncher[] {
  * under its distribution instead — which is honest, if less useful.
  */
 export async function listWslLaunchers(options: WslLauncherOptions = {}): Promise<WslLauncher[]> {
-  const run = options.runCommand ?? (async (executable: string, args: readonly string[]) => {
-    const result = await execFileAsync(executable, [...args], {
+  const timeoutMs = options.timeoutMs !== undefined && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+    ? options.timeoutMs
+    : DEFAULT_WSL_PROBE_TIMEOUT_MS;
+  const abort = new AbortController();
+  const run = options.runCommand ?? (async (executable: string, args: readonly string[], signal?: AbortSignal) => {
+    signal?.throwIfAborted();
+    const operation = execFileAsync(executable, [...args], {
       windowsHide: true,
       maxBuffer: 8 * 1024 * 1024,
       encoding: 'utf8',
+      // The shared deadline kills the whole tree first. This native timeout is a bounded fallback if close
+      // never arrives; killing the Windows parent before taskkill runs could leave its descendants alive.
+      timeout: timeoutMs + 2_500,
+      killSignal: 'SIGKILL',
     });
-    return result.stdout;
+    let cleanup: Promise<void> | undefined;
+    const onAbort = () => {
+      cleanup ??= killWslProbeProcess(operation.child).then(() => {
+        operation.child.stdin?.destroy();
+        operation.child.stdout?.destroy();
+        operation.child.stderr?.destroy();
+      });
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    try {
+      const result = await operation;
+      signal?.throwIfAborted();
+      return result.stdout;
+    } finally {
+      await cleanup;
+      signal?.removeEventListener('abort', onAbort);
+    }
   });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const stdout = await run(options.powershellPath ?? 'powershell.exe', [
-      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', LIST_LAUNCHERS_SCRIPT,
-    ]);
+    const stdout = await new Promise<string>((resolve, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`WSL launcher discovery timed out after ${timeoutMs}ms`);
+        abort.abort(error);
+        if (options.runCommand !== undefined) reject(error);
+        else cleanupTimer = setTimeout(() => { reject(error); }, 3_000);
+      }, timeoutMs);
+      Promise.resolve().then(() => run(options.powershellPath ?? 'powershell.exe', [
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', LIST_LAUNCHERS_SCRIPT,
+      ], abort.signal)).then(resolve, reject);
+    });
     return parseWslLaunchers(stdout);
   } catch {
     return [];
+  } finally {
+    clearTimeout(timer);
+    clearTimeout(cleanupTimer);
   }
 }
 

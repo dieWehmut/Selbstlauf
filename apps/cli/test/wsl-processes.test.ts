@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import {
+  DEFAULT_WSL_PROBE_TIMEOUT_MS,
+  killWslProbeProcess,
   listWslDistributions,
   listWslProcesses,
   parseWslProcessLine,
   parseWslPsOutput,
+  runWslProbe,
 } from '../src/process/wsl-processes.js';
+import { listWslLaunchers } from '../src/process/wsl-launcher.js';
 
 /**
  * Discovering processes inside a WSL distribution.
@@ -104,5 +113,126 @@ test('lists distributions, treating an absent WSL as none', async () => {
   for (const name of parsed) {
     assert.equal(name.includes('\u0000'), false, 'a NUL byte survived the decode');
     assert.equal(name, name.trim());
+  }
+});
+
+test('a hung injected WSL runner times out and receives cancellation', async () => {
+  let receivedSignal: AbortSignal | undefined;
+  const started = Date.now();
+  const result = await listWslProcesses({
+    distribution: 'Ubuntu-22.04',
+    timeoutMs: 20,
+    runWsl: async (_distribution, _script, signal) => {
+      receivedSignal = signal;
+      return await new Promise<string>(() => {});
+    },
+  });
+  assert.deepEqual(result.records, []);
+  assert.match(result.error ?? '', /Ubuntu-22\.04: WSL probe timed out after 20ms/u);
+  assert.equal(receivedSignal?.aborted, true);
+  assert.ok(Date.now() - started < 1_000, 'the Windows poll must not wait for the hung WSL runner');
+  assert.equal(DEFAULT_WSL_PROBE_TIMEOUT_MS, 5_000);
+});
+
+test('the shared WSL probe keeps scripts intact and clears a successful deadline', async () => {
+  let receivedSignal: AbortSignal | undefined;
+  const output = await runWslProbe({
+    distribution: ' Ubuntu-22.04 ',
+    timeoutMs: 20,
+    runWsl: async (distribution, script, signal) => {
+      assert.equal(distribution, 'Ubuntu-22.04');
+      assert.equal(script, 'printf "%s" "$HOME"');
+      receivedSignal = signal;
+      return '/home/test';
+    },
+  }, 'printf "%s" "$HOME"');
+  assert.equal(output, '/home/test');
+  await delay(30);
+  assert.equal(receivedSignal?.aborted, false, 'a successful probe must not be cancelled later');
+});
+
+test('a late injected WSL rejection after timeout remains handled', async () => {
+  await assert.rejects(runWslProbe({
+    distribution: 'Ubuntu-22.04',
+    timeoutMs: 10,
+    runWsl: async () => {
+      await delay(30);
+      throw new Error('late runner failure');
+    },
+  }, 'pwd'), /timed out/u);
+  await delay(40);
+});
+
+for (const discovery of ['WSL processes', 'WSL launchers'] as const) {
+  test(`${discovery} timeout kills a real probe that ignores SIGTERM`, {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'selbstlauf-wsl-timeout-'));
+    const executable = path.join(directory, 'hanging-probe.cjs');
+    const pidFile = path.join(directory, 'pid');
+    let pid: number | undefined;
+    try {
+      await writeFile(executable, [
+        '#!/usr/bin/env node',
+        `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+        'process.on("SIGTERM", () => {});',
+        'process.stdin.resume();',
+        'setInterval(() => {}, 1000);',
+      ].join('\n'), { mode: 0o755 });
+      if (discovery === 'WSL processes') {
+        await assert.rejects(runWslProbe({
+          distribution: 'Ubuntu-22.04', wslPath: executable, timeoutMs: 500,
+        }, 'pwd'), /timed out after 500ms/u);
+      } else {
+        assert.deepEqual(await listWslLaunchers({ powershellPath: executable, timeoutMs: 500 }), []);
+      }
+      pid = Number(await readFile(pidFile, 'utf8'));
+      let alive = true;
+      for (let attempt = 0; attempt < 40 && alive; attempt += 1) {
+        try { process.kill(pid, 0); } catch { alive = false; }
+        if (alive) await delay(25);
+      }
+      assert.equal(alive, false, 'the default runner must not leave its child process behind');
+    } finally {
+      if (pid === undefined) {
+        try { pid = Number(await readFile(pidFile, 'utf8')); } catch { /* The child did not start. */ }
+      }
+      if (pid !== undefined) { try { process.kill(pid, 'SIGKILL'); } catch { /* Already reaped. */ } }
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+test('Windows timeout cleanup kills the probe shim and its descendant only', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'selbstlauf-wsl-tree-timeout-'));
+  const pidFile = path.join(directory, 'pids.json');
+  const child = spawn(process.execPath, ['-e', [
+    'const grandchild = require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+    `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify([process.pid, grandchild.pid]));`,
+    'setInterval(() => {}, 1000);',
+  ].join('\n')], { stdio: 'pipe', windowsHide: true });
+  let pids: number[] = [];
+  try {
+    for (let attempt = 0; attempt < 80 && pids.length === 0; attempt += 1) {
+      try { pids = JSON.parse(await readFile(pidFile, 'utf8')) as number[]; }
+      catch { await delay(25); }
+    }
+    assert.equal(pids.length, 2, 'the test must start its own shim and descendant');
+    const cleanup = killWslProbeProcess(child);
+    assert.equal(killWslProbeProcess(child), cleanup, 'repeated cleanup must share the active tree kill');
+    await cleanup;
+    child.stdin.destroy();
+    child.stdout.destroy();
+    child.stderr.destroy();
+    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    for (let attempt = 0; attempt < 80 && pids.some(alive); attempt += 1) await delay(25);
+    assert.deepEqual(pids.filter(alive), [], 'taskkill must not leave the shim descendant behind');
+  } finally {
+    await killWslProbeProcess(child);
+    await delay(100);
+    for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* Already reaped. */ } }
+    await rm(directory, { recursive: true, force: true });
   }
 });

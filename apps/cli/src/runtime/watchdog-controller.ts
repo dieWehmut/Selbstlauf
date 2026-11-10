@@ -1,7 +1,6 @@
 import { readConversationMetadata } from './conversation-metadata.js';
 import { associateObservedGroups, cursorUserDataDirectory } from '../monitoring/association.js';
 import { scanToolSessions, readObservedSessionOutput, type ObservedToolSession, type ToolSessionLocations } from '../monitoring/tool-sessions.js';
-import { spawn as nodeSpawn } from 'node:child_process';
 import { access, readdir } from 'node:fs/promises';
 import { rmSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -43,7 +42,7 @@ import {
 import type { SessionHost } from '../process/host-apps.js';
 import { focusWindow, openLocalUrl, type WindowFocusResult } from '../process/window-focus.js';
 import { listWslLaunchers, terminalForInterop } from '../process/wsl-launcher.js';
-import { listWslProcesses } from '../process/wsl-processes.js';
+import { listWslProcesses, runWslProbe } from '../process/wsl-processes.js';
 import {
   WindowsProcessProvider,
   type ProcessProvider,
@@ -77,7 +76,8 @@ export interface WatchdogControllerOptions {
   /** The `wsl.exe` to use, overridden in tests. Defaults to the one on PATH. */
   readonly wslPath?: string;
   /** Runs a read-only distribution probe; overridable for isolated runtime tests. */
-  readonly wslRun?: (distribution: string, script: string) => Promise<string>;
+  readonly wslRun?: (distribution: string, script: string, signal?: AbortSignal) => Promise<string>;
+  readonly wslProbeTimeoutMs?: number;
   /** Copies distribution state to a local working directory; overridable for tests. */
   readonly wslStateSnapshot?: typeof snapshotWslCodexState;
   readonly claudeProjectsDirectory?: string;
@@ -197,7 +197,8 @@ export class WatchdogController {
   private readonly currentProcessId: number;
   private readonly platform: NodeJS.Platform;
   private readonly wslPath?: string;
-  private readonly wslRun?: (distribution: string, script: string) => Promise<string>;
+  private readonly wslRun?: (distribution: string, script: string, signal?: AbortSignal) => Promise<string>;
+  private readonly wslProbeTimeoutMs: number;
   private readonly wslStateSnapshot: typeof snapshotWslCodexState;
   /** The last WSL discovery failure, so a persistent one is not written to the audit log every poll. */
   private lastWslError: string | null = null;
@@ -260,6 +261,7 @@ export class WatchdogController {
     this.platform = options.platform ?? process.platform;
     this.wslPath = options.wslPath;
     this.wslRun = options.wslRun;
+    this.wslProbeTimeoutMs = options.wslProbeTimeoutMs ?? 5_000;
     this.wslStateSnapshot = options.wslStateSnapshot ?? snapshotWslCodexState;
     this.claudeProjectsDirectory = options.claudeProjectsDirectory ?? DEFAULT_CLAUDE_PROJECTS;
     this.dshHomeDirectory = options.dshHomeDirectory ?? defaultDshHome();
@@ -591,6 +593,7 @@ export class WatchdogController {
 
     const result = await listWslProcesses({
       distribution,
+      timeoutMs: this.wslProbeTimeoutMs,
       ...(this.wslPath === undefined ? {} : { wslPath: this.wslPath }),
       ...(this.wslRun === undefined ? {} : { runWsl: this.wslRun }),
     });
@@ -614,7 +617,7 @@ export class WatchdogController {
      * under its distribution, which is honest rather than a guess.
      */
     // The launcher list comes from the Windows side through PowerShell, so `wslPath` does not apply here.
-    const launchers = await listWslLaunchers();
+    const launchers = result.records.some(record => record.interopCreatedSec !== undefined) ? await listWslLaunchers() : [];
     const attributed = result.records.map((record) => {
       const terminal = terminalForInterop(record.interopCreatedSec, launchers);
       return terminal === null ? record : { ...record, wslTerminal: terminal.terminal ?? undefined };
@@ -1038,22 +1041,20 @@ export class WatchdogController {
   /** The distribution account's home directory, as the distribution itself reports it. */
   private async resolveWslHome(distribution: string): Promise<string | null> {
     try {
-      const stdout = this.wslRun === undefined ? await new Promise<string>((resolve, reject) => {
-        const child = nodeSpawn(this.wslPath ?? 'wsl.exe', ['-d', distribution, '--', 'sh', '-c', 'printf %s "$HOME"'], {
-          stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true,
-        });
-        let out = '';
-        child.stdout.on('data', (chunk) => { out += String(chunk); });
-        child.on('error', reject);
-        child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`wsl exited with code ${code}`))));
-      }) : await this.wslRun(distribution, 'printf %s "$HOME"');
+      const stdout = await this.readWslProbe(distribution, 'printf %s "$HOME"');
       const home = stdout.trim();
       return home.startsWith('/') ? home : null;
     } catch {
       // A stopped distribution is an ordinary state; the caller reports it as a missing transport.
       return null;
     }
+  }
+
+  private readWslProbe(distribution: string, script: string): Promise<string> {
+    return runWslProbe({ distribution, timeoutMs: this.wslProbeTimeoutMs,
+      ...(this.wslPath === undefined ? {} : { wslPath: this.wslPath }),
+      ...(this.wslRun === undefined ? {} : { runWsl: this.wslRun }),
+    }, script);
   }
 
   private async prepareCodex(session: RuntimeSession, config: WatchdogConfig): Promise<void> {
@@ -1161,17 +1162,7 @@ export class WatchdogController {
       'printf "%s\\t%s" "$node" "$entry"',
     ].join('\n');
     try {
-      const stdout = this.wslRun === undefined ? await new Promise<string>((resolve, reject) => {
-        const child = nodeSpawn(this.wslPath ?? 'wsl.exe', ['-d', distribution, '--', 'sh', '-s'], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          windowsHide: true,
-        });
-        let out = '';
-        child.stdout.on('data', (chunk) => { out += String(chunk); });
-        child.on('error', reject);
-        child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`wsl exited with code ${code}`))));
-        child.stdin.end(script);
-      }) : await this.wslRun(distribution, script);
+      const stdout = await this.readWslProbe(distribution, script);
       const [node, entry] = stdout.trim().split('\t');
       if (node === undefined || entry === undefined || node.length === 0 || entry.length === 0) return null;
       const launch = { node, entry };

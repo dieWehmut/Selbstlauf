@@ -197,3 +197,41 @@ test('WSL and Windows same-PID sessions read their own home, and one corrupt sou
   const events = (await readFile(auditPath, 'utf8')).split('\n').filter(Boolean).map(line => JSON.parse(line));
   assert.equal(events.filter(row => row.details?.reason === 'cursor-metadata: locked source').length, 1);
 });
+
+for (const blocked of ['processes', 'home'] as const) {
+  test(`a stalled WSL ${blocked} probe cannot stop Windows tool monitoring`, { timeout: 3000 }, async t => {
+    const directory = await mkdtemp(join(tmpdir(), 'selbstlauf-monitor-deadline-'));
+    const config = new ConfigStore(join(directory, 'config.json'));
+    const auditPath = join(directory, 'audit.jsonl');
+    await config.save({ ...defaultConfig, enabled: false, wslDistribution: 'Stalled', processFilters: { ...defaultConfig.processFilters, sameUserOnly: false } });
+    let cancelled = 0;
+    const controller = new WatchdogController({ configStore: config, auditStore: new AuditStore(auditPath), platform: 'win32', currentProcessId: 99, now: () => 12_000,
+      wslProbeTimeoutMs: 10,
+      provider: { listProcesses: async () => [
+        { pid: 11, parentPid: 0, name: 'node.exe', commandLine: 'node C:\\npm\\@google\\gemini-cli\\dist\\index.js', executablePath: null, creationTimeMs: 10_000, userSid: null, workingDirectory: '/gemini' },
+        { pid: 12, parentPid: 0, name: 'Cursor.exe', commandLine: 'Cursor.exe', executablePath: 'C:\\Cursor.exe', creationTimeMs: 10_000, userSid: null, workingDirectory: '/cursor' },
+        { pid: 13, parentPid: 0, name: 'Antigravity.exe', commandLine: 'Antigravity.exe', executablePath: 'C:\\Antigravity.exe', creationTimeMs: 10_000, userSid: null, workingDirectory: '/antigravity' },
+      ] },
+      wslRun: async (_distribution, script, signal) => {
+        if ((blocked === 'home' && script === 'printf %s "$HOME"') || (blocked === 'processes' && script.includes('ps -eo'))) {
+          signal?.addEventListener('abort', () => { cancelled++; }, { once: true });
+          return new Promise<string>(() => undefined);
+        }
+        return '42\t1\tnode\tnode /npm/@google/gemini-cli/dist/index.js\t/wsl\t\t0\n';
+      },
+      monitorScanner: async (tool, locations) => locations.homeDirectory.startsWith('\\\\wsl.localhost') ? [] : [observation(tool, `${tool}-chat`, `/${tool}`)],
+      transportFactory: () => { throw Error('Monitor probes must not create input transports'); },
+    });
+    t.after(async () => { await controller.stop(); await rm(directory, { recursive: true, force: true }); });
+    await controller.poll();
+    assert.equal(cancelled, 1);
+    assert.equal(controller.status().lastPollAtMs, 12_000);
+    const native = (await controller.list()).filter(row => row.alive && !row.distribution);
+    assert.deepEqual(native.map(row => row.tool).sort(), ['antigravity', 'cursor', 'gemini']);
+    assert(native.every(row => row.lastDecision === 'monitoring'));
+    if (blocked === 'processes') {
+      const { readFile } = await import('node:fs/promises');
+      assert.match(await readFile(auditPath, 'utf8'), /wsl-discovery.*timed out/u);
+    }
+  });
+}

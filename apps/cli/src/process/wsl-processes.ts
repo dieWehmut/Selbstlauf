@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 
 import type { RawProcessRecord } from './process-provider.js';
 
@@ -24,6 +24,36 @@ export interface WslDiscoveryOptions {
   readonly runWsl?: (distribution: string, script: string, signal?: AbortSignal) => Promise<string>;
   /** Overridden in tests, and defaulted to `wsl.exe` on Windows. */
   readonly wslPath?: string;
+  /** Internal discovery deadline; WSL must not block Windows monitoring. */
+  readonly timeoutMs?: number;
+}
+
+export const DEFAULT_WSL_PROBE_TIMEOUT_MS = 5_000;
+const WSL_PROBE_CLEANUP_TIMEOUT_MS = 3_000;
+const pendingProbeKills = new WeakMap<ChildProcess, Promise<void>>();
+
+/** Kill only the probe's process tree: the Windows WSL shim can launch another wsl.exe beneath it. */
+export function killWslProbeProcess(child: ChildProcess): Promise<void> {
+  const pending = pendingProbeKills.get(child);
+  if (pending !== undefined) return pending;
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  const killChild = () => {
+    try { child.kill('SIGKILL'); } catch { /* The probe may already have exited. */ }
+  };
+  if (process.platform !== 'win32' || child.pid === undefined) { killChild(); return Promise.resolve(); }
+  // Let taskkill find the descendants before terminating the shim. Killing the shim first could orphan them.
+  const operation = new Promise<void>((resolve) => {
+    execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+      windowsHide: true,
+      timeout: 2_000,
+      killSignal: 'SIGKILL',
+    }, (error) => {
+      if (error !== null) killChild();
+      resolve();
+    });
+  }).finally(() => { pendingProbeKills.delete(child); });
+  pendingProbeKills.set(child, operation);
+  return operation;
 }
 
 export interface WslDiscoveryResult {
@@ -72,29 +102,93 @@ const PROBE_SCRIPT = [
 
 function defaultRunWsl(wslPath: string) {
   return async (distribution: string, script: string, signal?: AbortSignal): Promise<string> => {
+    signal?.throwIfAborted();
     return await new Promise<string>((resolve, reject) => {
-      const child = spawn(wslPath, ['-d', distribution, '--', 'sh', '-s'], {
+      const child = spawn(wslPath, ['-d', distribution, '--exec', 'sh', '-s'], {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
-        ...(signal === undefined ? {} : { signal }),
       });
       let stdout = '';
       let stderr = '';
-      child.stdout.on('data', (chunk) => { stdout += String(chunk); });
-      child.stderr.on('data', (chunk) => { stderr += String(chunk); });
-      child.on('error', reject);
-      child.on('close', (code) => {
+      let settled = false;
+      let stopping = false;
+      const onStdout = (chunk: Buffer) => { stdout += String(chunk); };
+      const onStderr = (chunk: Buffer) => { stderr += String(chunk); };
+      const finish = (error: unknown, output = '') => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener('abort', onAbort);
+        child.stdout.off('data', onStdout);
+        child.stderr.off('data', onStderr);
+        if (error !== undefined) reject(error);
+        else resolve(output);
+      };
+      const stop = (error: unknown) => {
+        if (settled || stopping) return;
+        stopping = true;
+        // Terminate only this read-only probe, never the distribution or its user processes. SIGKILL also
+        // prevents a stuck probe that ignores SIGTERM from surviving the discovery deadline.
+        // Closing the pipes can make the WSL shim exit before taskkill enumerates conhost.exe beneath it.
+        // Preserve them until tree termination has completed, including simultaneous timeout/stdin errors.
+        void killWslProbeProcess(child).then(() => {
+          child.stdin.destroy();
+          child.stdout.destroy();
+          child.stderr.destroy();
+          finish(error);
+        });
+      };
+      const onAbort = () => { stop(signal?.reason ?? new Error('WSL probe aborted')); };
+      const onError = (error: Error) => { stop(error); };
+      child.stdout.on('data', onStdout);
+      child.stderr.on('data', onStderr);
+      // Keep error handlers until close: spawn or stdin errors can arrive after a timeout killed the child.
+      child.on('error', onError);
+      child.stdin.on('error', onError);
+      child.once('close', (code) => {
+        child.off('error', onError);
+        child.stdin.off('error', onError);
+        if (stopping) return;
         if (code === 0) {
-          resolve(stdout);
+          finish(undefined, stdout);
           return;
         }
         // A distribution that is not running, or is not installed, is an ordinary state rather than a bug,
         // so the message is carried out rather than swallowed.
-        reject(new Error(stderr.trim().length > 0 ? stderr.trim() : `wsl exited with code ${code}`));
+        finish(new Error(stderr.trim().length > 0 ? stderr.trim() : `wsl exited with code ${code}`));
       });
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) { onAbort(); return; }
       child.stdin.end(script);
     });
   };
+}
+
+/** Run one read-only WSL script with a deadline, including injected runners that ignore cancellation. */
+export async function runWslProbe(options: WslDiscoveryOptions, script: string): Promise<string> {
+  const distribution = options.distribution.trim();
+  if (distribution.length === 0) throw new Error('no distribution configured');
+  const timeoutMs = options.timeoutMs !== undefined && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+    ? options.timeoutMs
+    : DEFAULT_WSL_PROBE_TIMEOUT_MS;
+  const run = options.runWsl ?? defaultRunWsl(options.wslPath ?? 'wsl.exe');
+  const abort = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error(`WSL probe timed out after ${timeoutMs}ms`);
+        abort.abort(error);
+        if (options.runWsl !== undefined) reject(error);
+        else cleanupTimer = setTimeout(() => { reject(error); }, WSL_PROBE_CLEANUP_TIMEOUT_MS);
+      }, timeoutMs);
+      // Attach both handlers even when the deadline wins, so a late injected rejection is consumed.
+      Promise.resolve().then(() => run(distribution, script, abort.signal)).then(resolve, reject);
+    });
+  } finally {
+    clearTimeout(timer);
+    clearTimeout(cleanupTimer);
+  }
 }
 
 /**
@@ -168,10 +262,8 @@ export async function listWslProcesses(options: WslDiscoveryOptions): Promise<Ws
   const distribution = options.distribution.trim();
   if (distribution.length === 0) return { records: [], error: 'no distribution configured' };
 
-  const wslPath = options.wslPath ?? 'wsl.exe';
-  const run = options.runWsl ?? defaultRunWsl(wslPath);
   try {
-    const stdout = await run(distribution, PROBE_SCRIPT);
+    const stdout = await runWslProbe(options, PROBE_SCRIPT);
     return { records: parseWslPsOutput(stdout) };
   } catch (error) {
     return {

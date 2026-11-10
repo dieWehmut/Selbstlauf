@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   LAUNCHER_MATCH_TOLERANCE_SEC,
+  listWslLaunchers,
   parseWslLaunchers,
   terminalForInterop,
 } from '../src/process/wsl-launcher.js';
@@ -102,4 +103,27 @@ test('the tolerance is what the design documents', () => {
   // WSL creates the socket as the invocation starts, so the two times are within a second or two; ten leaves
   // room for a slow start without letting an unrelated invocation match.
   assert.equal(LAUNCHER_MATCH_TOLERANCE_SEC, 10);
+});
+
+test('a hung injected launcher query times out without blocking discovery', async () => {
+  let receivedSignal: AbortSignal | undefined;
+  const started = Date.now();
+  const launchers = await listWslLaunchers({
+    timeoutMs: 20,
+    runCommand: async (_executable, _args, signal) => {
+      receivedSignal = signal;
+      return await new Promise<string>(() => {});
+    },
+  });
+  assert.deepEqual(launchers, []);
+  assert.equal(receivedSignal?.aborted, true);
+  assert.ok(Date.now() - started < 1_000);
+});
+
+test('a successful injected launcher query still retains terminal attribution', async () => {
+  const launchers = await listWslLaunchers({
+    timeoutMs: 20,
+    runCommand: async () => '30044|1789890248|wsl.exe,cmd.exe,Tabby.exe\n',
+  });
+  assert.equal(launchers[0]?.terminal, 'Tabby.exe');
 });
