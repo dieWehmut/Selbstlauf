@@ -10,6 +10,8 @@ export interface RawProcessRecord {
   readonly parentPid: number;
   readonly name: string;
   readonly commandLine: string | null;
+  /** Original argument boundaries when available, such as Linux /proc cmdline's NUL-separated argv. */
+  readonly arguments?: readonly string[];
   readonly executablePath: string | null;
   readonly creationTimeMs: number | null;
   readonly userSid: string | null;

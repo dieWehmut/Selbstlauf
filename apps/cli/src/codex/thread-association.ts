@@ -3,6 +3,7 @@ import { resolve, sep, posix } from 'node:path';
 
 export interface CodexProcessContext {
   readonly commandLine: string;
+  readonly arguments?: readonly string[];
   readonly cwd: string | null;
   readonly creationTimeMs: number;
   readonly activeThreadIds?: readonly string[];
@@ -48,9 +49,21 @@ export type ThreadAssociationResult =
 
 const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const RESUME_PATTERN = new RegExp(`(?:^|[\\s"'])resume[\\s"']+(${UUID_PATTERN})(?=$|[\\s"'])`, 'i');
+const RAW_RESUME_UUID_PATTERN = new RegExp(`^${UUID_PATTERN}$`, 'i');
 
 /** Extract only a canonical UUID token immediately following `resume`. */
-export function extractResumeThreadId(commandLine: string): string | null {
+export function extractResumeThreadId(commandLine: string, arguments_?: readonly string[]): string | null {
+  if (arguments_ !== undefined) {
+    const valueFlags = new Set(['--prompt', '-p', '--system-prompt', '--system-prompt-file', '--config', '-c', '--image', '-i', '--cd', '-C', '--cwd', '--model', '-m', '--profile']);
+    for (let index = 1; index < arguments_.length; index++) {
+      const token = arguments_[index]!;
+      if (token === '--') break;
+      if (valueFlags.has(token)) { index++; continue; }
+      const id = arguments_[index + 1];
+      if (token === 'resume' && id !== undefined && RAW_RESUME_UUID_PATTERN.test(id)) return id.toLowerCase();
+    }
+    return null;
+  }
   if (typeof commandLine !== 'string') return null;
   const match = RESUME_PATTERN.exec(commandLine);
   return match === null ? null : match[1].toLowerCase();
@@ -69,7 +82,7 @@ export function associateCodexThread(
   options: { readonly activityFactory?: (thread: CodexThreadRecord) => RolloutActivity } = {},
 ): ThreadAssociationResult {
   const activityFactory = options.activityFactory ?? ((thread) => createRolloutActivity(thread.rolloutPath, thread.status));
-  const resumeId = extractResumeThreadId(process.commandLine);
+  const resumeId = extractResumeThreadId(process.commandLine, process.arguments);
   if (resumeId !== null) {
     const explicit = threads.filter((thread) => thread.id.toLowerCase() === resumeId);
     if (explicit.length === 1) {

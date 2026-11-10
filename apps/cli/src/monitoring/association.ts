@@ -37,11 +37,12 @@ function projectMatches(group: DiscoveredProcessSession, session: ObservedToolSe
     createHash('sha256').update(cwd).digest('hex') === session.projectHash;
 }
 
-function resumeId(commandLine: string | null): string | null {
+function resumeId(commandLine: string | null, arguments_?: readonly string[]): string | null {
   // Quoted prompt text stays one argument and cannot supply a resume option.
-  const tokens = commandArguments(commandLine);
-  for (let index = 0; index < tokens.length; index++) {
+  const tokens = commandArguments(commandLine, arguments_);
+  for (let index = arguments_ === undefined ? 0 : 1; index < tokens.length; index++) {
     const token = tokens[index]!;
+    if (arguments_ !== undefined && token === '--') break;
     if (['--prompt', '-p', '--system-prompt', '--system-prompt-file'].includes(token)) { index++; continue; }
     if (/^--(?:resume|session-id|session|chat-id)=/u.test(token)) return token.slice(token.indexOf('=') + 1);
     if (['--resume', '--session-id', '--session', '--chat-id', '-r'].includes(token)) return !tokens[index + 1] || tokens[index + 1]!.startsWith('-') ? 'latest' : tokens[index + 1]!;
@@ -49,17 +50,22 @@ function resumeId(commandLine: string | null): string | null {
   return null;
 }
 
-function commandArguments(commandLine: string | null): string[] {
+function commandArguments(commandLine: string | null, arguments_?: readonly string[]): readonly string[] {
+  if (arguments_ !== undefined) return arguments_;
   return (commandLine ?? '').match(/(?:"(?:\\.|[^"\\])*"|'[^']*'|[^\s"']+)+/gu)?.map(token => token.replace(/^(['"])(.*)\1$/u, '$2')) ?? [];
 }
 
-export function cursorUserDataDirectory(commandLine: string | null): string | undefined {
-  const tokens = commandArguments(commandLine);
-  for (let index = 0; index < tokens.length; index++) {
+export function cursorUserDataDirectory(commandLine: string | null, arguments_?: readonly string[]): string | undefined {
+  const tokens = commandArguments(commandLine, arguments_);
+  for (let index = arguments_ === undefined ? 0 : 1; index < tokens.length; index++) {
     const token = tokens[index]!;
+    if (arguments_ !== undefined) {
+      if (token === '--') break;
+      if (['--prompt', '-p', '--system-prompt', '--system-prompt-file'].includes(token)) { index++; continue; }
+    }
     const value = token === '--user-data-dir' ? tokens[index + 1] : token.startsWith('--user-data-dir=') ? token.slice(16) : undefined;
     if (!value) continue;
-    const path = value.replace(/^(['"])(.*)\1$/u, '$2');
+    const path = arguments_ === undefined ? value.replace(/^(['"])(.*)\1$/u, '$2') : value;
     if (win32.isAbsolute(path) || posix.isAbsolute(path)) return path;
   }
   return undefined;
@@ -76,7 +82,7 @@ export function associateObservedGroups(groups: readonly DiscoveredProcessSessio
   // A CLI with an explicit conversation ID is stronger evidence than shared
   // editor history. Reserve it before expanding the desktop hosts.
   for (const group of groups.filter(group => group.processKind !== 'desktop')) {
-    const explicit = resumeId(group.commandLine);
+    const explicit = resumeId(group.commandLine, group.arguments);
     let candidates = records.filter(session => session.tool === group.tool && (explicit && explicit !== 'latest'
       ? session.id === explicit : projectMatches(group, session, ownershipGroups)));
     if (!explicit) candidates = candidates.filter(session => fresh(group, session));

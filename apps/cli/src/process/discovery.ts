@@ -43,6 +43,7 @@ export interface DiscoveredProcessSession {
   readonly rootPid: number;
   readonly childPids: readonly number[];
   readonly commandLine: string | null;
+  readonly arguments?: readonly string[];
   readonly executablePath: string | null;
   readonly creationTimeMs: number | null;
   readonly userSid: string | null;
@@ -80,7 +81,8 @@ const DEFAULT_CURSOR_EXECUTABLE_NAMES = ['cursor', 'cursor.exe', 'cursor-agent',
 const DEFAULT_ANTIGRAVITY_EXECUTABLE_NAMES = ['antigravity', 'antigravity.exe', 'antigravity.cmd', 'antigravity.ps1'];
 
 /** Keep quoted paths and prompts whole, including --flag="a path". */
-function commandArguments(commandLine: string | null): string[] {
+function commandArguments(commandLine: string | null, arguments_?: readonly string[]): readonly string[] {
+  if (arguments_ !== undefined) return arguments_;
   const args: string[] = [];
   let value = '', quote = '', started = false;
   for (const char of commandLine ?? '') {
@@ -102,7 +104,7 @@ function commandArguments(commandLine: string | null): string[] {
 
 /** The actual script executed by Node/Bun or a POSIX launcher, not prompt text. */
 function runtimeEntry(record: RawProcessRecord): string | null {
-  const args = commandArguments(record.commandLine);
+  const args = commandArguments(record.commandLine, record.arguments);
   if (!/^(?:node|bun|sh|bash|zsh)(?:\.exe)?$/u.test(basename(args[0] ?? null) ?? '')) return null;
   for (let index = 1; index < args.length; index += 1) {
     const arg = args[index]!;
@@ -141,7 +143,7 @@ function cursorDesktopEntry(value: string | null): boolean {
 
 /** Electron may run Node workers under its own image name without --type. */
 function electronScriptEntry(record: RawProcessRecord): string | null {
-  const args = commandArguments(record.commandLine);
+  const args = commandArguments(record.commandLine, record.arguments);
   const executable = record.executablePath ?? args[0] ?? null;
   const parts = pathParts(executable);
   if (!/^(?:cursor|antigravity)(?:\.exe)?$/u.test(parts.at(-1) ?? '')) return null;
@@ -154,7 +156,7 @@ function electronScriptEntry(record: RawProcessRecord): string | null {
 }
 
 function antigravityHelper(record: RawProcessRecord): boolean {
-  const value = record.executablePath ?? commandArguments(record.commandLine)[0] ?? null;
+  const value = record.executablePath ?? commandArguments(record.commandLine, record.arguments)[0] ?? null;
   const parts = pathParts(value);
   if (!/(?:^|\/)resources\/bin\/language_server(?:\.exe)?$/u.test(parts.join('/'))) return false;
   // The filename is shared by other IDEs. Require Antigravity's installation
@@ -168,7 +170,7 @@ function desktopAgentHelper(record: RawProcessRecord): boolean {
 }
 
 function isElectronHelper(record: RawProcessRecord): boolean {
-  return commandArguments(record.commandLine).slice(1).some((arg) =>
+  return commandArguments(record.commandLine, record.arguments).slice(1).some((arg) =>
     /^--(?:type(?:=|$)|utility-sub-type(?:=|$)|crashpad-handler(?:=|$))/u.test(arg));
 }
 
@@ -176,7 +178,7 @@ function processKind(record: RawProcessRecord, tool: DiscoveredTool): 'cli' | 'd
   if (tool === 'gemini') return 'cli';
   if (tool === 'cursor') {
     return cursorCliPath(record.executablePath) || cursorCliPath(record.name) || cursorCliPath(runtimeEntry(record)) ||
-      cursorCliPath(commandArguments(record.commandLine)[0] ?? null)
+      cursorCliPath(commandArguments(record.commandLine, record.arguments)[0] ?? null)
       ? 'cli' : 'desktop';
   }
   if (tool === 'antigravity') return 'desktop';
@@ -242,7 +244,7 @@ export function detectProcessTool(
   const dshNames = options.dshExecutableNames ?? DEFAULT_DSH_EXECUTABLE_NAMES;
   const entry = runtimeEntry(record);
   const electronEntry = electronScriptEntry(record);
-  const firstArgument = commandArguments(record.commandLine)[0] ?? null;
+  const firstArgument = commandArguments(record.commandLine, record.arguments)[0] ?? null;
   const isGemini = configuredNameMatches(record, options.geminiExecutableNames ?? DEFAULT_GEMINI_EXECUTABLE_NAMES) ||
     geminiEntry(entry);
   const cursorCli = cursorCliPath(record.executablePath) || cursorCliPath(record.name) || cursorCliPath(entry) ||
@@ -472,7 +474,7 @@ export function groupProcesses(
     .map(({ tool, root, childPids }) => {
       const kind = kindByPid.get(root.pid);
       const desktopHelper = desktopHelperPids.has(root.pid);
-      const workingDirectory = resolveWorkingDirectory(root.commandLine, root.workingDirectory, desktopHelper ? undefined : kind);
+      const workingDirectory = resolveWorkingDirectory(root.commandLine, root.workingDirectory, desktopHelper ? undefined : kind, root.arguments);
       const desktopHostName = hostAppFor(root.name) ? root.name : tool;
       const host = classifySessionHost({
         rootPid: root.pid,
@@ -496,6 +498,7 @@ export function groupProcesses(
         rootPid: root.pid,
         childPids: childPids.sort((left, right) => left - right),
         commandLine: root.commandLine,
+        ...(root.arguments === undefined ? {} : { arguments: root.arguments }),
         executablePath: root.executablePath,
         creationTimeMs: root.creationTimeMs,
         userSid: root.userSid,
@@ -550,9 +553,13 @@ function hostFromWslTerminal(
   };
 }
 
-function extractWorkingDirectory(commandLine: string | null): string | null {
-  const args = commandArguments(commandLine).slice(1);
+function extractWorkingDirectory(commandLine: string | null, arguments_?: readonly string[]): string | null {
+  const args = commandArguments(commandLine, arguments_).slice(1);
   for (let index = 0; index < args.length; index += 1) {
+    if (arguments_ !== undefined) {
+      if (args[index] === '--') break;
+      if (['--prompt', '-p', '--system-prompt', '--system-prompt-file'].includes(args[index]!)) { index++; continue; }
+    }
     const flag = /^(?:--cd|--cwd|--directory|-C)(?:=(.*))?$/u.exec(args[index]!);
     if (!flag) continue;
     const value = flag[1] ?? args[index + 1];
@@ -561,10 +568,11 @@ function extractWorkingDirectory(commandLine: string | null): string | null {
   return null;
 }
 
-function desktopProjectDirectory(commandLine: string | null): string | null {
-  const args = commandArguments(commandLine).slice(1);
+function desktopProjectDirectory(commandLine: string | null, arguments_?: readonly string[]): string | null {
+  const args = commandArguments(commandLine, arguments_).slice(1);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
+    if (arguments_ !== undefined && ['--prompt', '-p', '--system-prompt', '--system-prompt-file'].includes(arg)) { index++; continue; }
     const uriFlag = /^(--folder-uri|--file-uri)(?:=(.*))?$/u.exec(arg);
     if (!uriFlag) continue;
     const value = uriFlag[2] ?? args[index + 1];
@@ -583,6 +591,7 @@ function desktopProjectDirectory(commandLine: string | null): string | null {
     '--remote', '--open-url', '--folder-uri', '--file-uri', '--inspect-extensions',
     '--inspect-brk-extensions', '--logsPath', '--crash-reporter-directory',
   ]);
+  if (arguments_ !== undefined) for (const flag of ['--prompt', '-p', '--system-prompt', '--system-prompt-file']) valueFlags.add(flag);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg.startsWith('-')) {
@@ -601,9 +610,10 @@ function resolveWorkingDirectory(
   commandLine: string | null,
   processCwd?: string | null,
   kind?: 'cli' | 'desktop',
+  arguments_?: readonly string[],
 ): string | null {
-  const explicit = extractWorkingDirectory(commandLine) ??
-    (kind === 'desktop' ? desktopProjectDirectory(commandLine) : null);
+  const explicit = extractWorkingDirectory(commandLine, arguments_) ??
+    (kind === 'desktop' ? desktopProjectDirectory(commandLine, arguments_) : null);
   if (explicit === null) return processCwd ?? null;
   const paths = /^[a-z]:[\\/]|^[\\]{2}/iu.test(explicit) || /^[a-z]:[\\/]|^[\\]{2}/iu.test(processCwd ?? '') ? win32 : posix;
   if (paths.isAbsolute(explicit)) return explicit;
