@@ -720,13 +720,22 @@ export class WatchdogController {
     const claimedSources = new Set<string>();
     for (const group of groups) {
       if (!isObservedTool(group.tool)) continue;
+      const processKey = sessionIdFor(group);
+      const observed = this.observedProcessStarts.get(processKey);
+      if (!observed || processIdentityChanged(observed.group, group)) {
+        this.observedProcessStarts.set(processKey, { group, atMs: timestamp });
+      }
       const profile = group.tool === 'cursor' && group.processKind === 'desktop' ? cursorUserDataDirectory(group.commandLine) : undefined;
       const key = JSON.stringify([group.distribution ?? '', group.tool, profile ?? '']);
       const namespace = namespaces.get(key) ?? [];
       namespace.push(group);
       namespaces.set(key, namespace);
     }
-    for (const namespace of namespaces.values()) {
+    // A CLI's explicit resume/project association reserves shared recordings
+    // before desktop profiles can claim them.
+    const orderedNamespaces = [...namespaces.values()].sort((a, b) =>
+      Number(b.some(group => group.processKind !== 'desktop')) - Number(a.some(group => group.processKind !== 'desktop')));
+    for (const namespace of orderedNamespaces) {
       const group = namespace[0]!;
       if (!isObservedTool(group.tool)) continue;
       let locations = this.monitorLocations;
@@ -750,17 +759,13 @@ export class WatchdogController {
         }
       }
       const firstObservedAt = new Map<number, number>();
-      for (const process of namespace) {
-        const key = sessionIdFor(process);
-        let observed = this.observedProcessStarts.get(key);
-        if (!observed || processIdentityChanged(observed.group, process)) {
-          observed = { group: process, atMs: timestamp }; this.observedProcessStarts.set(key, observed);
-        }
-        firstObservedAt.set(process.rootPid, observed.atMs);
+      const ownershipGroups = groups.filter(other => other.tool === group.tool && other.distribution === group.distribution);
+      for (const process of ownershipGroups) {
+        firstObservedAt.set(process.rootPid, this.observedProcessStarts.get(sessionIdFor(process))!.atMs);
       }
       const sourceKey = (session: ObservedToolSession): string => `${group.distribution ?? ''}:${session.tool}:${session.id}:${this.platform === 'win32' && !group.distribution ? session.path.toLowerCase().replaceAll('/', '\\') : session.path}`;
       records = records.filter(session => !claimedSources.has(sourceKey(session)));
-      for (const association of associateObservedGroups(namespace, records, timestamp, firstObservedAt, profile)) {
+      for (const association of associateObservedGroups(namespace, records, timestamp, firstObservedAt, profile, ownershipGroups)) {
         result.push(association.group);
         if (association.session) {
           this.observedSessions.set(sessionIdFor(association.group), association.session);

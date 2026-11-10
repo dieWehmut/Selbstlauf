@@ -46,6 +46,8 @@ export interface ObservedToolSession {
   /** Cursor's project directory key; it is lossy and must only be matched to a known cwd. */
   readonly projectSlug?: string;
   readonly projectSlugKind?: CursorProjectSlugKind;
+  /** Composer metadata's owning profile, independent of the selected transcript source/path. */
+  readonly cursorProfileDirectory?: string;
 }
 
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -255,7 +257,7 @@ async function scanCursor(locations: ToolSessionLocations): Promise<ObservedTool
       // Empty draft placeholders carry IDs but are not conversations.
       if (!array(data.fullConversationHeadersOnly).length && !Object.keys(object(data.conversationMap) ?? {}).length && !cwds.length) continue;
       const busy = cursorBusy(data);
-      result.push({ tool: 'cursor', id: data.composerId, cwds, title: string(data.name ?? data.title ?? details?.name ?? details?.title), source: 'cursor-composer',
+      result.push({ tool: 'cursor', id: data.composerId, cwds, title: string(data.name ?? data.title ?? details?.name ?? details?.title), source: 'cursor-composer', cursorProfileDirectory: profile,
         path: database, storageKey: data.composerId, startedAtMs: time(data.createdAt ?? details?.createdAt),
         lastActivityAtMs: time(data.lastUpdatedAt ?? details?.lastUpdatedAt ?? data.createdAt), ...(busy === undefined ? {} : { runningTurn: busy }) });
     }
@@ -479,19 +481,36 @@ function output(sessionId: string, source: SessionOutputSource, entries: readonl
   return { sessionId, state: 'ready', source, entries: selected.reverse(), truncated: truncated || entries.length > MAX_ENTRIES };
 }
 function deduplicate(sessions: readonly ObservedToolSession[]): ObservedToolSession[] {
-  const result = new Map<string, ObservedToolSession>();
+  const groups = new Map<string, ObservedToolSession[]>();
   for (const session of sessions) {
-    const key = `${session.tool}:${session.id}`; const previous = result.get(key);
-    if (previous?.tool === 'cursor' && (previous.source === 'cursor-jsonl' || session.source === 'cursor-jsonl')) {
-      const transcript = previous.source === 'cursor-jsonl' ? previous : session;
-      const metadata = previous.source !== 'cursor-jsonl' ? previous : session.source !== 'cursor-jsonl' ? session : transcript;
-      result.set(key, { ...metadata, ...transcript, cwds: uniquePaths([...previous.cwds, ...session.cwds]),
-        title: metadata.title ?? transcript.title, startedAtMs: metadata.startedAtMs ?? transcript.startedAtMs,
-        lastActivityAtMs: maxTime([previous.lastActivityAtMs, session.lastActivityAtMs]),
-        ...(metadata.runningTurn === undefined ? {} : { runningTurn: metadata.runningTurn }) });
-    } else if (!previous || (session.lastActivityAtMs ?? 0) > (previous.lastActivityAtMs ?? 0)) result.set(key, session);
+    const key = `${session.tool}:${session.id}`;
+    const group = groups.get(key);
+    if (group) group.push(session); else groups.set(key, [session]);
   }
-  return [...result.values()];
+  return [...groups.values()].map(group => {
+    if (group[0]!.tool !== 'cursor') return group.reduce((previous, session) =>
+      (session.lastActivityAtMs ?? 0) > (previous.lastActivityAtMs ?? 0) ? session : previous);
+    if (group.length === 1) return group[0]!;
+    const transcript = newestCursorObservation(group.filter(session => session.source === 'cursor-jsonl'));
+    const metadata = newestCursorObservation(group.filter(session => session.source !== 'cursor-jsonl'));
+    const composer = newestCursorObservation(group.filter(session => session.source === 'cursor-composer'));
+    // Compare original observations: a merged activity time must not make an old exported turn look current.
+    const state = newestCursorObservation(group, true)!;
+    return { ...metadata, ...(transcript ?? metadata!), cwds: uniquePaths(group.flatMap(session => [...session.cwds])),
+      title: metadata?.title ?? transcript?.title, startedAtMs: metadata?.startedAtMs ?? transcript?.startedAtMs,
+      lastActivityAtMs: maxTime(group.map(session => session.lastActivityAtMs)), runningTurn: state.runningTurn,
+      ...(composer?.cursorProfileDirectory ? { cursorProfileDirectory: composer.cursorProfileDirectory } : {}) };
+  });
+}
+function newestCursorObservation(sessions: readonly ObservedToolSession[], preferExplicitState = false): ObservedToolSession | undefined {
+  let newest: ObservedToolSession | undefined;
+  for (const session of sessions) {
+    const currentTime = session.lastActivityAtMs ?? -Infinity;
+    const newestTime = newest?.lastActivityAtMs ?? -Infinity;
+    if (!newest || currentTime > newestTime || (currentTime === newestTime &&
+      (!preferExplicitState || session.runningTurn !== undefined || newest.runningTurn === undefined))) newest = session;
+  }
+  return newest;
 }
 function unavailableReason(error: unknown): string {
   if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return 'transcript-missing';

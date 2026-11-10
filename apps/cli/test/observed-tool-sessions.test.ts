@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, rm, truncate, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, truncate, symlink, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -216,14 +216,16 @@ test('Cursor transcript and composer metadata merge by exact conversation ID and
   const path = join(root, '.cursor', 'projects', 'workspace', 'agent-transcripts', 'shared-chat.jsonl');
   await mkdir(join(path, '..'), { recursive: true });
   await writeFile(path, JSON.stringify({ role: 'assistant', message: { content: [{ type: 'text', text: 'readable transcript' }] } }));
+  await utimes(path, new Date(Date.parse(timestamp) - 1000), new Date(Date.parse(timestamp) - 1000));
   await mkdir(join(database, '..'), { recursive: true });
   const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(database);
   db.exec('CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value BLOB)');
-  db.prepare('INSERT INTO cursorDiskKV VALUES (?, ?)').run('composerData:shared-chat', JSON.stringify({ composerId: 'shared-chat', status: 'generating', name: 'Composer title', workspaceIdentifier: { folder: '/workspace/cursor' }, createdAt: Date.parse(timestamp), fullConversationHeadersOnly: [{ bubbleId: 'unreadable' }] }));
+  db.prepare('INSERT INTO cursorDiskKV VALUES (?, ?)').run('composerData:shared-chat', JSON.stringify({ composerId: 'shared-chat', status: 'generating', name: 'Composer title', workspaceIdentifier: { folder: '/workspace/cursor' }, createdAt: Date.parse(timestamp), lastUpdatedAt: Date.parse(timestamp), fullConversationHeadersOnly: [{ bubbleId: 'unreadable' }] }));
   db.close();
   const sessions = await scanToolSessions('cursor', { homeDirectory: root, appDataDirectory: config });
   assert.equal(sessions.length, 1); assert.equal(sessions[0]!.source, 'cursor-jsonl');
   assert.equal(sessions[0]!.title, 'Composer title'); assert.equal(sessions[0]!.runningTurn, true);
+  assert.equal(sessions[0]!.cursorProfileDirectory, join(config, 'Cursor'));
   assert.deepEqual(sessions[0]!.cwds, ['/workspace/cursor']); assert.equal(sessions[0]!.startedAtMs, Date.parse(timestamp));
   assert.deepEqual((await readObservedSessionOutput('cursor:process', sessions[0]!)).entries.map(row => row.text), ['readable transcript']);
 });
@@ -240,8 +242,81 @@ test('Cursor native daemon metadata merges only with its exact exported transcri
   const sessions = await scanToolSessions('cursor', { homeDirectory: root });
   assert.equal(sessions.length, 1); assert.equal(sessions[0]!.id, 'native-chat'); assert.equal(sessions[0]!.source, 'cursor-jsonl');
   assert.equal(sessions[0]!.projectSlugKind, 'cursor-daemon'); assert.equal(sessions[0]!.title, 'Native title');
+  assert.equal(sessions[0]!.cursorProfileDirectory, undefined);
   assert.deepEqual(sessions[0]!.cwds, [workspace]); assert.equal(sessions[0]!.runningTurn, undefined);
   assert.deepEqual((await readObservedSessionOutput('cursor:native', sessions[0]!)).entries.map(row => row.text), ['native exported output']);
+});
+
+test('Cursor native activity invalidates only older exported terminal state while retaining transcript output', async t => {
+  const base = Date.parse(timestamp);
+  for (const [name, nativeTime, exportTime, terminal, expected] of [
+    ['new native activity after a successful turn', base + 2000, base, 'success', undefined],
+    ['new native activity after an aborted turn', base + 2000, base, 'aborted', undefined],
+    ['new terminal export after native activity', base, base + 2000, 'success', false],
+    ['equal activity retains explicit terminal evidence', base, base, 'error', false],
+  ] as const) await t.test(name, async t => {
+    const root = await fixture(t), daemon = join(root, '.cursor-agents');
+    await save(join(daemon, 'sessions', 'native-chat', 'meta.json'), { schemaVersion: 1, sessionId: 'native-chat', origin: 'host-native', createdAtMs: base - 1000, updatedAtMs: nativeTime, title: 'Native title', isArchived: false, workspacePaths: ['/workspace/native'], latestRootBlobIdHex: 'a'.repeat(64) });
+    const path = join(daemon, 'projects', 'workspace-native', 'agent-transcripts', 'native-chat', 'native-chat.jsonl');
+    await mkdir(join(path, '..'), { recursive: true });
+    await writeFile(path, [
+      { role: 'assistant', message: { content: [{ type: 'text', text: 'retained exported answer' }] } },
+      { type: 'turn_ended', status: terminal },
+    ].map(row => JSON.stringify(row)).join('\n'));
+    await utimes(path, new Date(exportTime), new Date(exportTime));
+    const sessions = await scanToolSessions('cursor', { homeDirectory: root });
+    assert.equal(sessions.length, 1); const session = sessions[0]!;
+    assert.equal(session.runningTurn, expected); assert.equal(session.lastActivityAtMs, Math.max(nativeTime, exportTime));
+    assert.equal(session.source, 'cursor-jsonl'); assert.equal(session.cursorProfileDirectory, undefined);
+    assert.deepEqual((await readObservedSessionOutput('cursor:native', session)).entries.map(row => row.text), ['retained exported answer']);
+  });
+});
+
+test('Cursor uses original activity times across native, composer and export sources and keeps composer profile ownership', async t => {
+  const base = Date.parse(timestamp);
+  for (const [name, nativeTime, composerTime, exportTime, expected] of [
+    ['latest native activity clears both old explicit states', base + 3000, base + 2000, base + 1000, undefined],
+    ['latest composer generating state remains busy', base + 2000, base + 3000, base + 1000, true],
+    ['latest exported terminal state remains idle', base + 1000, base + 2000, base + 3000, false],
+  ] as const) await t.test(name, async t => {
+    const root = await fixture(t), profile = join(root, 'custom-profile'), daemon = join(root, '.cursor-agents');
+    await save(join(daemon, 'sessions', 'shared-chat', 'meta.json'), { schemaVersion: 1, sessionId: 'shared-chat', origin: 'migrated-from-renderer-cas', createdAtMs: base, updatedAtMs: nativeTime, isArchived: false, workspacePaths: ['/workspace/cursor'], latestRootBlobIdHex: 'b'.repeat(64) });
+    const path = join(daemon, 'projects', 'workspace-cursor', 'agent-transcripts', 'shared-chat', 'shared-chat.jsonl');
+    await mkdir(join(path, '..'), { recursive: true });
+    await writeFile(path, [
+      { role: 'assistant', message: { content: [{ type: 'text', text: 'shared exported answer' }] } },
+      { type: 'turn_ended', status: 'success' },
+    ].map(row => JSON.stringify(row)).join('\n'));
+    await utimes(path, new Date(exportTime), new Date(exportTime));
+    const database = join(profile, 'User', 'globalStorage', 'state.vscdb');
+    await mkdir(join(database, '..'), { recursive: true });
+    const { DatabaseSync } = await import('node:sqlite'); const db = new DatabaseSync(database);
+    db.exec('CREATE TABLE cursorDiskKV(key TEXT PRIMARY KEY, value BLOB)');
+    db.prepare('INSERT INTO cursorDiskKV VALUES (?, ?)').run('composerData:shared-chat', JSON.stringify({ composerId: 'shared-chat', status: 'generating', createdAt: base, lastUpdatedAt: composerTime, workspaceIdentifier: { folder: '/workspace/cursor' }, fullConversationHeadersOnly: [{ bubbleId: 'unreadable' }] }));
+    db.close();
+    const sessions = await scanToolSessions('cursor', { homeDirectory: root, cursorUserDataDirectory: profile });
+    assert.equal(sessions.length, 1); const session = sessions[0]!;
+    assert.equal(session.runningTurn, expected); assert.equal(session.lastActivityAtMs, Math.max(nativeTime, composerTime, exportTime));
+    assert.equal(session.source, 'cursor-jsonl'); assert.equal(session.path, path); assert.equal(session.cursorProfileDirectory, profile);
+    assert.deepEqual((await readObservedSessionOutput('cursor:shared', session)).entries.map(row => row.text), ['shared exported answer']);
+  });
+});
+
+test('Cursor selects the newest exported transcript when legacy and native stores contain the same session ID', async t => {
+  const root = await fixture(t), base = Date.parse(timestamp);
+  for (const [directory, text, offset, terminal] of [['.cursor', 'old export', 0, true], ['.cursor-agents', 'new export', 2000, false]] as const) {
+    const path = join(root, directory, 'projects', 'workspace-cursor', 'agent-transcripts', 'shared-chat.jsonl');
+    await mkdir(join(path, '..'), { recursive: true });
+    await writeFile(path, [
+      { role: 'assistant', message: { content: [{ type: 'text', text }] } },
+      ...(terminal ? [{ type: 'turn_ended', status: 'success' }] : []),
+    ].map(row => JSON.stringify(row)).join('\n'));
+    await utimes(path, new Date(base + offset), new Date(base + offset));
+  }
+  const sessions = await scanToolSessions('cursor', { homeDirectory: root });
+  assert.equal(sessions.length, 1); assert.equal(sessions[0]!.projectSlugKind, 'cursor-daemon');
+  assert.equal(sessions[0]!.runningTurn, undefined); assert.equal(sessions[0]!.cursorProfileDirectory, undefined);
+  assert.deepEqual((await readObservedSessionOutput('cursor:shared', sessions[0]!)).entries.map(row => row.text), ['new export']);
 });
 
 test('Cursor native metadata without an exported transcript reports unavailable and reads only the known exec-config key', async t => {
@@ -254,6 +329,7 @@ test('Cursor native metadata without an exported transcript reports unavailable 
   db.close();
   const session = (await scanToolSessions('cursor', { homeDirectory: root }))[0]!;
   assert.deepEqual(session.cwds, ['/workspace/native']); assert.equal(session.source, 'cursor-agent-host'); assert.equal(session.runningTurn, undefined);
+  assert.equal(session.cursorProfileDirectory, undefined);
   const result = await readObservedSessionOutput('cursor:native', session);
   assert.equal(result.state, 'unavailable'); assert.equal(result.reason, 'host-transcript-unavailable'); assert.deepEqual(result.entries, []);
   assert.equal(JSON.stringify(session).includes('private encryption'), false);
@@ -270,6 +346,7 @@ test('Cursor explicit user-data profile scopes both composer data and workspace 
   }
   const sessions = await scanToolSessions('cursor', { homeDirectory: root, appDataDirectory: config, cursorUserDataDirectory: custom });
   assert.equal(sessions.length, 1); assert.equal(sessions[0]!.id, 'custom-chat'); assert.deepEqual(sessions[0]!.cwds, [join(root, 'custom-chat')]);
+  assert.equal(sessions[0]!.cursorProfileDirectory, custom);
 });
 
 test('Antigravity uses explicit not_fully_idle and excludes killed conversations; summary-only output is unavailable', async t => {

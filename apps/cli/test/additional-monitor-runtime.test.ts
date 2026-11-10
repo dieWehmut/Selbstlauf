@@ -79,6 +79,49 @@ test('Cursor user-data profiles parse quoted paths and are scanned independently
   assert.equal(shared[0]!.rootPid, 10);
 });
 
+test('shared Cursor recordings choose their workspace across profiles before claiming a source', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'selbstlauf-monitor-profile-owner-'));
+  const config = new ConfigStore(join(directory, 'config.json'));
+  await config.save({ ...defaultConfig, enabled: false, processFilters: { ...defaultConfig.processFilters, sameUserOnly: false } });
+  let reversed = false;
+  let withCli = false;
+  const roots = ['C:\\Profiles\\One', 'C:\\Profiles\\Two'].map((profile, index) => ({
+    pid: 10 + index, parentPid: 0, name: 'Cursor.exe', executablePath: 'C:\\Cursor.exe', commandLine: `Cursor.exe --user-data-dir="${profile}"`,
+    creationTimeMs: null, userSid: null, workingDirectory: index === 0 ? '/a' : '/b',
+  }));
+  let now = 12_000;
+  const controller = new WatchdogController({ configStore: config, auditStore: new AuditStore(join(directory, 'audit.jsonl')), platform: 'win32', currentProcessId: 99, now: () => now,
+    provider: { listProcesses: async () => [
+      ...(reversed ? [...roots].reverse() : roots),
+      ...(withCli ? [{ pid: 12, parentPid: 0, name: 'cursor-agent.exe', executablePath: 'C:\\tools\\cursor-agent.exe',
+        commandLine: 'cursor-agent.exe --resume global-b', creationTimeMs: null, userSid: null, workingDirectory: '/b' }] : []),
+    ] },
+    monitorLocations: { homeDirectory: directory },
+    monitorScanner: async (tool, locations) => [
+      { ...observation(tool, 'global-b', '/b'), source: 'cursor-agent-host' as const, path: join(directory, '.cursor-agents', 'sessions', 'global-b', 'meta.json') },
+      { ...observation(tool, 'global-outside', '/outside'), source: 'cursor-jsonl' as const, path: join(directory, '.cursor', 'projects', 'outside', 'agent-transcripts', 'global-outside.jsonl') },
+      ...(locations.cursorUserDataDirectory === 'C:\\Profiles\\One' ? [{ ...observation(tool, 'profile-workspace', '/outside'),
+        source: reversed ? 'cursor-jsonl' as const : 'cursor-composer' as const, cursorProfileDirectory: locations.cursorUserDataDirectory,
+        path: reversed ? join(directory, '.cursor', 'projects', 'outside', 'profile-workspace.jsonl') : `${locations.cursorUserDataDirectory}\\User\\globalStorage\\state.vscdb` }] : []),
+    ],
+  });
+  t.after(async () => { await controller.stop(); await rm(directory, { recursive: true, force: true }); });
+  for (const order of [false, true, false]) {
+    reversed = order;
+    await controller.poll();
+    const alive = (await controller.list()).filter(row => row.alive && row.conversationId);
+    assert.equal(alive.find(row => row.conversationId === 'global-b')?.rootPid, 11, 'the shared /b recording belongs to profile Two');
+    assert.equal(alive.find(row => row.conversationId === 'profile-workspace')?.rootPid, 10, 'profile-owned composer metadata retains its multiple workspaces');
+    assert(!alive.some(row => row.conversationId === 'global-outside'), 'multiple profiles cannot guess the owner of global history');
+    assert.equal(alive.length, 2);
+    now = 60_000;
+  }
+  withCli = true;
+  await controller.poll();
+  const resumed = (await controller.list()).filter(row => row.alive && row.conversationId === 'global-b');
+  assert.deepEqual(resumed.map(row => row.rootPid), [12], 'an explicit CLI resume reserves shared history before editor profiles');
+});
+
 test('desktop conversations keep one identity across helper roots and retain each workspace', () => {
   const editor = { ...group('cursor', 1, '/a', true), host: { processId: 1, executableName: 'Cursor.exe', label: 'Cursor', category: 'editor' as const, windowHandle: 10, windowTitle: 'Cursor' } };
   const daemon = group('cursor', 2, null, true);

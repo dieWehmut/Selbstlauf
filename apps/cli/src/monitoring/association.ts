@@ -67,7 +67,8 @@ export function cursorUserDataDirectory(commandLine: string | null): string | un
 
 /** Associate only observed live roots; an on-disk transcript never creates a process. */
 export function associateObservedGroups(groups: readonly DiscoveredProcessSession[], records: readonly ObservedToolSession[], nowMs: number,
-  firstObservedAt?: ReadonlyMap<number, number>, profileDirectory?: string): ObservedAssociation[] {
+  firstObservedAt?: ReadonlyMap<number, number>, profileDirectory?: string,
+  ownershipGroups: readonly DiscoveredProcessSession[] = groups): ObservedAssociation[] {
   const result = new Map<DiscoveredProcessSession, ObservedAssociation[]>();
   const claimed = new Set<string>();
   const fresh = (group: DiscoveredProcessSession, session: ObservedToolSession): boolean => session.lastActivityAtMs !== null &&
@@ -77,7 +78,7 @@ export function associateObservedGroups(groups: readonly DiscoveredProcessSessio
   for (const group of groups.filter(group => group.processKind !== 'desktop')) {
     const explicit = resumeId(group.commandLine);
     let candidates = records.filter(session => session.tool === group.tool && (explicit && explicit !== 'latest'
-      ? session.id === explicit : projectMatches(group, session, groups)));
+      ? session.id === explicit : projectMatches(group, session, ownershipGroups)));
     if (!explicit) candidates = candidates.filter(session => fresh(group, session));
     if (!explicit && groups.some(other => other.rootPid !== group.rootPid && other.tool === group.tool && other.processKind !== 'desktop' &&
       normalizedPath(other.workingDirectory ?? '') === normalizedPath(group.workingDirectory ?? ''))) candidates = [];
@@ -91,17 +92,23 @@ export function associateObservedGroups(groups: readonly DiscoveredProcessSessio
   for (const session of records) {
     const key = `${session.tool}:${session.id}`;
     if (claimed.has(key)) continue;
-    let hosts = desktops.filter(group => group.tool === session.tool && fresh(group, session));
+    // Exported and native Cursor recordings are shared across user-data profiles.
+    // Select their owner across all live roots before the current profile claims
+    // them. Composer metadata remains owned by the profile that supplied it,
+    // including when an exported JSONL file supplies its readable output.
+    const sharedCursor = session.tool === 'cursor' && session.source !== 'cursor-composer' && !session.cursorProfileDirectory;
+    let hosts = (sharedCursor ? ownershipGroups.filter(group => group.processKind === 'desktop') : desktops)
+      .filter(group => group.tool === session.tool && fresh(group, session));
     // A detached background daemon must not take a conversation away from the
     // observed editor window or make that window's association ambiguous.
     const windows = hosts.filter(group => group.host?.windowHandle && group.host.processId === group.rootPid);
     if (windows.length) hosts = windows;
-    const exact = hosts.filter(group => projectMatches(group, session, groups));
+    const exact = hosts.filter(group => projectMatches(group, session, ownershipGroups));
     if (exact.length) hosts = exact;
     else if (hosts.length !== 1 || (session.projectSlug && session.cwds.length === 0)) continue;
     hosts.sort((a, b) => (a.creationTimeMs ?? firstObservedAt?.get(a.rootPid) ?? nowMs) -
       (b.creationTimeMs ?? firstObservedAt?.get(b.rootPid) ?? nowMs) || a.rootPid - b.rootPid);
-    const owner = hosts[0]; if (!owner) continue;
+    const owner = hosts[0]; if (!owner || !groups.includes(owner)) continue;
     claimed.add(key);
     const namespace = owner.distribution ? `wsl:${owner.distribution}:` : '';
     const profile = profileDirectory ? `profile:${createHash('sha256').update(normalizedPath(profileDirectory)).digest('hex').slice(0, 16)}:` : '';
