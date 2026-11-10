@@ -111,6 +111,64 @@ function forbidInput(t: test.TestContext) {
   };
 }
 
+test('unavailable WSL commands keep the existing live Codex visible and recover without a restart', async (t) => {
+  const assertNoInput = forbidInput(t);
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-wsl-filesystem-'));
+  const store = new ConfigStore(join(root, 'config.json'));
+  const config = await store.save({ ...defaultConfig, enabled: false, dryRun: false, wslDistribution: 'Ubuntu' });
+  const statePath = await stateDatabase(join(root, 'state'), 'existing-thread', '/work/project');
+  let clock = 5000;
+  let commandReads = 0;
+  let healthy = false;
+  let nativeFailed = false;
+  const controller = new WatchdogController({
+    configStore: store,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    platform: 'win32',
+    provider: { listProcesses: async () => {
+      if (nativeFailed) throw new Error('native process table unavailable');
+      return [];
+    } },
+    now: () => clock,
+    wslRun: async (_distribution: string, script: string) => {
+      commandReads += 1;
+      if (!healthy) throw new Error('WSL commands unavailable');
+      if (script.includes('ps -eo')) return '2614153\t1\tcodex\t/home/alice/bin/codex\t/work/project\t\t0\n';
+      if (script === 'printf %s "$HOME"') return '/home/alice';
+      return '/home/alice/bin/node\t/home/alice/bin/codex';
+    },
+    wslFilesystem: async () => ({ records: [{
+      pid: 2614153, parentPid: 1, name: 'codex', commandLine: '/home/alice/bin/codex',
+      executablePath: null, creationTimeMs: null, userSid: null,
+    }], homeDirectory: '/home/alice' }),
+    wslStateSnapshot: () => ({ directory: join(root, 'snapshot'), statePath, goalPath: statePath, files: [] }),
+  });
+  try {
+    await controller.poll();
+    const live = (await controller.list()).find(row => row.rootPid === 2614153);
+    assert.ok(live, 'the original running Linux PID must survive a failed command probe');
+    assert.equal(live.alive, true);
+    assert.equal(live.distribution, 'Ubuntu');
+    assert.equal(live.transport, 'monitor-only');
+    assert.equal(live.conversationId, null, 'unverified PWD cannot associate a conversation');
+    assert.equal(commandReads, 1, 'fallback discovery must not launch additional home or Codex probes');
+    clock += 1000;
+    nativeFailed = true;
+    await controller.poll();
+    assert.equal(commandReads, 1, 'a failed command channel should not be relaunched every poll');
+    assert.equal((await controller.list()).find(row => row.rootPid === 2614153)?.alive, true, 'native discovery failure cannot hide WSL processes');
+    healthy = true;
+    clock += 60_000;
+    await controller.poll();
+    assert.equal((await controller.list()).find(row => row.rootPid === 2614153)?.conversationId, 'existing-thread');
+    assert.deepEqual(await store.load(), config, 'discovery must preserve all user settings');
+    assertNoInput();
+  } finally {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 for (const viaDisabled of [false, true]) {
   test(`switching WSL A → ${viaDisabled ? 'disabled → ' : ''}B releases A and reads B's state, home, and launcher`, async (t) => {
     const assertNoInput = forbidInput(t);
@@ -153,6 +211,60 @@ for (const viaDisabled of [false, true]) {
     }
   });
 }
+
+test('filesystem discovery without a home never starts secondary probes for observed tools', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-wsl-no-home-'));
+  const store = new ConfigStore(join(root, 'config.json'));
+  await store.save({ ...defaultConfig, wslDistribution: 'Ubuntu' });
+  let probes = 0;
+  const controller = new WatchdogController({
+    configStore: store, auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    platform: 'win32', provider: { listProcesses: async () => [] },
+    wslRun: async () => { probes++; throw new Error('WSL unavailable'); },
+    wslFilesystem: async () => ({ records: [{ pid: 42, parentPid: 1, name: 'node',
+      commandLine: 'node /home/alice/node_modules/@google/gemini-cli/dist/index.js',
+      executablePath: null, creationTimeMs: null, userSid: null }] }),
+  });
+  try {
+    await controller.poll();
+    await controller.poll();
+    assert.equal(probes, 1, 'HOME probes must be deferred with the unavailable command channel');
+    assert.equal((await controller.list()).find(row => row.tool === 'gemini')?.alive, true);
+  } finally { await controller.stop(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('a prepared but unconnected WSL Codex adapter cannot start input during filesystem recovery', async (t) => {
+  const assertNoInput = forbidInput(t);
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-wsl-input-recovery-'));
+  const store = new ConfigStore(join(root, 'config.json'));
+  await store.save({ ...defaultConfig, enabled: false, wslDistribution: 'Ubuntu' });
+  const statePath = await stateDatabase(join(root, 'state'), 'existing-thread', '/work/project');
+  let healthy = true;
+  const controller = new WatchdogController({
+    configStore: store, auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    platform: 'win32', provider: { listProcesses: async () => [] },
+    wslRun: async (_distribution, script) => {
+      if (!healthy) throw new Error('WSL unavailable');
+      if (script.includes('ps -eo')) return '42\t1\tcodex\t/home/alice/bin/codex\t/work/project\t\t0';
+      if (script === 'printf %s "$HOME"') return '/home/alice';
+      return '/home/alice/bin/node\t/home/alice/bin/codex';
+    },
+    wslFilesystem: async () => ({ records: [{ pid: 42, parentPid: 1, name: 'codex',
+      commandLine: '/home/alice/bin/codex', workingDirectory: '/work/project',
+      executablePath: null, creationTimeMs: null, userSid: null }] }),
+    wslStateSnapshot: () => ({ directory: join(root, 'snapshot'), statePath, goalPath: statePath, files: [] }),
+  });
+  try {
+    await controller.poll();
+    healthy = false;
+    await controller.poll();
+    const row = (await controller.list()).find(row => row.rootPid === 42)!;
+    assert.equal(row.conversationId, 'existing-thread', 'readable association may survive');
+    assert.equal(row.transport, 'monitor-only', 'association alone does not prove an available input connection');
+    assert.equal((await controller.inject(row.id, 'fixture prompt', false)).ok, false);
+    assertNoInput();
+  } finally { await controller.stop(); await rm(root, { recursive: true, force: true }); }
+});
 
 test('enabling WSL from null resolves the selected distribution without stale state', async (t) => {
   const assertNoInput = forbidInput(t);

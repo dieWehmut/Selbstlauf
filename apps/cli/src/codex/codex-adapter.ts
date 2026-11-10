@@ -87,6 +87,10 @@ export class CodexAdapter {
     this.goalStatuses = Object.freeze([...policy.goalStatuses]);
   }
 
+  public get hasConnectedAppServer(): boolean {
+    return this.appServer?.connected ?? false;
+  }
+
   public async getContinuation(context: CodexContinuationContext): Promise<CodexContinuationDecision> {
     const threads = context.threadRecords ?? this.reader.listThreads().map(toThreadRecord);
     const association = associateCodexThread(context, threads);

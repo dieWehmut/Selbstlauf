@@ -1,6 +1,8 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 import type { RawProcessRecord } from './process-provider.js';
+import { readWslProcFilesystem, type WslProcFilesystemResult } from './wsl-proc-filesystem.js';
 
 /**
  * Listing the processes running inside a WSL distribution.
@@ -26,6 +28,10 @@ export interface WslDiscoveryOptions {
   readonly wslPath?: string;
   /** Internal discovery deadline; WSL must not block Windows monitoring. */
   readonly timeoutMs?: number;
+  /** Reads the running distribution without spawning WSL; overridden for isolated tests. */
+  readonly readFilesystem?: (distribution: string) => Promise<WslProcFilesystemResult>;
+  /** During a command failure cooldown, try the filesystem before another command. */
+  readonly preferFilesystem?: boolean;
 }
 
 export const DEFAULT_WSL_PROBE_TIMEOUT_MS = 5_000;
@@ -60,6 +66,10 @@ export interface WslDiscoveryResult {
   readonly records: readonly RawProcessRecord[];
   /** A stated reason when the distribution could not be inspected, rather than throwing. */
   readonly error?: string;
+  readonly source?: 'filesystem';
+  readonly homeDirectory?: string;
+  /** Command discovery failed, but live filesystem records remain usable. */
+  readonly warning?: string;
 }
 
 /**
@@ -107,6 +117,8 @@ function defaultRunWsl(wslPath: string) {
       const child = spawn(wslPath, ['-d', distribution, '--exec', 'sh', '-s'], {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
+        // An installed desktop can inherit a WSL UNC cwd. Probe startup must use a native Windows cwd.
+        ...(process.platform === 'win32' ? { cwd: tmpdir() } : {}),
       });
       let stdout = '';
       let stderr = '';
@@ -255,21 +267,43 @@ export function parseWslPsOutput(stdout: string): RawProcessRecord[] {
 /**
  * List the processes in one distribution.
  *
- * Fails soft: a distribution that is stopped, missing, or slow yields a stated error and no records, because
- * WSL is an optional extra and must never stop the Windows sessions from being watched.
+ * A broken command bridge need not mean a stopped distribution: Windows can still read its live /proc
+ * through UNC. Use those records on failure; neither path reads historical processes or starts a user task.
  */
 export async function listWslProcesses(options: WslDiscoveryOptions): Promise<WslDiscoveryResult> {
   const distribution = options.distribution.trim();
   if (distribution.length === 0) return { records: [], error: 'no distribution configured' };
 
+  // Injected command tests never touch the user's distributions unless they explicitly supply a fallback.
+  const readFilesystem = options.readFilesystem ?? (process.platform === 'win32' && options.runWsl === undefined
+    ? (name: string) => readWslProcFilesystem(name, { timeoutMs: options.timeoutMs })
+    : undefined);
+  const filesystemResult = async (): Promise<WslDiscoveryResult> => {
+    const result = await readFilesystem!(distribution);
+    if (result.error !== undefined && result.records.length === 0) throw new Error(result.error);
+    return { records: result.records, source: 'filesystem',
+      ...(result.homeDirectory === undefined ? {} : { homeDirectory: result.homeDirectory }),
+      ...(result.error === undefined ? {} : { warning: result.error }),
+    };
+  };
+  if (options.preferFilesystem && readFilesystem !== undefined) {
+    try { return await filesystemResult(); } catch { /* Retry the command if the filesystem bridge is gone. */ }
+  }
+
   try {
     const stdout = await runWslProbe(options, PROBE_SCRIPT);
     return { records: parseWslPsOutput(stdout) };
   } catch (error) {
-    return {
-      records: [],
-      error: `${distribution}: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    const reason = `${distribution}: ${error instanceof Error ? error.message : String(error)}`;
+    if (readFilesystem !== undefined) {
+      try {
+        const result = await filesystemResult();
+        return { ...result, warning: [reason, result.warning].filter(Boolean).join('; ') };
+      } catch (filesystemError) {
+        return { records: [], error: `${reason}; filesystem: ${filesystemError instanceof Error ? filesystemError.message : String(filesystemError)}` };
+      }
+    }
+    return { records: [], error: reason };
   }
 }
 

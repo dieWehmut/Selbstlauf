@@ -163,6 +163,37 @@ test('a late injected WSL rejection after timeout remains handled', async () => 
   await delay(40);
 });
 
+test('a failed WSL command still discovers the live processes readable through the filesystem', async () => {
+  let filesystemReads = 0;
+  const record = parseWslProcessLine('42\t1\tcodex\t/home/alice/bin/codex\t');
+  assert.ok(record);
+  const result = await listWslProcesses({
+    distribution: 'Ubuntu',
+    runWsl: async () => { throw new Error('WSL command channel unavailable'); },
+    readFilesystem: async (distribution: string) => {
+      assert.equal(distribution, 'Ubuntu');
+      filesystemReads += 1;
+      return { records: [record], homeDirectory: '/home/alice' };
+    },
+  });
+  assert.deepEqual(result.records, [record]);
+  assert.equal(filesystemReads, 1);
+  assert.equal(result.error, undefined);
+  assert.equal(result.source, 'filesystem');
+  assert.match(result.warning ?? '', /command channel unavailable/u);
+});
+
+test('filesystem recovery failure preserves both discovery errors', async () => {
+  const result = await listWslProcesses({
+    distribution: 'Ubuntu',
+    runWsl: async () => { throw new Error('command failed'); },
+    readFilesystem: async () => { throw new Error('UNC unavailable'); },
+  });
+  assert.deepEqual(result.records, []);
+  assert.match(result.error ?? '', /command failed/u);
+  assert.match(result.error ?? '', /UNC unavailable/u);
+});
+
 for (const discovery of ['WSL processes', 'WSL launchers'] as const) {
   test(`${discovery} timeout kills a real probe that ignores SIGTERM`, {
     skip: process.platform === 'win32',

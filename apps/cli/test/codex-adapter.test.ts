@@ -76,6 +76,25 @@ test('extracts a UUID only when it follows the Codex resume command', () => {
   );
 });
 
+test('raw arguments restrict Codex resume identity to a standalone command and UUID', () => {
+  const id = '019e9d1c-d87e-7fa1-b17c-2df1e400e882';
+  const extract = (args: readonly string[]) => extractResumeThreadId(args.join(' '), args);
+  assert.equal(extract(['node', '/home/fixture/My Tools/bin/codex', 'resume', id]), id);
+  for (const args of [
+    ['codex', `please resume ${id}`],
+    ['codex', '--prompt', `resume ${id}`],
+    ['codex', '--prompt', 'resume', id],
+    ['codex', '--config', 'resume', id],
+    ['codex', '--', 'resume', id],
+    ['codex', 'resume', `${id}-suffix`],
+  ]) assert.equal(extract(args), null, JSON.stringify(args));
+  const context = { commandLine: `codex please resume ${id}`, arguments: ['codex', `please resume ${id}`], cwd: null, creationTimeMs: 10_000 };
+  const thread: CodexThreadRecord = { id, cwd: '/historical/project', createdAtMs: 1, updatedAtMs: 1, rolloutPath: null };
+  assert.equal(associateCodexThread(context, [thread]).kind, 'unmatched');
+  const resumed = { ...context, arguments: ['codex', 'resume', id] };
+  assert.equal(associateCodexThread(resumed, [thread]).kind, 'matched');
+});
+
 test('reads a real-shaped split Codex thread and goal database without requiring a thread status column', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ai-cli-bypass-codex-split-'));
   const threadsPath = join(root, 'state.sqlite');
@@ -439,13 +458,17 @@ test('App Server client starts a real Windows .cmd shim and completes initialize
 test('App Server client negotiates the experimental capability needed by the queue', async () => {
   const child = new FakeChild();
   const client = new AppServerClient({ spawn: () => child, command: 'fake-codex' });
+  assert.equal(client.connected, false);
   const initialize = client.initialize();
+  assert.equal(client.connected, false, 'creating a child alone does not verify a connection');
   const request = JSON.parse(child.stdin.writes[0]);
   assert.equal(request.method, 'initialize');
   assert.deepEqual(request.params.capabilities, { experimentalApi: true });
   child.stdout.push(JSON.stringify({ id: request.id, result: {} }) + '\n');
   await initialize;
+  assert.equal(client.connected, true);
   client.close();
+  assert.equal(client.connected, false);
 });
 
 test('App Server client queues a prompt for a thread owned by another client', async () => {

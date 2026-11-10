@@ -43,6 +43,7 @@ import type { SessionHost } from '../process/host-apps.js';
 import { focusWindow, openLocalUrl, type WindowFocusResult } from '../process/window-focus.js';
 import { listWslLaunchers, terminalForInterop } from '../process/wsl-launcher.js';
 import { listWslProcesses, runWslProbe } from '../process/wsl-processes.js';
+import type { WslProcFilesystemResult } from '../process/wsl-proc-filesystem.js';
 import {
   WindowsProcessProvider,
   type ProcessProvider,
@@ -78,6 +79,7 @@ export interface WatchdogControllerOptions {
   /** Runs a read-only distribution probe; overridable for isolated runtime tests. */
   readonly wslRun?: (distribution: string, script: string, signal?: AbortSignal) => Promise<string>;
   readonly wslProbeTimeoutMs?: number;
+  readonly wslFilesystem?: (distribution: string) => Promise<WslProcFilesystemResult>;
   /** Copies distribution state to a local working directory; overridable for tests. */
   readonly wslStateSnapshot?: typeof snapshotWslCodexState;
   readonly claudeProjectsDirectory?: string;
@@ -145,6 +147,7 @@ interface RuntimeSession {
   claudeActivity: { readonly size: number; readonly mtimeMs: number } | null;
   claudeLeaseSessionId: string | null;
   codexAdapter: CodexAdapter | null;
+  wslCodexPreparationPending: boolean;
   codexContext: CodexContinuationContext | null;
   codexActivity: { snapshot(): Promise<{ readonly changed: boolean }> } | null;
   codexRolloutPath: string | null;
@@ -170,6 +173,7 @@ const DSH_INPUT_DISABLED_REASON = 'DeepSeek Harness input is disabled in the wat
 const DSH_DRY_RUN_REASON = 'dry run keeps DeepSeek Harness input disabled';
 const DSH_API_UNAVAILABLE_REASON = 'the local DeepSeek Harness session API is unavailable';
 const DSH_HOST_RETRY_MS = 60_000;
+const WSL_COMMAND_RETRY_MS = 60_000;
 /**
  * Window titles containing one of these markers are showing the harness WebUI. The harness serves its
  * browser UI over loopback, so the browser is never part of the session's process tree and only its title
@@ -199,6 +203,9 @@ export class WatchdogController {
   private readonly wslPath?: string;
   private readonly wslRun?: (distribution: string, script: string, signal?: AbortSignal) => Promise<string>;
   private readonly wslProbeTimeoutMs: number;
+  private readonly wslFilesystem?: (distribution: string) => Promise<WslProcFilesystemResult>;
+  private wslShellUnavailable = false;
+  private wslCommandRetryAtMs = 0;
   private readonly wslStateSnapshot: typeof snapshotWslCodexState;
   /** The last WSL discovery failure, so a persistent one is not written to the audit log every poll. */
   private lastWslError: string | null = null;
@@ -262,6 +269,7 @@ export class WatchdogController {
     this.wslPath = options.wslPath;
     this.wslRun = options.wslRun;
     this.wslProbeTimeoutMs = options.wslProbeTimeoutMs ?? 5_000;
+    this.wslFilesystem = options.wslFilesystem;
     this.wslStateSnapshot = options.wslStateSnapshot ?? snapshotWslCodexState;
     this.claudeProjectsDirectory = options.claudeProjectsDirectory ?? DEFAULT_CLAUDE_PROJECTS;
     this.dshHomeDirectory = options.dshHomeDirectory ?? defaultDshHome();
@@ -356,6 +364,10 @@ export class WatchdogController {
         session ??= await this.createSession(id, group, timestamp);
         session.group = group;
         session.alive = true;
+        if (session.wslCodexPreparationPending && !this.wslShellUnavailable) {
+          session.wslCodexPreparationPending = false;
+          await this.prepareCodex(session, this.currentConfig);
+        }
         this.configureEngine(session, this.currentConfig, timestamp);
         if (session.codexAdapter !== null) {
           session.codexAdapter.configurePolicy(this.currentConfig.tools.codex);
@@ -556,6 +568,12 @@ export class WatchdogController {
 
   private async discover(): Promise<readonly DiscoveredProcessSession[]> {
     if (this.platform !== 'win32') return [];
+    // Native Windows and WSL have separate process tables. A failure in one must not hide the other.
+    const [windows, wsl] = await Promise.all([this.discoverWindows(), this.discoverWsl()]);
+    return [...windows, ...wsl];
+  }
+
+  private async discoverWindows(): Promise<readonly DiscoveredProcessSession[]> {
     let records: RawProcessRecord[];
     try {
       records = await this.provider.listProcesses();
@@ -572,8 +590,7 @@ export class WatchdogController {
           ? { titleMarkers: DSH_WINDOW_TITLE_MARKERS, label: DSH_WEB_LABEL }
           : null,
       });
-      const windows = groups.filter((group) => this.matchesProcessFilters(group));
-      return [...windows, ...await this.discoverWsl()];
+      return groups.filter((group) => this.matchesProcessFilters(group));
     } catch (error) {
       await this.auditGlobal('skip', { reason: `process-grouping: ${errorMessage(error)}` });
       return [];
@@ -591,22 +608,26 @@ export class WatchdogController {
     const distribution = this.currentConfig.wslDistribution?.trim() ?? '';
     if (this.platform !== 'win32' || distribution.length === 0) return [];
 
+    const preferFilesystem = this.wslShellUnavailable && this.now() < this.wslCommandRetryAtMs;
     const result = await listWslProcesses({
       distribution,
       timeoutMs: this.wslProbeTimeoutMs,
+      preferFilesystem,
       ...(this.wslPath === undefined ? {} : { wslPath: this.wslPath }),
       ...(this.wslRun === undefined ? {} : { runWsl: this.wslRun }),
+      ...(this.wslFilesystem === undefined ? {} : { readFilesystem: this.wslFilesystem }),
     });
+    this.wslShellUnavailable = result.source === 'filesystem';
+    if (this.wslShellUnavailable && !preferFilesystem) this.wslCommandRetryAtMs = this.now() + WSL_COMMAND_RETRY_MS;
+    if (result.homeDirectory !== undefined) this.wslHomeDirectory = result.homeDirectory;
+    const failure = result.error ?? result.warning ?? (this.wslShellUnavailable ? this.lastWslError : null);
+    if (failure !== this.lastWslError) {
+      this.lastWslError = failure;
+      if (failure !== null) await this.auditGlobal('transport-error', { reason: `wsl-discovery: ${failure}` });
+    }
     if (result.error !== undefined) {
-      // Reported once per poll at most, and only when the state changes, so a stopped distribution does not
-      // fill the audit log.
-      if (this.lastWslError !== result.error) {
-        this.lastWslError = result.error;
-        await this.auditGlobal('transport-error', { reason: `wsl-discovery: ${result.error}` });
-      }
       return [];
     }
-    this.lastWslError = null;
 
     /**
      * Attribute each session to the Windows terminal that launched it, so it groups with that application
@@ -690,6 +711,7 @@ export class WatchdogController {
       claudeActivity: null,
       claudeLeaseSessionId: null,
       codexAdapter: null,
+      wslCodexPreparationPending: false,
       codexContext: null,
       codexActivity: null,
       codexRolloutPath: null,
@@ -725,7 +747,7 @@ export class WatchdogController {
       if (!observed || processIdentityChanged(observed.group, group)) {
         this.observedProcessStarts.set(processKey, { group, atMs: timestamp });
       }
-      const profile = group.tool === 'cursor' && group.processKind === 'desktop' ? cursorUserDataDirectory(group.commandLine) : undefined;
+      const profile = group.tool === 'cursor' && group.processKind === 'desktop' ? cursorUserDataDirectory(group.commandLine, group.arguments) : undefined;
       const key = JSON.stringify([group.distribution ?? '', group.tool, profile ?? '']);
       const namespace = namespaces.get(key) ?? [];
       namespace.push(group);
@@ -745,7 +767,7 @@ export class WatchdogController {
         this.wslHomeDirectory = home;
         locations = { homeDirectory: `\\\\wsl.localhost\\${group.distribution}${home.replaceAll('/', '\\')}` };
       }
-      const profile = group.tool === 'cursor' && group.processKind === 'desktop' ? cursorUserDataDirectory(group.commandLine) : undefined;
+      const profile = group.tool === 'cursor' && group.processKind === 'desktop' ? cursorUserDataDirectory(group.commandLine, group.arguments) : undefined;
       if (profile) locations = { ...locations, cursorUserDataDirectory: group.distribution && this.platform === 'win32'
         ? `\\\\wsl.localhost\\${group.distribution}${profile.replaceAll('/', '\\')}` : profile };
       let records: ObservedToolSession[] = [];
@@ -1004,6 +1026,8 @@ export class WatchdogController {
     this.wslCodexLaunch = null;
     this.wslStateError = null;
     this.lastWslError = null;
+    this.wslShellUnavailable = false;
+    this.wslCommandRetryAtMs = 0;
   }
 
   private syncWslDistribution(value: string): void {
@@ -1045,6 +1069,7 @@ export class WatchdogController {
 
   /** The distribution account's home directory, as the distribution itself reports it. */
   private async resolveWslHome(distribution: string): Promise<string | null> {
+    if (this.wslShellUnavailable) return null;
     try {
       const stdout = await this.readWslProbe(distribution, 'printf %s "$HOME"');
       const home = stdout.trim();
@@ -1068,6 +1093,12 @@ export class WatchdogController {
     // reuses the same client and simply launches it in the distro instead of locally.
     const distribution = session.group.distribution;
     if (distribution !== undefined && distribution.length > 0) {
+      if (this.wslShellUnavailable) {
+        session.wslCodexPreparationPending = true;
+        session.transportKind = 'monitor-only';
+        session.transportError = `Processes inside ${distribution} are visible; its command channel is unavailable`;
+        return;
+      }
       const paths = await this.findWslCodexPaths(distribution);
       if (paths === null) {
         session.transportError = `Codex state was not found inside ${distribution}`;
@@ -1261,8 +1292,9 @@ export class WatchdogController {
         : status === 'idle' || status === 'completed' || status === 'inactive' ? false : session.runningTurn;
       session.conversationId = association.thread.id;
       session.goal = session.codexAdapter.getGoal(context);
-      session.transportKind = 'codex-app-server';
-      session.transportError = undefined;
+      const inputAvailable = !session.group.distribution || !this.wslShellUnavailable || session.codexAdapter.hasConnectedAppServer;
+      session.transportKind = inputAvailable ? 'codex-app-server' : 'monitor-only';
+      session.transportError = inputAvailable ? undefined : 'WSL command channel is unavailable; no connected Codex input transport exists';
     } else {
       session.codexActivity = null;
       session.codexRolloutPath = null;
@@ -1381,6 +1413,11 @@ export class WatchdogController {
       await this.record(session, 'skip', { reason: 'monitor-only-tool' });
       return;
     }
+    if (session.group.tool === 'codex' && session.group.distribution && this.wslShellUnavailable && !session.codexAdapter?.hasConnectedAppServer) {
+      session.engine.recordTransportError(session.id, timestamp);
+      await this.record(session, 'skip', { reason: 'wsl-input-unavailable' });
+      return;
+    }
     let prompt: string;
     if (session.group.tool === 'codex') {
       if (session.codexAdapter === null || session.codexContext === null) {
@@ -1440,6 +1477,9 @@ export class WatchdogController {
     explicitPrompt = false,
   ): Promise<WriteResultLike> {
     if (session.group.tool === 'codex') {
+      if (session.group.distribution && this.wslShellUnavailable && !session.codexAdapter?.hasConnectedAppServer) {
+        return { ok: false, error: 'WSL command channel is unavailable; no connected Codex input transport exists' };
+      }
       if (session.codexAdapter === null || session.codexContext === null) return { ok: false, error: 'Codex App Server is unavailable' };
       try {
         const result = explicitPrompt
@@ -1556,6 +1596,7 @@ export class WatchdogController {
   private codexContextFor(session: RuntimeSession, timestamp: number): CodexContinuationContext {
     return {
       commandLine: session.group.commandLine ?? '',
+      ...(session.group.arguments === undefined ? {} : { arguments: session.group.arguments }),
       cwd: session.group.workingDirectory ?? null,
       creationTimeMs: session.group.creationTimeMs ?? timestamp,
     };

@@ -88,6 +88,7 @@ export class AppServerClient {
   private readonly pending = new Map<number, PendingRequest>();
   private inputBuffer = '';
   private initialized = false;
+  private connectionUsable = false;
   private initializePromise: Promise<JsonRpcResponse> | null = null;
   private activeTurn = false;
   private closed = false;
@@ -100,6 +101,11 @@ export class AppServerClient {
     this.clientName = options.clientName ?? 'ai-cli-bypass-watchdog';
     this.clientVersion = options.clientVersion ?? '0.1.0';
     this.onNotification = options.onNotification;
+  }
+
+  /** A completed handshake on the existing child; inspecting this never starts a process. */
+  public get connected(): boolean {
+    return this.initialized && this.connectionUsable && this.child !== null && !this.closed;
   }
 
   /** Start and handshake with `codex app-server --listen stdio://` on demand. */
@@ -118,6 +124,7 @@ export class AppServerClient {
       // The server expects the notification after the initialize response.
       this.sendNotification('initialized', {});
       this.initialized = true;
+      this.connectionUsable = true;
       return result;
     }).finally(() => {
       this.initializePromise = null;
@@ -303,6 +310,7 @@ export class AppServerClient {
   }
 
   private failPending(error: Error): void {
+    this.connectionUsable = false;
     for (const [id, request] of this.pending) {
       clearTimeout(request.timer);
       request.reject(error);
