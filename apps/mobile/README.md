@@ -50,6 +50,16 @@ npm run test:android --workspace @ai-cli-bypass/mobile
 
 Debug APK 位于 `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`。它用于本机测试；发布版本需要自行配置签名。
 
+## Android Studio 本机测试
+
+先在仓库根目录运行 `npm run sync --workspace @ai-cli-bypass/mobile`，再运行 `npm run android --workspace @ai-cli-bypass/mobile`，或直接在 Android Studio 打开 `apps/mobile/android`。
+
+在 Gradle 设置中选择 Java 21，确认 SDK 路径包含 Android SDK 36。工程同步完成后选择 `app` 和目标模拟器，点击 Run。修改 Vue 页面后需要重新运行 `sync`，再在 Studio 中运行；仅点击 Run 不会重新构建网页。
+
+WSL 工程可用 WSL 内的 Android Studio、Java 和 SDK 直接运行。Windows Studio 的 SDK 与 Java 路径应使用 Windows 安装位置；本机 `local.properties` 和 IDE 设置无需提交。
+
+首次启动显示未连接的控制台和四栏导航。需要验证电脑远控时，使用下面的完整旅程，它会提供测试网关和配对码。
+
 已有 APK 与测试 APK 后，可运行完整本机远控旅程：
 
 ```sh
