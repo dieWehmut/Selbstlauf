@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { DEFAULT_WSL_PROBE_TIMEOUT_MS, killWslProbeProcess } from './wsl-processes.js';
+import { DEFAULT_WSL_PROBE_TIMEOUT_MS, killWslProbeProcess, registerWslProbeProcess } from './wsl-processes.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -134,18 +134,24 @@ export async function listWslLaunchers(options: WslLauncherOptions = {}): Promis
   const abort = new AbortController();
   const run = options.runCommand ?? (async (executable: string, args: readonly string[], signal?: AbortSignal) => {
     signal?.throwIfAborted();
+    const createdAfterMs = Date.now();
     const operation = execFileAsync(executable, [...args], {
       windowsHide: true,
       maxBuffer: 8 * 1024 * 1024,
       encoding: 'utf8',
       // The shared deadline kills the whole tree first. This native timeout is a bounded fallback if close
-      // never arrives; killing the Windows parent before taskkill runs could leave its descendants alive.
-      timeout: timeoutMs + 2_500,
+      // never arrives; killing the Windows parent before tree cleanup could leave its descendants alive.
+      timeout: timeoutMs + 4_500,
       killSignal: 'SIGKILL',
     });
+    registerWslProbeProcess(operation.child, createdAfterMs, Date.now());
     let cleanup: Promise<void> | undefined;
     const onAbort = () => {
       cleanup ??= killWslProbeProcess(operation.child).then(() => {
+        operation.child.stdin?.destroy();
+        operation.child.stdout?.destroy();
+        operation.child.stderr?.destroy();
+      }, () => {
         operation.child.stdin?.destroy();
         operation.child.stdout?.destroy();
         operation.child.stderr?.destroy();
@@ -170,7 +176,7 @@ export async function listWslLaunchers(options: WslLauncherOptions = {}): Promis
         const error = new Error(`WSL launcher discovery timed out after ${timeoutMs}ms`);
         abort.abort(error);
         if (options.runCommand !== undefined) reject(error);
-        else cleanupTimer = setTimeout(() => { reject(error); }, 3_000);
+        else cleanupTimer = setTimeout(() => { reject(error); }, 5_000);
       }, timeoutMs);
       Promise.resolve().then(() => run(options.powershellPath ?? 'powershell.exe', [
         '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', LIST_LAUNCHERS_SCRIPT,

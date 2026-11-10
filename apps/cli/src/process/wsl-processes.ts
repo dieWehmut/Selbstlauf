@@ -1,8 +1,9 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 
 import type { RawProcessRecord } from './process-provider.js';
 import { readWslProcFilesystem, type WslProcFilesystemResult } from './wsl-proc-filesystem.js';
+import { killWindowsOwnedTree } from './windows-owned-tree.js';
 
 /**
  * Listing the processes running inside a WSL distribution.
@@ -35,28 +36,43 @@ export interface WslDiscoveryOptions {
 }
 
 export const DEFAULT_WSL_PROBE_TIMEOUT_MS = 5_000;
-const WSL_PROBE_CLEANUP_TIMEOUT_MS = 3_000;
+const WSL_PROBE_CLEANUP_TIMEOUT_MS = 5_000;
 const pendingProbeKills = new WeakMap<ChildProcess, Promise<void>>();
+const completedProbeKills = new WeakSet<ChildProcess>();
+const probeIdentities = new WeakMap<ChildProcess, { createdAfterMs: number; createdBeforeMs: number }>();
+
+/** Capture the native creation interval immediately around this child's spawn, before its PID can exit. */
+export function registerWslProbeProcess(child: ChildProcess, createdAfterMs: number, createdBeforeMs: number): void {
+  probeIdentities.set(child, { createdAfterMs, createdBeforeMs });
+}
 
 /** Kill only the probe's process tree: the Windows WSL shim can launch another wsl.exe beneath it. */
 export function killWslProbeProcess(child: ChildProcess): Promise<void> {
   const pending = pendingProbeKills.get(child);
   if (pending !== undefined) return pending;
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  if (completedProbeKills.has(child)) return Promise.resolve();
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return process.platform === 'win32' && child.pid !== undefined
+      ? Promise.reject(new Error('Owned probe root exited before its tree cleanup was verified'))
+      : Promise.resolve();
+  }
   const killChild = () => {
     try { child.kill('SIGKILL'); } catch { /* The probe may already have exited. */ }
   };
   if (process.platform !== 'win32' || child.pid === undefined) { killChild(); return Promise.resolve(); }
-  // Let taskkill find the descendants before terminating the shim. Killing the shim first could orphan them.
-  const operation = new Promise<void>((resolve) => {
-    execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
-      windowsHide: true,
-      timeout: 2_000,
-      killSignal: 'SIGKILL',
-    }, (error) => {
-      if (error !== null) killChild();
-      resolve();
-    });
+  const identity = probeIdentities.get(child);
+  if (identity === undefined) {
+    killChild();
+    return Promise.reject(new Error('Owned probe tree cleanup could not verify its spawn identity'));
+  }
+  // Toolhelp snapshots avoid taskkill /T's slow process enumeration. Held native handles prevent PID reuse
+  // from redirecting a termination, and descendants are stopped before the still-live probe root.
+  const operation = killWindowsOwnedTree({ pid: child.pid, ...identity, timeoutMs: 4_000 }).then((result) => {
+    if (!result.verified) {
+      killChild();
+      throw new Error(`Owned probe tree cleanup was not verified: ${result.error ?? 'unknown error'}`);
+    }
+    completedProbeKills.add(child);
   }).finally(() => { pendingProbeKills.delete(child); });
   pendingProbeKills.set(child, operation);
   return operation;
@@ -114,12 +130,14 @@ function defaultRunWsl(wslPath: string) {
   return async (distribution: string, script: string, signal?: AbortSignal): Promise<string> => {
     signal?.throwIfAborted();
     return await new Promise<string>((resolve, reject) => {
+      const createdAfterMs = Date.now();
       const child = spawn(wslPath, ['-d', distribution, '--exec', 'sh', '-s'], {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
         // An installed desktop can inherit a WSL UNC cwd. Probe startup must use a native Windows cwd.
         ...(process.platform === 'win32' ? { cwd: tmpdir() } : {}),
       });
+      registerWslProbeProcess(child, createdAfterMs, Date.now());
       let stdout = '';
       let stderr = '';
       let settled = false;
@@ -140,14 +158,15 @@ function defaultRunWsl(wslPath: string) {
         stopping = true;
         // Terminate only this read-only probe, never the distribution or its user processes. SIGKILL also
         // prevents a stuck probe that ignores SIGTERM from surviving the discovery deadline.
-        // Closing the pipes can make the WSL shim exit before taskkill enumerates conhost.exe beneath it.
+        // Closing the pipes can make the WSL shim exit before its owned descendants are enumerated.
         // Preserve them until tree termination has completed, including simultaneous timeout/stdin errors.
-        void killWslProbeProcess(child).then(() => {
+        const completeStop = (cleanupError?: unknown) => {
           child.stdin.destroy();
           child.stdout.destroy();
           child.stderr.destroy();
-          finish(error);
-        });
+          finish(cleanupError === undefined ? error : new Error(`${error instanceof Error ? error.message : String(error)}; ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`));
+        };
+        void killWslProbeProcess(child).then(() => completeStop(), completeStop);
       };
       const onAbort = () => { stop(signal?.reason ?? new Error('WSL probe aborted')); };
       const onError = (error: Error) => { stop(error); };

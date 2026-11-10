@@ -14,6 +14,7 @@ import {
   parseWslProcessLine,
   parseWslPsOutput,
   runWslProbe,
+  registerWslProbeProcess,
 } from '../src/process/wsl-processes.js';
 import { listWslLaunchers } from '../src/process/wsl-launcher.js';
 
@@ -239,11 +240,13 @@ test('Windows timeout cleanup kills the probe shim and its descendant only', {
 }, async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selbstlauf-wsl-tree-timeout-'));
   const pidFile = path.join(directory, 'pids.json');
+  const createdAfterMs = Date.now();
   const child = spawn(process.execPath, ['-e', [
     'const grandchild = require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
     `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, JSON.stringify([process.pid, grandchild.pid]));`,
     'setInterval(() => {}, 1000);',
   ].join('\n')], { stdio: 'pipe', windowsHide: true });
+  registerWslProbeProcess(child, createdAfterMs, Date.now());
   let pids: number[] = [];
   try {
     for (let attempt = 0; attempt < 80 && pids.length === 0; attempt += 1) {
@@ -266,4 +269,14 @@ test('Windows timeout cleanup kills the probe shim and its descendant only', {
     for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* Already reaped. */ } }
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('Windows cleanup cannot verify a probe that exited before its tree was checked', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const createdAfterMs = Date.now();
+  const child = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore', windowsHide: true });
+  registerWslProbeProcess(child, createdAfterMs, Date.now());
+  await new Promise<void>(resolve => child.once('close', () => resolve()));
+  await assert.rejects(killWslProbeProcess(child), /exited before.*verified/iu);
 });
