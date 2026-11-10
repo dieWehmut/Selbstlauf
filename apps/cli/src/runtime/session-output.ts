@@ -1,6 +1,6 @@
 import { open } from 'node:fs/promises';
 
-export type SessionOutputSource = 'claude-jsonl' | 'codex-rollout' | 'dsh-projection';
+export type SessionOutputSource = 'claude-jsonl' | 'codex-rollout' | 'dsh-projection' | 'gemini-json' | 'gemini-jsonl' | 'cursor-jsonl' | 'cursor-composer' | 'cursor-agent-host' | 'antigravity-projection';
 export interface SessionOutputEntry {
   readonly id: string;
   readonly role: 'user' | 'assistant' | 'tool';
