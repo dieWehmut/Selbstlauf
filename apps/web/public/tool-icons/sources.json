@@ -1,0 +1,18 @@
+{
+  "gemini.png": {
+    "source": "https://geminicli.com/icon.png",
+    "product": "Gemini CLI",
+    "sha256": "351e9f5b1bf863d738cd7be4ed040a625a1419450ae7fc490143e4042b7c2438"
+  },
+  "antigravity.svg": {
+    "source": "https://antigravity.google/favicon.svg",
+    "product": "Google Antigravity",
+    "sha256": "de7911c3d206a3d2fe3d5b4e76e84b185c581d7a259406f64db247b5b824f02e"
+  },
+  "cursor.png": {
+    "source": "Cursor resources/app/out/vs/glass/browser/media/cursor-splash-logo-normal.png",
+    "product": "Cursor",
+    "installedVersion": "3.29.15",
+    "sha256": "b88e36c14b197abceb79a85ecc103ad3b9caeee5591c0948c616465102a4ec5d"
+  }
+}

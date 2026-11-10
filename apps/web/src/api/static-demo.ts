@@ -28,6 +28,9 @@ const initialConfig: WatchdogConfig = {
     },
     codex: { enabled: true, normalPrompt: '继续', goalPrompt: '/goal resume', goalStatuses: ['active', 'paused'] },
     dsh: { enabled: true, normalPrompt: '继续', sessionWindowMs: 3_600_000, allowApiInput: true },
+    gemini: { enabled: true, normalPrompt: '继续' },
+    antigravity: { enabled: true, normalPrompt: '继续' },
+    cursor: { enabled: true, normalPrompt: '继续' },
   },
   processFilters: { sameUserOnly: true, include: [], exclude: [] },
 };

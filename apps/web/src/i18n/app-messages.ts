@@ -1,6 +1,17 @@
 import type { Translations } from './index';
 // App.tsx messages, maintained with its rendering and dynamic message callers.
 export const appMessages: Translations = {
+  '本机未导出可读取的会话正文，暂仅显示会话状态。': { zhTW: '本機未匯出可讀取的對話本文，目前僅顯示對話狀態。', en: 'This computer has not exported a readable conversation transcript; only session status is available.', ja: 'この端末では読み取り可能な会話本文がエクスポートされていないため、セッションの状態のみ表示します。' },
+  '监控中': { zhTW: '監控中', en: 'Monitoring', ja: '監視中' },
+  '监控已关闭': { zhTW: '監控已關閉', en: 'Monitoring disabled', ja: '監視は無効です' },
+  '未关联会话': { zhTW: '未關聯對話', en: 'No associated conversation', ja: '会話が関連付けられていません' },
+  '该会话仅支持监控，尚无可验证的输入通道。': { zhTW: '此對話僅支援監控，尚無可驗證的輸入管道。', en: 'This session supports monitoring; no verified input transport is available.', ja: 'このセッションは監視のみ対応しています。確認済みの入力経路はありません。' },
+  '尚未唯一关联到活动会话。': { zhTW: '尚未唯一關聯到活動對話。', en: 'No uniquely associated live conversation was found.', ja: '実行中の会話を一意に関連付けられませんでした。' },
+  '当前版本的会话记录格式暂不支持解析。': { zhTW: '目前版本的對話記錄格式暫不支援解析。', en: 'This version of the conversation format cannot be parsed yet.', ja: 'このバージョンの会話記録形式はまだ解析できません。' },
+  'Cursor 未提供可读取的对话消息，暂仅显示会话状态。': { zhTW: 'Cursor 未提供可讀取的對話訊息，目前僅顯示對話狀態。', en: 'Cursor has no readable conversation messages; only session status is available.', ja: 'Cursor の会話メッセージを読み取れないため、セッションの状態のみ表示します。' },
+  '该会话只提供标题和活动摘要，暂无可读取的对话消息。': { zhTW: '此對話僅提供標題和活動摘要，暫無可讀取的對話訊息。', en: 'Only a title and activity summary are available for this session; its messages cannot be read.', ja: 'このセッションではタイトルと活動の概要のみ取得でき、会話メッセージは読み取れません。' },
+  '控制该工具的监控；输入能力取决于会话': { zhTW: '控制此工具的監控；輸入能力取決於對話', en: 'Control monitoring for this tool; input support depends on the session', ja: 'このツールの監視を制御します。入力の可否はセッションによって異なります' },
+  '留空即不监控。填入发行版名称（如 Ubuntu-22.04）后，会一并监控该发行版里的受支持工具会话。': { zhTW: '留空即不監控。填入發行版名稱（如 Ubuntu-22.04）後，會一併監控該發行版中的支援工具對話。', en: 'Leave blank to disable WSL monitoring. Enter a distribution name, such as Ubuntu-22.04, to include its supported tool sessions.', ja: '空欄にすると WSL の監視を無効にします。Ubuntu-22.04 などの名前を入力すると、そのディストリビューション内の対応ツールのセッションも監視します。' },
   '仅监控': { zhTW: '僅監控', en: 'Monitor only', ja: '監視のみ' },
   '不可写入': { zhTW: '無法寫入', en: 'Cannot write', ja: '入力できません' },
   '待识别': { zhTW: '待辨識', en: 'Awaiting identification', ja: '識別待ち' },

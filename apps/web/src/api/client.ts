@@ -1,6 +1,6 @@
 import { subscribeLiveEvent } from './live-socket';
 
-export type ToolName = 'claude' | 'codex' | 'dsh';
+export type ToolName = 'claude' | 'codex' | 'dsh' | 'gemini' | 'antigravity' | 'cursor';
 export type TransportKind =
   | 'classic-console'
   | 'pty'
@@ -87,6 +87,10 @@ export interface WatchdogConfig {
     };
     codex: { enabled: boolean; normalPrompt: string; goalPrompt: string; goalStatuses: readonly string[] };
     dsh: { enabled: boolean; normalPrompt: string; sessionWindowMs: number; allowApiInput: boolean };
+    /** Optional for older services; the settings editor supplies current defaults. */
+    gemini?: { enabled: boolean; normalPrompt: string };
+    antigravity?: { enabled: boolean; normalPrompt: string };
+    cursor?: { enabled: boolean; normalPrompt: string };
   };
   processFilters: { sameUserOnly: boolean; include: readonly string[]; exclude: readonly string[] };
 }
@@ -231,7 +235,7 @@ export interface InjectionOutcome {
 export interface SessionOutputView {
   readonly sessionId: string;
   readonly state: 'ready' | 'unavailable';
-  readonly source: 'claude-jsonl' | 'codex-rollout' | 'dsh-projection' | null;
+  readonly source: 'claude-jsonl' | 'codex-rollout' | 'dsh-projection' | 'gemini-json' | 'gemini-jsonl' | 'cursor-jsonl' | 'cursor-composer' | 'cursor-agent-host' | 'antigravity-projection' | null;
   readonly entries: readonly {
     readonly id: string;
     readonly role: 'user' | 'assistant' | 'tool';
@@ -246,7 +250,7 @@ export function validateSessionOutput(value: unknown, sessionId: string): Sessio
   const output = value as SessionOutputView | null;
   if (output === null || typeof output !== 'object' || output.sessionId !== sessionId ||
       !['ready', 'unavailable'].includes(output.state) || typeof output.truncated !== 'boolean' ||
-      ![null, 'claude-jsonl', 'codex-rollout', 'dsh-projection'].includes(output.source) ||
+      ![null, 'claude-jsonl', 'codex-rollout', 'dsh-projection', 'gemini-json', 'gemini-jsonl', 'cursor-jsonl', 'cursor-composer', 'cursor-agent-host', 'antigravity-projection'].includes(output.source) ||
       (output.reason !== undefined && typeof output.reason !== 'string') || !Array.isArray(output.entries) ||
       !output.entries.every((entry) => entry !== null && typeof entry === 'object' && typeof entry.id === 'string' &&
         ['user', 'assistant', 'tool'].includes(entry.role) && typeof entry.text === 'string' &&

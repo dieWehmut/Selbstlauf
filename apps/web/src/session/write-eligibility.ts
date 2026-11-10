@@ -1,5 +1,6 @@
 import type { SessionView } from '../api/client';
 import { translate, type Locale } from '../i18n';
+import { monitoringTransportReason } from './monitoring-reasons';
 
 /**
  * Whether a session can be written to, and why not.
@@ -57,7 +58,7 @@ export function writeEligibility(session: SessionView, locale?: Locale): WriteEl
     return {
       writable: false,
       reason: session.transportError !== undefined && session.transportError.length > 0
-        ? translate('只能监控，无法写入：{reason}', { reason: translate(session.transportError, {}, locale) }, locale)
+        ? translate('只能监控，无法写入：{reason}', { reason: translate(monitoringTransportReason(session.transportError), {}, locale) }, locale)
         : translate('只能监控，无法写入', {}, locale),
     };
   }

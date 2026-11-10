@@ -2,13 +2,16 @@ import { useState } from 'react';
 import { Bot, Network, Terminal } from 'lucide-react';
 
 /** Shared official provider marks, matching the agent list reference.
- * Assets reused from the local Orchester project; Claude is its orange mark,
- * Codex is the monochrome OpenAI mark (inverted by CSS for the dark theme).
+ * Legacy assets came from the local Orchester project; new publisher assets are
+ * recorded in public/tool-icons/sources.json. Codex is inverted in the dark theme.
  */
 export const TOOL_ICON_SRC: Readonly<Record<string, string>> = Object.freeze({
   codex: 'tool-icons/codex.png',
   claude: 'tool-icons/claude.svg',
   dsh: 'tool-icons/dsh.png',
+  gemini: 'tool-icons/gemini.png',
+  antigravity: 'tool-icons/antigravity.svg',
+  cursor: 'tool-icons/cursor.png',
 });
 
 /**

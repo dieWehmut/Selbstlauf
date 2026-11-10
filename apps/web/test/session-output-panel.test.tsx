@@ -36,3 +36,16 @@ it('shows the real association refusal and rejects a response belonging to anoth
   expect(await screen.findByText('无法读取该会话的输出数据。')).toBeInTheDocument();
   expect(screen.queryByText('别的窗口')).toBeNull();
 });
+
+it.each([
+  ['gemini-jsonl', 'transcript-format-unsupported', '当前版本的会话记录格式暂不支持解析。'],
+  ['cursor-composer', 'composer-transcript-unavailable', 'Cursor 未提供可读取的对话消息，暂仅显示会话状态。'],
+  ['cursor-agent-host', 'host-transcript-unavailable', '本机未导出可读取的会话正文，暂仅显示会话状态。'],
+  ['antigravity-projection', 'conversation-summary-only', '该会话只提供标题和活动摘要，暂无可读取的对话消息。'],
+] as const)('explains why %s messages are unavailable', async (source, reason, message) => {
+  const request = vi.fn(async (): Promise<SessionOutputView> => ({ sessionId: 'one', state: 'unavailable', source,
+    entries: [], truncated: false, reason }));
+  render(<SessionOutputPanel sessionId="one" requestOutput={request} />);
+  expect(await screen.findByText(message)).toBeInTheDocument();
+  expect(document.querySelector('.session-output__entries')).toBeNull();
+});

@@ -14,6 +14,7 @@ import {
   type SessionOutput,
 } from "../client";
 import { credentials, type CredentialStore } from "../credentials";
+import { canWriteMonitoredSession } from "../session-presentation";
 
 export interface SavedDevice {
   address: string;
@@ -411,7 +412,7 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
 
   async function inject(prompt: string, session = selectedSession.value) {
     const current = client;
-    if (!current || !session || !prompt.trim()) return false;
+    if (!current || !session || !canWriteMonitoredSession(session) || !prompt.trim()) return false;
     const version = connection;
     const sent = await action(async () => {
       await current.request(`/sessions/${encodeURIComponent(session.id)}/inject`, "POST", { prompt: prompt.trim() });

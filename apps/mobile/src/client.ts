@@ -7,7 +7,7 @@ export type ConnectionStatus =
   | "reconnecting"
   | "needs_pairing";
 
-export type ToolName = "claude" | "codex" | "dsh";
+export type ToolName = "claude" | "codex" | "dsh" | "gemini" | "antigravity" | "cursor";
 
 export interface RemoteInfo {
   name: string;

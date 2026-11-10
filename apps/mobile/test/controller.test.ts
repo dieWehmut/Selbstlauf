@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { RemoteError, type RemoteClient, type SessionOutput, type AgentSession } from "../src/client";
+import { RemoteError, type RemoteClient, type Session, type SessionOutput, type AgentSession } from "../src/client";
 import { useRemoteControl } from "../src/composables/use-remote-control";
 import type { CredentialStore } from "../src/credentials";
 
@@ -62,6 +62,23 @@ function setup(first = fixture(), second = fixture()) {
 }
 
 describe("useRemoteControl", () => {
+  it("reads Cursor host metadata without inventing messages and refuses writes to a monitoring-only session", async () => {
+    const { control, first } = setup();
+    await control.connect();
+    const cursor: Session = { ...first.session, id: "cursor:host", tool: "cursor", transport: "monitor-only", runningTurn: undefined };
+    const original = first.request.getMockImplementation()!;
+    first.request.mockImplementation(async (path, method, data) => path === "/sessions/cursor%3Ahost/output"
+      ? { sessionId: cursor.id, state: "unavailable", source: "cursor-agent-host", entries: [], truncated: false, reason: "host-transcript-unavailable" }
+      : original(path, method, data));
+    await control.openSession(cursor);
+    expect(control.selectedSession.value?.tool).toBe("cursor");
+    expect(control.sessionOutput.value).toMatchObject({ source: "cursor-agent-host", state: "unavailable", entries: [], reason: "host-transcript-unavailable" });
+    const calls = first.request.mock.calls.length;
+    expect(await control.inject("继续")).toBe(false);
+    expect(first.request).toHaveBeenCalledTimes(calls);
+    control.dispose();
+  });
+
   it("bounds replay memory without dropping live output or its cursor", async () => {
     const remoteFixture = fixture();
     const original = remoteFixture.request.getMockImplementation()!;

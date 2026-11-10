@@ -62,6 +62,7 @@ import { SessionWindowPreview } from './process/SessionWindowPreview';
 import { WindowTypePanel } from './process/WindowTypePanel';
 import { ToolIcon } from './sidebar/ToolIcon';
 import { canWriteSession, writeEligibility } from './session/write-eligibility';
+import { isAdditionalMonitoredTool, monitoringTransportReason } from './session/monitoring-reasons';
 import { isLight, mix, paletteSurfaces, readableText } from './theme/palette';
 import { SessionPromptComposer } from './process/SessionPromptComposer';
 import { SessionOutputPanel } from './process/SessionOutputPanel';
@@ -482,6 +483,9 @@ const fallbackConfig: WatchdogConfig = {
       sessionWindowMs: 3_600_000,
       allowApiInput: true,
     },
+    gemini: { enabled: true, normalPrompt: '继续' },
+    antigravity: { enabled: true, normalPrompt: '继续' },
+    cursor: { enabled: true, normalPrompt: '继续' },
   },
   processFilters: { sameUserOnly: true, include: [], exclude: [] },
 };
@@ -528,6 +532,9 @@ function mergeConfig(raw: WatchdogConfig): WatchdogConfig {
         goalStatuses: Array.isArray(codex.goalStatuses) ? codex.goalStatuses : fallbackConfig.tools.codex.goalStatuses,
       },
       dsh: { ...fallbackConfig.tools.dsh, ...dsh },
+      gemini: { enabled: true, normalPrompt: '继续', ...tools.gemini },
+      antigravity: { enabled: true, normalPrompt: '继续', ...tools.antigravity },
+      cursor: { enabled: true, normalPrompt: '继续', ...tools.cursor },
     },
   };
 }
@@ -646,11 +653,13 @@ function transportLabel(transport: SessionView['transport']): string {
  * the English word to a Chinese-speaking user. Worse, "disabled" reads as "this session cannot be written to",
  * which is exactly the wrong impression: that switch governs automatic continuation only.
  */
-export function decisionLabel(decision: string | undefined): { label: string; tone: 'ready' | 'waiting' | 'limited' | 'error' } {
+export function decisionLabel(decision: string | undefined, tool?: string): { label: string; tone: 'ready' | 'waiting' | 'limited' | 'error' } {
   switch (decision) {
     case 'awaiting-quiet-period': return { label: translate("等待静默"), tone: 'waiting' };
     case 'output-observed': return { label: translate("输出活跃"), tone: 'ready' };
     case 'cannot-inject': return { label: translate("仅监控"), tone: 'limited' };
+    case 'monitoring': return { label: translate("监控中"), tone: 'limited' };
+    case 'association-required': return { label: translate("未关联会话"), tone: 'limited' };
     case 'transport-error': return { label: translate("传输错误"), tone: 'error' };
     case 'injected': return { label: translate("已写入"), tone: 'ready' };
     case 'activity': return { label: translate("活动"), tone: 'ready' };
@@ -659,7 +668,7 @@ export function decisionLabel(decision: string | undefined): { label: string; to
     case 'injection': return { label: translate("已写入"), tone: 'ready' };
     case 'output-recovery': return { label: translate("输出恢复"), tone: 'ready' };
     // The states the engine reports that had no label, so they fell through to the raw string.
-    case 'disabled': return { label: translate("自动续写已关闭"), tone: 'limited' };
+    case 'disabled': return { label: translate(tool !== undefined && isAdditionalMonitoredTool(tool) ? "监控已关闭" : "自动续写已关闭"), tone: 'limited' };
     case 'cooldown': return { label: translate("冷却中"), tone: 'waiting' };
     case 'max-attempts': return { label: translate("已达本轮上限"), tone: 'limited' };
     case 'paused': return { label: translate("已暂停"), tone: 'limited' };
@@ -702,6 +711,8 @@ function injectRefusal(session: SessionView): string | null {
 
 function transportReason(error: string | undefined): string | null {
   if (!error) return null;
+  const monitoringReason = monitoringTransportReason(error);
+  if (monitoringReason !== error) return translate(monitoringReason);
   const reasons: Record<string, string> = {
     'no-cwd-match': translate("未找到同目录 Codex 线程"),
     'no-thread-index': translate("未找到 Codex 线程索引"),
@@ -742,13 +753,14 @@ const AUDIT_DETAIL_LABELS = {
 } as const;
 
 function nextPrompt(session: SessionView, config: WatchdogConfig): string {
+  if (isAdditionalMonitoredTool(session.tool) && !canWriteSession(session)) return '—';
   if (session.pendingPrompt) return session.pendingPrompt;
   if (session.tool === 'codex' && session.goal && config.tools.codex.goalStatuses.includes(session.goal.status)) {
     return config.tools.codex.goalPrompt;
   }
   /*
-    `config.tools` describes claude, codex and dsh, and the sessions response is not validated (the client casts it),
-    so a tool outside that set reaches this lookup with no entry. Measured, that threw `Cannot read properties of
+    Older configs and services may omit a tool, so an unfamiliar tool reaches this lookup with no entry.
+    Measured, that threw `Cannot read properties of
     undefined (reading 'normalPrompt')` *while the table rendered* — and with no error boundary above it, React
     unmounts the tree and the whole console goes blank. A stated absence is what the column shows instead.
   */
@@ -774,9 +786,9 @@ function CapabilityBadge({ session }: { session: SessionView }) {
   );
 }
 
-function DecisionChip({ decision }: { decision: string | undefined }) {
+function DecisionChip({ decision, tool }: { decision: string | undefined; tool?: string }) {
   const { t, locale } = useI18n();
-  const state = decisionLabel(decision);
+  const state = decisionLabel(decision, tool);
   return <span className={`state-chip state-chip--${state.tone}`}><span className="state-chip__dot" />{state.label}</span>;
 }
 
@@ -919,7 +931,7 @@ function ProcessTable(props: {
                 <td><HostCell session={session} /></td>
                 <td><CapabilityBadge session={session} /></td>
                 <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle conversation-id">{session.conversationId ?? t("未关联")}</span></td>
-                <td><strong>{formatDuration(quietMs(session))}</strong><DecisionChip decision={session.lastDecision} /></td>
+                <td><strong>{formatDuration(quietMs(session))}</strong><DecisionChip decision={session.lastDecision} tool={session.tool} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
                 <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} onOpenTerminal={props.onOpenTerminal} /></td>
               </tr>
@@ -937,7 +949,7 @@ function ProcessTable(props: {
               <div><dt>{t("静默")}</dt><dd>{formatDuration(quietMs(session))}</dd></div>
               <div className="session-card__prompt"><dt>{t("下一输入")}</dt><dd><code>{nextPrompt(session, props.config)}</code></dd></div>
             </dl>
-            <footer><DecisionChip decision={session.lastDecision} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} onOpenTerminal={props.onOpenTerminal} /></footer>
+            <footer><DecisionChip decision={session.lastDecision} tool={session.tool} /><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} onOpenTerminal={props.onOpenTerminal} /></footer>
           </article>
         ))}
       </div>
@@ -1013,7 +1025,7 @@ function ProcessDetail(props: {
         <div><dt>{t("能力")}</dt><dd><CapabilityBadge session={session} /></dd></div>
         <div><dt>{t("对话")}</dt><dd>{conversationLabel(session)}</dd></div>
         <div><dt>{t("静默")}</dt><dd>{formatDuration(quiet)}</dd></div>
-        <div><dt>{t("状态")}</dt><dd><DecisionChip decision={session.lastDecision} /></dd></div>
+        <div><dt>{t("状态")}</dt><dd><DecisionChip decision={session.lastDecision} tool={session.tool} /></dd></div>
         <div><dt>{t("启动于")}</dt><dd>{time(session.startedAtMs)}</dd></div>
         {session.sessionCwd ? <div className="process-detail__wide"><dt>{t("工作目录")}</dt><dd><code>{session.sessionCwd}</code></dd></div> : null}
         <div className="process-detail__wide"><dt>{t("下一输入")}</dt><dd><code className="prompt-code">{nextPrompt(session, props.config)}</code></dd></div>
@@ -1825,7 +1837,7 @@ function SettingsPanel(props: {
         <div className="section-title"><div><span className="eyebrow">Watchdog</span><h2>{t("常规")}</h2></div><Gauge size={20} /></div>
         <p className="section-hint">{t("检测节奏、续写提示词与进程范围，保存后立即生效。")}</p>
         <div className="switch-row"><div><strong>{t("启用自动续写")}</strong><span>{t("关闭后继续发现进程和记录事件，停止自动发送续写提示词")}</span></div><label className="switch"><input aria-label={t("启用自动续写")} type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span /></label></div>
-        {(['claude', 'codex', 'dsh'] as const).map((tool) => <div className="switch-row" key={tool}><div><strong>{t('监控 {tool}', { tool: toolLabel(tool) })}</strong><span>{t("控制该工具的自动续写；进程仍显示以便查看")}</span></div><label className="switch"><input aria-label={t('监控 {tool}', { tool: toolLabel(tool) })} type="checkbox" checked={draft.tools[tool].enabled} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, [tool]: { ...draft.tools[tool], enabled: event.target.checked } } })} /><span /></label></div>)}
+        {(['claude', 'codex', 'dsh', 'gemini', 'antigravity', 'cursor'] as const).map((tool) => <div className="switch-row" key={tool}><div><strong>{t('监控 {tool}', { tool: toolLabel(tool) })}</strong><span>{t(['gemini', 'antigravity', 'cursor'].includes(tool) ? "控制该工具的监控；输入能力取决于会话" : "控制该工具的自动续写；进程仍显示以便查看")}</span></div><label className="switch"><input aria-label={t('监控 {tool}', { tool: toolLabel(tool) })} type="checkbox" checked={draft.tools[tool]?.enabled ?? true} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, [tool]: { normalPrompt: '继续', ...draft.tools[tool], enabled: event.target.checked } } })} /><span /></label></div>)}
       </section>
       <section className="settings-section">
         <div className="section-title"><div><span className="eyebrow">{t("Timing")}</span><h2>{t("检测节奏")}</h2></div><Gauge size={20} /></div>
@@ -1864,7 +1876,7 @@ function SettingsPanel(props: {
       */}
       <section className="settings-section">
         <div className="section-title"><div><span className="eyebrow">WSL</span><h2>{t("WSL 发行版")}</h2></div><Terminal size={20} /></div>
-        <p className="section-hint">{t("留空即不监控。填入发行版名称（如 Ubuntu-22.04）后，会一并监控该发行版里的 codex / claude 会话。")}</p>
+        <p className="section-hint">{t("留空即不监控。填入发行版名称（如 Ubuntu-22.04）后，会一并监控该发行版里的受支持工具会话。")}</p>
         <div className="field-stack">
           <label><span>{t("发行版名称")}</span><input aria-label={t("WSL 发行版名称")} placeholder={t("留空即关闭")} value={draft.wslDistribution ?? ''} onChange={(event) => setDraft({ ...draft, wslDistribution: event.target.value })} /></label>
         </div>

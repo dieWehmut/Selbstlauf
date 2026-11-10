@@ -73,6 +73,14 @@ describe('decision labels', () => {
     expect(decisionLabel('cooldown').label).toBe('冷却中');
   });
 
+  it('labels observed monitoring and association states without implying automatic continuation', () => {
+    expect(decisionLabel('monitoring')).toEqual({ label: '监控中', tone: 'limited' });
+    expect(decisionLabel('association-required')).toEqual({ label: '未关联会话', tone: 'limited' });
+    for (const tool of ['gemini', 'antigravity', 'cursor']) {
+      expect(decisionLabel('disabled', tool)).toEqual({ label: '监控已关闭', tone: 'limited' });
+    }
+  });
+
   it('reports an unknown decision as an unknown state rather than showing it raw', () => {
     // A decision a future engine adds must not appear as an identifier before this build knows it.
     const result = decisionLabel('some-future-decision');

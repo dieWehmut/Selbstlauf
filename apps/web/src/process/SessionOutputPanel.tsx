@@ -2,16 +2,8 @@ import { useI18n } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw, Terminal } from 'lucide-react';
 import { validateSessionOutput, type SessionOutputView } from '../api/client';
+import { sessionOutputReason } from './session-output-reasons';
 import './session-output.css';
-
-const REASONS: Record<string, string> = {
-  'association-required': '尚未唯一关联到这一个进程的对话。关联成功后会显示真实输出。',
-  'transcript-missing': '暂未找到该会话的记录。智能体写入会话记录后会自动显示。',
-  'transcript-unreadable': '当前无法读取该会话的记录。',
-  'transcript-invalid': '会话记录正在写入或暂时无法解析，请稍后刷新。',
-  'projection-too-large': '该会话记录过大，请在智能体的原窗口中查看。',
-  'projection-format-unsupported': '当前智能体版本未提供可读取的会话输出。',
-};
 
 export function SessionOutputPanel(props: {
   sessionId: string;
@@ -62,7 +54,7 @@ export function SessionOutputPanel(props: {
       </div>
       {error && <p className="session-output__error">{t(error)}</p>}
       {props.requestOutput === undefined ? <p className="subtle">{t("连接本机服务后可查看会话输出。")}</p>
-        : current?.state === 'unavailable' ? <p className="subtle">{t(REASONS[current.reason ?? ''] ?? '暂时无法读取该会话的输出。')}</p>
+        : current?.state === 'unavailable' ? <p className="subtle">{t(sessionOutputReason(current.reason))}</p>
         : current === null ? <p className="subtle">{t("正在读取会话输出…")}</p>
         : current.entries.length === 0 ? <p className="subtle">{t("该会话尚无可显示的对话输出。")}</p>
         : <div className="session-output__entries" ref={list} role="log" aria-live="off" onScroll={() => {

@@ -7,6 +7,19 @@ afterEach(() => {
 });
 
 describe('local service API client', () => {
+  it.each(['gemini-json', 'gemini-jsonl', 'cursor-jsonl', 'cursor-composer', 'cursor-agent-host', 'antigravity-projection'])('reads parsed conversation output from %s', async (source) => {
+    const output = { sessionId: 'new-tool:1', state: 'ready', source, truncated: false,
+      entries: [{ id: 'message-1', role: 'assistant', text: 'A parsed reply', timestampMs: 42 }] };
+    vi.stubGlobal('fetch', vi.fn(async () => json(output)));
+    await expect(createApi().output!('new-tool:1')).resolves.toEqual(output);
+  });
+
+  it('rejects an unknown output format instead of rendering unparsed data', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ sessionId: 'new-tool:1', state: 'ready',
+      source: 'raw-protobuf', truncated: false, entries: [] })));
+    await expect(createApi().output!('new-tool:1')).rejects.toThrow('无法读取该会话的输出数据。');
+  });
+
   it('uses only loopback management routes for pairing codes and device revocation', async () => {
     const fetchMock = vi.fn(async () => json({ enabled: false }));
     vi.stubGlobal('fetch', fetchMock);

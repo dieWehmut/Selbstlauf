@@ -1,4 +1,5 @@
 import type { SessionView } from '../api/client';
+import { isAdditionalMonitoredTool } from '../session/monitoring-reasons';
 import { translate, getLocale, type Locale } from '../i18n';
 import { writeEligibility } from '../session/write-eligibility';
 
@@ -72,15 +73,17 @@ export function groupSessionsByEnvironment(
       }) })) }));
 }
 
-export type SessionActivity = 'running' | 'idle' | 'stopped' | 'unknown';
+export type SessionActivity = 'running' | 'idle' | 'stopped' | 'unknown' | 'paused' | 'disabled';
 export function sessionActivity(session: SessionView): SessionActivity {
   if (!session.alive) return 'stopped';
+  if (isAdditionalMonitoredTool(session.tool) && session.paused) return 'paused';
+  if (isAdditionalMonitoredTool(session.tool) && !session.enabled) return 'disabled';
   if (session.runningTurn === true) return 'running';
   if (session.runningTurn === false) return 'idle';
   return 'unknown';
 }
 export function sessionActivityLabel(activity: SessionActivity, locale?: Locale): string {
-  return translate({ running: '运行中', idle: '空闲', stopped: '已停止', unknown: '状态未知' }[activity], {}, locale);
+  return translate({ running: '运行中', idle: '空闲', stopped: '已停止', unknown: '状态未知', paused: '已暂停', disabled: '监控已关闭' }[activity], {}, locale);
 }
 
 /** The label shown beside a row: the tool name, matching the process table. */
@@ -90,6 +93,9 @@ export function toolLabel(tool: string): string {
     case 'claude': return 'Claude Code';
     case 'opencode': return 'opencode';
     case 'dsh': return 'DeepSeek Harness';
+    case 'gemini': return 'Gemini CLI';
+    case 'antigravity': return 'Antigravity';
+    case 'cursor': return 'Cursor';
     default: return tool;
   }
 }

@@ -5,6 +5,7 @@ import {
   formatDuration,
   groupSessionsByEnvironment,
   quietMs,
+  sessionActivity,
   sessionTone,
   toolLabel,
 } from '../src/sidebar/session-groups';
@@ -101,6 +102,9 @@ describe('sidebar session grouping', () => {
     expect(toolLabel('codex')).toBe('Codex');
     expect(toolLabel('claude')).toBe('Claude Code');
     expect(toolLabel('dsh')).toBe('DeepSeek Harness');
+    expect(toolLabel('gemini')).toBe('Gemini CLI');
+    expect(toolLabel('antigravity')).toBe('Antigravity');
+    expect(toolLabel('cursor')).toBe('Cursor');
     // An unknown tool must be shown as-is rather than as an empty label.
     expect(toolLabel('something-new')).toBe('something-new');
   });
@@ -139,6 +143,17 @@ describe('sidebar session grouping', () => {
     // A dead session is an error tone regardless of the rest.
     expect(sessionTone(session({ alive: false }))).toBe('error');
     expect(sessionTone(session({ alive: false, paused: false }))).toBe('error');
+  });
+
+  it.each(['gemini', 'antigravity', 'cursor'] as const)('does not infer %s turn completion from a quiet host process', (tool) => {
+    const target = session({ tool, transport: 'monitor-only', quietForMs: 3_600_000, conversationId: null });
+    expect(sessionActivity(target)).toBe('unknown');
+    expect(sessionTone(target)).toBe('monitor');
+    expect(sessionActivity({ ...target, runningTurn: true })).toBe('running');
+    expect(sessionActivity({ ...target, runningTurn: false })).toBe('idle');
+    expect(sessionActivity({ ...target, runningTurn: true, paused: true })).toBe('paused');
+    expect(sessionActivity({ ...target, enabled: false })).toBe('disabled');
+    expect(sessionActivity({ ...target, alive: false })).toBe('stopped');
   });
 
   /**

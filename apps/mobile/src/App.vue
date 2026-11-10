@@ -2,10 +2,13 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { AgentSession, AgentTool, Session } from "./client";
 import AppIcon from "./components/AppIcon.vue";
+import SessionToolIcon from "./components/SessionToolIcon.vue";
 import AppearancePage from "./components/AppearancePage.vue";
 import TerminalView from "./components/TerminalView.vue";
 import { useAppearance } from "./composables/use-appearance";
 import { useRemoteControl, type SavedDevice } from "./composables/use-remote-control";
+import { canWriteMonitoredSession, monitoredSessionState, monitoredSessionWriteHint, sessionToolName } from "./session-presentation";
+import { sessionOutputReason } from "../../web/src/process/session-output-reasons";
 
 const remote = useRemoteControl();
 const {
@@ -137,19 +140,11 @@ function onHistoryBack(event: PopStateEvent) {
   history.replaceState(historyState(next), "");
   void nextTick(() => { handlingHistory = false; });
 }
-function toolName(tool: string) {
-  return ({ claude: "Claude", codex: "Codex", dsh: "DeepSeek", opencode: "OpenCode", gemini: "Gemini", shell: "Shell" } as Record<string, string>)[tool] ?? tool;
-}
+const toolName = sessionToolName;
 function sessionTitle(session: Session) {
   return session.conversationTitle || session.conversationId || `${toolName(session.tool)} · PID ${session.rootPid}`;
 }
-function sessionState(session: Session) {
-  if (!session.alive) return "已结束";
-  if (session.paused) return "已暂停";
-  if (session.runningTurn === true) return "运行中";
-  if (session.runningTurn === false) return "空闲";
-  return session.enabled ? "监控中" : "已禁用";
-}
+const sessionState = monitoredSessionState;
 function relativeTime(timestamp?: number | null) {
   if (!timestamp) return "无活动记录";
   const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
@@ -166,6 +161,7 @@ async function openSession(session: Session) {
   await remote.openSession(session);
 }
 async function submitPrompt() {
+  if (!canWriteMonitoredSession(selectedSession.value)) return;
   const text = prompt.value.trim();
   if (!text || !await remote.inject(text)) return;
   if (prompt.value.trim() === text) prompt.value = "";
@@ -306,7 +302,7 @@ onUnmounted(() => {
           <button class="primary-button" type="button" @click="screen = 'devices'">连接电脑</button>
         </div>
         <div v-else-if="sessions.length === 0" class="panel empty-state">
-          <AppIcon name="sessions" /><h2>没有发现会话</h2><p class="hint">电脑上的 Claude、Codex 或 DeepSeek 会话会显示在这里。</p>
+          <AppIcon name="sessions" /><h2>没有发现会话</h2><p class="hint">电脑上的 Claude、Codex、DeepSeek、Gemini、Antigravity 和 Cursor 会话会显示在这里。</p>
           <button class="tonal-button" type="button" :disabled="busy" @click="remote.refresh"><AppIcon name="refresh" />刷新</button>
         </div>
         <section v-for="environment in sessionGroups" v-else :key="environment.key" class="environment-section">
@@ -314,7 +310,7 @@ onUnmounted(() => {
           <article v-for="project in environment.projects" :key="project.key" class="project-card">
             <header><strong>{{ project.name }}</strong><small>{{ project.path }}</small></header>
             <button v-for="session in project.sessions" :key="session.id" class="list-row session-row" type="button" @click="openSession(session)">
-              <span class="icon-disc"><AppIcon name="agent" /></span>
+              <span class="icon-disc"><SessionToolIcon :tool="session.tool" /></span>
               <span class="row-copy">
                 <strong>{{ sessionTitle(session) }}</strong>
                 <small>{{ toolName(session.tool) }} · PID {{ session.rootPid }} · {{ relativeTime(session.lastActivityAtMs) }}</small>
@@ -327,12 +323,12 @@ onUnmounted(() => {
 
       <template v-else-if="screen === 'session' && selectedSession">
         <section class="panel session-summary">
-          <span class="agent-label"><AppIcon name="agent" />{{ toolName(selectedSession.tool) }}</span>
+          <span class="agent-label"><SessionToolIcon :tool="selectedSession.tool" />{{ toolName(selectedSession.tool) }}</span>
           <h2>{{ sessionTitle(selectedSession) }}</h2>
           <p class="path-copy">{{ selectedSession.sessionCwd || '目录未知' }}</p>
           <div class="chip-row">
             <span>{{ sessionState(selectedSession) }}</span>
-            <span>{{ selectedSession.transport }}</span>
+            <span>{{ selectedSession.transport === 'monitor-only' ? '仅监控' : selectedSession.transport }}</span>
             <span v-if="selectedSession.goal">Goal · {{ selectedSession.goal.status }}</span>
           </div>
         </section>
@@ -344,7 +340,7 @@ onUnmounted(() => {
         </section>
         <section class="panel output-panel">
           <h2>会话输出</h2>
-          <p v-if="sessionOutput?.state === 'unavailable'" class="hint">{{ sessionOutput.reason || '当前没有可读取的输出' }}</p>
+          <p v-if="sessionOutput?.state === 'unavailable'" class="hint">{{ sessionOutputReason(sessionOutput.reason) }}</p>
           <div v-else-if="sessionOutput?.entries.length" class="message-list">
             <article v-for="entry in sessionOutput.entries" :key="entry.id" class="message" :data-role="entry.role">
               <strong>{{ entry.role === 'assistant' ? '智能体' : entry.role === 'user' ? '你' : '工具' }}</strong>
@@ -355,7 +351,8 @@ onUnmounted(() => {
         </section>
         <form class="panel form-panel" @submit.prevent="submitPrompt">
           <label>发送提示<textarea v-model="prompt" placeholder="例如：继续完成当前任务" maxlength="4096" /></label>
-          <button class="primary-button full-width" type="submit" :disabled="busy || !controlsAvailable || !prompt.trim()"><AppIcon name="send" />发送到电脑</button>
+          <p v-if="monitoredSessionWriteHint(selectedSession)" class="hint">{{ monitoredSessionWriteHint(selectedSession) }}</p>
+          <button class="primary-button full-width" type="submit" :disabled="busy || !controlsAvailable || !canWriteMonitoredSession(selectedSession) || !prompt.trim()"><AppIcon name="send" />发送到电脑</button>
         </form>
       </template>
 

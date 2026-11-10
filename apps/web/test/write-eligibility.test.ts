@@ -71,6 +71,15 @@ describe('writeEligibility', () => {
     expect(result.reason).toBe('只能监控，无法写入：no-cwd-match');
   });
 
+  it('explains the observed tools monitoring and association limitations in the UI language', () => {
+    expect(writeEligibility(session({ tool: 'cursor', transport: 'monitor-only',
+      transportError: 'This session supports monitoring; no verified input transport is available' })).reason)
+      .toBe('只能监控，无法写入：该会话仅支持监控，尚无可验证的输入通道。');
+    expect(writeEligibility(session({ tool: 'gemini', transport: 'monitor-only',
+      transportError: 'No uniquely associated live conversation was found' })).reason)
+      .toBe('只能监控，无法写入：尚未唯一关联到活动会话。');
+  });
+
   it('refuses a session that is not alive or is paused', () => {
     expect(writeEligibility(session({ alive: false })).writable).toBe(false);
     expect(writeEligibility(session({ alive: false })).reason).toContain('已停止');

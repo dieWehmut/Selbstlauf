@@ -1140,6 +1140,56 @@ describe('watchdog dashboard', () => {
     })));
   });
 
+  it('adds the new monitoring switches to a legacy config and persists their values', async () => {
+    const fake = api();
+    render(<App api={fake} />);
+    await screen.findByRole('group', { name: '进程列表' });
+    openSettings();
+    for (const label of ['Gemini CLI', 'Antigravity', 'Cursor']) {
+      expect(await screen.findByRole('checkbox', { name: `监控 ${label}` })).toBeChecked();
+    }
+    expect(screen.getAllByText('控制该工具的监控；输入能力取决于会话')).toHaveLength(3);
+    fireEvent.click(screen.getByRole('checkbox', { name: '监控 Cursor' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      tools: expect.objectContaining({
+        claude: expect.objectContaining({ normalPrompt: '请继续' }),
+        gemini: { enabled: true, normalPrompt: '继续' },
+        antigravity: { enabled: true, normalPrompt: '继续' },
+        cursor: { enabled: false, normalPrompt: '继续' },
+      }),
+    })));
+  });
+
+  it('shows new monitoring association and disabled states and refuses input without a transport', async () => {
+    const fake = api();
+    const [template] = await fake.sessions();
+    fake.sessions = vi.fn(async () => (['gemini', 'antigravity', 'cursor'] as const).map((tool, index) => ({
+      ...template!, id: `${tool}:monitor`, tool, rootPid: 80 + index, goal: null, conversationId: null,
+      pendingPrompt: null, transport: 'monitor-only' as const, runningTurn: undefined, quietForMs: 3_600_000,
+      lastDecision: index === 2 ? 'disabled' : 'association-required', enabled: index !== 2,
+      transportError: 'No uniquely associated live conversation was found',
+    })));
+    render(<App api={fake} />);
+    await screen.findByRole('group', { name: '进程列表' });
+    for (const [index, tool] of ['Gemini CLI', 'Antigravity', 'Cursor'].entries()) {
+      expect(screen.getAllByText(tool).length).toBeGreaterThan(0);
+      const row = document.querySelector(`[data-session-id="${['gemini', 'antigravity', 'cursor'][index]}:monitor"]`)!;
+      expect(row).toHaveTextContent(index === 2 ? '监控已关闭' : '状态未知');
+      for (const inject of screen.getAllByRole('button', { name: `立即续写 PID ${80 + index}` })) {
+        expect(inject).toBeDisabled();
+      }
+    }
+    expect(screen.queryByText('空闲')).not.toBeInTheDocument();
+    expect(screen.getAllByText('未关联会话').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('监控已关闭').length).toBeGreaterThan(0);
+    expect(screen.queryByText('自动续写已关闭')).not.toBeInTheDocument();
+    expect(screen.getAllByText('尚未唯一关联到活动会话。').length).toBeGreaterThan(0);
+    for (const cell of document.querySelectorAll('.process-table tbody tr td:nth-child(6)')) {
+      expect(cell).toHaveTextContent('—');
+    }
+  });
+
   it('disables injection for monitor-only sessions and calls pause/inject controls', async () => {
     const fake = api();
     render(<App api={fake} />);
