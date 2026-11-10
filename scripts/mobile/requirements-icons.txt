@@ -1,0 +1,2 @@
+# Tooling only; not an app runtime dependency. Pin for reproducible PNG output.
+Pillow==13.0.0

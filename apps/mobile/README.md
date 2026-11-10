@@ -57,3 +57,16 @@ ANDROID_SERIAL=emulator-5554 node scripts/verify/mobile-android-live.mjs
 ```
 
 `SELBSTLAUF_ADB` 可指定 adb 可执行文件，WSL 可使用 Windows SDK 的 `adb.exe`。旅程使用独立状态目录、模拟发现会话和真实主机 Shell PTY；结束后关闭网关、删除测试状态并移除端口反向映射，不更改现有桌面配置。
+
+## 应用图标
+
+Android 启动器图标和桌面 ICO 共用 `assets/selbstlauf-icon-source.png`。传统图标使用满幅原图；自适应图标把原图置于 108dp 图层中央的 66dp 区域，并向外延展边缘像素，圆形与圆角启动器不会出现棕色边框。启动图也沿用同一张原图。
+
+生成 Android 启动器图标（Python 3 + Pillow，仅生成工具需要）：
+
+```sh
+python -m pip install -r scripts/mobile/requirements-icons.txt
+python scripts/mobile/generate-icon-assets.py
+```
+
+脚本生成五套密度的普通、圆形、自适应前景图及背景色，重复执行输出一致。修改源图时，需同时运行桌面端 `scripts/desktop/generate-icon-assets.ps1` 并更新启动图。然后重新构建并安装 APK，启动器才会显示新图标。
