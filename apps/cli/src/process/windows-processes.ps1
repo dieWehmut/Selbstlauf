@@ -371,10 +371,10 @@ $windowTitleMarkers = @(
         Where-Object { $_.Length -gt 0 }
 )
 
-# The signature that marks a process as a supported CLI. It is used both to keep
+# The signature that marks a supported CLI or desktop agent. It is used to keep
 # the record (the node image name alone is far too broad) and to describe why an
 # otherwise unrelated process is being reported.
-$workingDirectoryPattern = '(?i)(?:claude-code|claude\.(?:ps1|cmd|exe)|@openai[\\/]codex|codex\.js|codex\.exe|@deepseek-ai[\\/]dsh|deepseek-harness[\\/]apps[\\/]cli[\\/]lib[\\/]bin\.js|deepseek-harness[\\/]packages[\\/]subprocess|dsh\.(?:cmd|ps1|exe))'
+$workingDirectoryPattern = '(?i)(?:claude-code|claude\.(?:ps1|cmd|exe)|@openai[\\/]codex|codex\.js|codex\.exe|@deepseek-ai[\\/]dsh|deepseek-harness[\\/]apps[\\/]cli[\\/]lib[\\/]bin\.js|deepseek-harness[\\/]packages[\\/]subprocess|dsh\.(?:cmd|ps1|exe)|@google[\\/]gemini-cli[\\/](?:dist[\\/]index\.js|bundle[\\/]gemini\.js)|gemini\.(?:cmd|ps1|exe)|cursor-agent|cursor\.exe|antigravity\.exe|cursor-agent-host[\\/]dist[\\/]agent-host-daemon[\\/]dist[\\/]bin[\\/]daemon\.(?:js|cjs))'
 
 function ConvertTo-NullableString {
     param([AllowNull()][object]$Value)
@@ -450,7 +450,7 @@ foreach ($process in $allProcesses) {
 }
 
 # Top-level windows are enumerated once per run. A window is reported for a
-# candidate when its owner is an ancestor of that candidate, or when its title
+# candidate when it owns the window or its owner is an ancestor, or when its title
 # carries one of the caller's markers (the harness WebUI is served over loopback
 # and is therefore owned by the browser, not by any ancestor).
 $windowsByOwner = @{}
@@ -531,7 +531,7 @@ $records = @(
             $processName.Trim().ToLowerInvariant()
         }
         $candidate =
-            ($processBaseName -match '^(?:node|codex|claude|dsh)(?:[-.]|$)') -or
+            ($processBaseName -match '^(?:node|codex|claude|dsh|gemini|cursor|cursor-agent|antigravity|agent|language_server)(?:[-.]|$)') -or
             ($null -ne $processBaseName -and $includeNames -contains $processBaseName) -or
             ($processCommandLine -match $workingDirectoryPattern) -or
             # The watchdog's own process must always be reported so the caller
@@ -543,7 +543,7 @@ $records = @(
         }
 
         $ancestors = Resolve-Ancestors -ProcessId $processId
-        $chainPids = @($ancestors | ForEach-Object { $_.pid })
+        $chainPids = @($processId) + @($ancestors | ForEach-Object { $_.pid })
         $chainWindows = @(
             foreach ($chainPid in $chainPids) {
                 if ($windowsByOwner.ContainsKey($chainPid)) {

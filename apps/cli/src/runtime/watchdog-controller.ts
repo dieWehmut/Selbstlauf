@@ -1,4 +1,6 @@
 import { readConversationMetadata } from './conversation-metadata.js';
+import { associateObservedGroups, cursorUserDataDirectory } from '../monitoring/association.js';
+import { scanToolSessions, readObservedSessionOutput, type ObservedToolSession, type ToolSessionLocations } from '../monitoring/tool-sessions.js';
 import { spawn as nodeSpawn } from 'node:child_process';
 import { access, readdir } from 'node:fs/promises';
 import { rmSync } from 'node:fs';
@@ -82,6 +84,8 @@ export interface WatchdogControllerOptions {
   readonly dshHomeDirectory?: string;
   readonly codexStatePath?: string;
   readonly codexGoalPath?: string;
+  readonly monitorLocations?: ToolSessionLocations;
+  readonly monitorScanner?: typeof scanToolSessions;
   readonly codexAppServerFactory?: () => AppServerClient;
   readonly transportFactory?: (session: DiscoveredProcessSession) => SessionTransport | null;
   readonly claudeLeaseStore?: ClaudeLeaseStore;
@@ -149,6 +153,8 @@ interface RuntimeSession {
   runningTurn: boolean | undefined;
   dshSession: DshSessionFile | null;
   dshActivity: DshSessionActivity | null;
+  observedSession: ObservedToolSession | null;
+  observedActivityAtMs: number | null;
   goal: GoalSnapshot | null;
   conversationId: string | null;
   pendingPrompt: string | null;
@@ -215,6 +221,11 @@ export class WatchdogController {
   private readonly dshHomeDirectory: string;
   private readonly codexStatePath?: string;
   private readonly codexGoalPath?: string;
+  private readonly monitorLocations: ToolSessionLocations;
+  private readonly monitorScanner: typeof scanToolSessions;
+  private observedSessions = new Map<string, ObservedToolSession>();
+  private observedProcessStarts = new Map<string, { readonly group: DiscoveredProcessSession; readonly atMs: number }>();
+  private lastMonitorErrors = new Map<string, string>();
   private readonly codexAppServerFactory: () => AppServerClient;
   private readonly transportFactory?: (session: DiscoveredProcessSession) => SessionTransport | null;
   private readonly claudeLeaseStore?: ClaudeLeaseStore;
@@ -254,6 +265,8 @@ export class WatchdogController {
     this.dshHomeDirectory = options.dshHomeDirectory ?? defaultDshHome();
     this.codexStatePath = options.codexStatePath;
     this.codexGoalPath = options.codexGoalPath;
+    this.monitorLocations = options.monitorLocations ?? { homeDirectory: homedir(), appDataDirectory: process.env.APPDATA };
+    this.monitorScanner = options.monitorScanner ?? scanToolSessions;
     this.codexAppServerFactory = options.codexAppServerFactory ?? (() => new AppServerClient());
     this.transportFactory = options.transportFactory;
     this.claudeLeaseStore = options.claudeLeaseStore;
@@ -317,7 +330,7 @@ export class WatchdogController {
       const timestamp = this.now();
       const processGroups = await this.discover();
       if (this.stopping) return;
-      const groups = await this.expandDshSessions(processGroups, timestamp);
+      const groups = await this.expandObservedSessions(await this.expandDshSessions(processGroups, timestamp), timestamp);
       if (this.stopping) return;
       const claudeFiles = groups.some((group) => group.tool === 'claude')
         ? await this.scanClaudeFiles()
@@ -393,6 +406,7 @@ export class WatchdogController {
       }
 
       for (const session of this.sessions.values()) {
+        if (isObservedTool(session.group.tool)) continue;
         const intents = session.engine.tick(timestamp);
         await this.auditDecision(session, timestamp);
         for (const intent of intents) await this.injectAutomatic(session, intent.issuedAtMs);
@@ -412,6 +426,7 @@ export class WatchdogController {
   public async output(sessionId: string): Promise<SessionOutput | null> {
     const session = this.sessions.get(sessionId);
     if (session === undefined) return null;
+    if (session.observedSession !== null) return readObservedSessionOutput(sessionId, session.observedSession);
     if (session.group.tool === 'claude' && session.claudeFile !== null) {
       return readSessionOutput(sessionId, 'claude-jsonl', session.claudeFile.path);
     }
@@ -680,6 +695,8 @@ export class WatchdogController {
       runningTurn: undefined,
       dshSession: null,
       dshActivity: null,
+      observedSession: null,
+      observedActivityAtMs: null,
       goal: null,
       conversationId: null,
       pendingPrompt: null,
@@ -689,6 +706,66 @@ export class WatchdogController {
     if (group.tool === 'dsh') this.prepareDsh(session, group);
     this.sessions.set(id, session);
     return session;
+  }
+
+  private async expandObservedSessions(groups: readonly DiscoveredProcessSession[], timestamp: number): Promise<readonly DiscoveredProcessSession[]> {
+    this.observedSessions.clear();
+    const liveProcesses = new Set(groups.filter(group => isObservedTool(group.tool)).map(sessionIdFor));
+    for (const key of this.observedProcessStarts.keys()) if (!liveProcesses.has(key)) this.observedProcessStarts.delete(key);
+    const result = groups.filter(group => !isObservedTool(group.tool));
+    const namespaces = new Map<string, DiscoveredProcessSession[]>();
+    const claimedSources = new Set<string>();
+    for (const group of groups) {
+      if (!isObservedTool(group.tool)) continue;
+      const profile = group.tool === 'cursor' && group.processKind === 'desktop' ? cursorUserDataDirectory(group.commandLine) : undefined;
+      const key = JSON.stringify([group.distribution ?? '', group.tool, profile ?? '']);
+      const namespace = namespaces.get(key) ?? [];
+      namespace.push(group);
+      namespaces.set(key, namespace);
+    }
+    for (const namespace of namespaces.values()) {
+      const group = namespace[0]!;
+      if (!isObservedTool(group.tool)) continue;
+      let locations = this.monitorLocations;
+      if (group.distribution && this.platform === 'win32') {
+        const home = this.wslHomeDirectory ?? await this.resolveWslHome(group.distribution);
+        if (!home) { result.push(...namespace); continue; }
+        this.wslHomeDirectory = home;
+        locations = { homeDirectory: `\\\\wsl.localhost\\${group.distribution}${home.replaceAll('/', '\\')}` };
+      }
+      const profile = group.tool === 'cursor' && group.processKind === 'desktop' ? cursorUserDataDirectory(group.commandLine) : undefined;
+      if (profile) locations = { ...locations, cursorUserDataDirectory: group.distribution && this.platform === 'win32'
+        ? `\\\\wsl.localhost\\${group.distribution}${profile.replaceAll('/', '\\')}` : profile };
+      let records: ObservedToolSession[] = [];
+      const errorKey = JSON.stringify([group.distribution ?? '', group.tool, profile ?? '']);
+      if (this.currentConfig.tools[group.tool].enabled) {
+        try { records = await this.monitorScanner(group.tool, locations); this.lastMonitorErrors.delete(errorKey); }
+        catch (error) {
+          const reason = errorMessage(error);
+          if (this.lastMonitorErrors.get(errorKey) !== reason) await this.auditGlobal('transport-error', { reason: `${group.tool}-metadata: ${reason}` });
+          this.lastMonitorErrors.set(errorKey, reason);
+        }
+      }
+      const firstObservedAt = new Map<number, number>();
+      for (const process of namespace) {
+        const key = sessionIdFor(process);
+        let observed = this.observedProcessStarts.get(key);
+        if (!observed || processIdentityChanged(observed.group, process)) {
+          observed = { group: process, atMs: timestamp }; this.observedProcessStarts.set(key, observed);
+        }
+        firstObservedAt.set(process.rootPid, observed.atMs);
+      }
+      const sourceKey = (session: ObservedToolSession): string => `${group.distribution ?? ''}:${session.tool}:${session.id}:${this.platform === 'win32' && !group.distribution ? session.path.toLowerCase().replaceAll('/', '\\') : session.path}`;
+      records = records.filter(session => !claimedSources.has(sourceKey(session)));
+      for (const association of associateObservedGroups(namespace, records, timestamp, firstObservedAt, profile)) {
+        result.push(association.group);
+        if (association.session) {
+          this.observedSessions.set(sessionIdFor(association.group), association.session);
+          claimedSources.add(sourceKey(association.session));
+        }
+      }
+    }
+    return result;
   }
 
   /**
@@ -1110,6 +1187,17 @@ export class WatchdogController {
     claudeFiles: readonly ClaudeSessionFile[],
     timestamp: number,
   ): Promise<void> {
+    if (isObservedTool(session.group.tool)) {
+      const observed = this.observedSessions.get(session.id) ?? null;
+      session.observedSession = observed;
+      session.conversationId = observed?.id ?? null;
+      session.conversationTitle = observed?.title ?? null;
+      session.runningTurn = observed?.runningTurn;
+      // Product data proves monitoring, not an authenticated input channel.
+      session.transportKind = 'monitor-only';
+      session.transportError = observed ? 'This session supports monitoring; no verified input transport is available' : 'No uniquely associated live conversation was found';
+      return;
+    }
     if (session.group.tool === 'claude') {
       const association = associateClaudeSession({
         pid: session.group.rootPid,
@@ -1193,6 +1281,15 @@ export class WatchdogController {
   }
 
   private async updateActivity(session: RuntimeSession, timestamp: number): Promise<void> {
+    if (isObservedTool(session.group.tool)) {
+      const activity = session.observedSession?.lastActivityAtMs ?? null;
+      if (activity !== null && session.observedActivityAtMs !== null && activity > session.observedActivityAtMs) {
+        session.engine.observeOutput(session.id, Math.min(activity, timestamp));
+        await this.record(session, 'activity', { source: session.observedSession!.source });
+      }
+      session.observedActivityAtMs = activity;
+      return;
+    }
     if (session.group.tool === 'claude') {
       const current = session.claudeFile === null ? null : {
         size: session.claudeFile.size,
@@ -1283,6 +1380,11 @@ export class WatchdogController {
   }
 
   private async injectAutomatic(session: RuntimeSession, timestamp: number): Promise<void> {
+    if (isObservedTool(session.group.tool)) {
+      session.engine.recordTransportError(session.id, timestamp);
+      await this.record(session, 'skip', { reason: 'monitor-only-tool' });
+      return;
+    }
     let prompt: string;
     if (session.group.tool === 'codex') {
       if (session.codexAdapter === null || session.codexContext === null) {
@@ -1473,7 +1575,8 @@ export class WatchdogController {
 
   private toView(session: RuntimeSession): RuntimeSessionView {
     const state = session.engine.getState(session.id);
-    const lastActivityAtMs = state?.lastActivityAt ?? null;
+    const enabled = isObservedTool(session.group.tool) ? this.currentConfig.tools[session.group.tool].enabled : state?.enabled ?? false;
+    const lastActivityAtMs = isObservedTool(session.group.tool) ? session.observedSession?.lastActivityAtMs ?? null : state?.lastActivityAt ?? null;
     return Object.freeze({
       id: session.id,
       tool: session.group.tool as ToolName,
@@ -1483,17 +1586,19 @@ export class WatchdogController {
       goal: session.goal,
       transport: session.transportKind,
       alive: session.alive,
-      enabled: state?.enabled ?? false,
+      enabled,
       paused: state?.paused ?? session.userPaused,
       startedAtMs: session.startedAtMs,
       lastActivityAtMs,
       quietForMs: lastActivityAtMs === null ? null : Math.max(0, this.now() - lastActivityAtMs),
       pendingPrompt: session.pendingPrompt,
-      lastDecision: state?.lastDecision ?? 'new',
+      lastDecision: isObservedTool(session.group.tool)
+        ? !session.alive ? 'process-exited' : state?.paused ? 'paused' : !enabled ? 'disabled' : session.observedSession ? 'monitoring' : 'association-required'
+        : state?.lastDecision ?? 'new',
       platform: session.group.distribution ? 'linux' : this.platform,
       conversationTitle: session.conversationTitle,
       ...(session.runningTurn === undefined ? {} : { runningTurn: session.runningTurn }),
-      sessionCwd: session.dshSession?.cwd ?? session.codexCwd ?? session.claudeFile?.projectPath ?? session.group.workingDirectory ?? null,
+      sessionCwd: session.dshSession?.cwd ?? session.codexCwd ?? session.claudeFile?.projectPath ?? session.group.workingDirectory ?? session.observedSession?.cwds[0] ?? null,
       ...(session.group.tool === 'dsh' ? {
         runningTurn: session.dshSession?.turnOpen ?? false,
       } : {}),
@@ -1555,6 +1660,10 @@ interface CodexPaths {
 interface WriteResultLike {
   readonly ok: boolean;
   readonly error?: string;
+}
+
+function isObservedTool(tool: string): tool is 'gemini' | 'antigravity' | 'cursor' {
+  return tool === 'gemini' || tool === 'antigravity' || tool === 'cursor';
 }
 
 function engineKey(config: WatchdogConfig): string {

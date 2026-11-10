@@ -78,6 +78,9 @@ const HOST_APPS: ReadonlyMap<string, HostApp> = new Map<string, HostApp>([
   ['code.exe', { label: 'Visual Studio Code', category: 'editor', rank: 5 }],
   ['code - insiders.exe', { label: 'VS Code Insiders', category: 'editor', rank: 5 }],
   ['cursor.exe', { label: 'Cursor', category: 'editor', rank: 5 }],
+  ['cursor', { label: 'Cursor', category: 'editor', rank: 5 }],
+  ['antigravity.exe', { label: 'Antigravity', category: 'desktop-app', rank: 5 }],
+  ['antigravity', { label: 'Antigravity', category: 'desktop-app', rank: 5 }],
   ['windsurf.exe', { label: 'Windsurf', category: 'editor', rank: 5 }],
   // Desktop applications that host an agent runtime.
   ['chatgpt.exe', { label: 'Codex 应用', category: 'desktop-app', rank: 5 }],

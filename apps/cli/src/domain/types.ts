@@ -1,4 +1,4 @@
-export const TOOL_NAMES = ['claude', 'codex', 'dsh'] as const;
+export const TOOL_NAMES = ['claude', 'codex', 'dsh', 'gemini', 'antigravity', 'cursor'] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
 export const GOAL_STATUSES = [
@@ -98,6 +98,9 @@ export interface WatchdogConfig {
     readonly claude: ClaudeToolConfig;
     readonly codex: CodexToolConfig;
     readonly dsh: DshToolConfig;
+    readonly gemini: ToolConfig;
+    readonly antigravity: ToolConfig;
+    readonly cursor: ToolConfig;
   };
   readonly processFilters: {
     readonly sameUserOnly: boolean;

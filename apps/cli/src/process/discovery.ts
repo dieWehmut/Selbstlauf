@@ -1,4 +1,5 @@
 import { posix, win32 } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { RawProcessRecord } from './process-provider.js';
 import {
   classifySessionHost,
@@ -7,12 +8,15 @@ import {
   type SessionHost,
 } from './host-apps.js';
 
-export type DiscoveredTool = 'claude' | 'codex' | 'dsh';
+export type DiscoveredTool = 'claude' | 'codex' | 'dsh' | 'gemini' | 'antigravity' | 'cursor';
 
 export interface ProcessNameOptions {
   readonly claudeExecutableNames?: readonly string[];
   readonly codexExecutableNames?: readonly string[];
   readonly dshExecutableNames?: readonly string[];
+  readonly geminiExecutableNames?: readonly string[];
+  readonly antigravityExecutableNames?: readonly string[];
+  readonly cursorExecutableNames?: readonly string[];
 }
 
 export interface GroupProcessesOptions extends ProcessNameOptions {
@@ -44,6 +48,8 @@ export interface DiscoveredProcessSession {
   readonly userSid: string | null;
   readonly workingDirectory?: string | null;
   readonly threadId?: string;
+  /** Separate a standalone CLI session from the editor/desktop app hosting it. */
+  readonly processKind?: 'cli' | 'desktop';
   /**
    * Stable logical identity when one process hosts several sessions, as the
    * DeepSeek Harness `web` host does. Watchdog session ids use this value
@@ -69,6 +75,113 @@ export interface DiscoveredProcessSession {
 const DEFAULT_CLAUDE_EXECUTABLE_NAMES = ['claude.ps1', 'claude.cmd', 'claude.exe'];
 const DEFAULT_CODEX_EXECUTABLE_NAMES = ['codex.exe'];
 const DEFAULT_DSH_EXECUTABLE_NAMES = ['dsh.exe', 'dsh.cmd', 'dsh.ps1'];
+const DEFAULT_GEMINI_EXECUTABLE_NAMES = ['gemini', 'gemini.exe', 'gemini.cmd', 'gemini.ps1'];
+const DEFAULT_CURSOR_EXECUTABLE_NAMES = ['cursor', 'cursor.exe', 'cursor-agent', 'cursor-agent.exe', 'cursor-agent.cmd', 'cursor-agent.ps1'];
+const DEFAULT_ANTIGRAVITY_EXECUTABLE_NAMES = ['antigravity', 'antigravity.exe', 'antigravity.cmd', 'antigravity.ps1'];
+
+/** Keep quoted paths and prompts whole, including --flag="a path". */
+function commandArguments(commandLine: string | null): string[] {
+  const args: string[] = [];
+  let value = '', quote = '', started = false;
+  for (const char of commandLine ?? '') {
+    if (quote) {
+      if (char === quote) quote = '';
+      else value += char;
+    } else if (char === '"' || char === "'") {
+      quote = char; started = true;
+    } else if (/\s/u.test(char)) {
+      if (started) args.push(value);
+      value = ''; started = false;
+    } else {
+      value += char; started = true;
+    }
+  }
+  if (started) args.push(value);
+  return args;
+}
+
+/** The actual script executed by Node/Bun or a POSIX launcher, not prompt text. */
+function runtimeEntry(record: RawProcessRecord): string | null {
+  const args = commandArguments(record.commandLine);
+  if (!/^(?:node|bun|sh|bash|zsh)(?:\.exe)?$/u.test(basename(args[0] ?? null) ?? '')) return null;
+  for (let index = 1; index < args.length; index += 1) {
+    const arg = args[index]!;
+    // Evaluation text is never an executable entry point, even if it mentions a package.
+    if (/^(?:--eval|--print|--command)(?:=|$)|^-(?:e|p|c)/u.test(arg)) return null;
+    if (['--require', '-r', '--import', '--loader', '--experimental-loader'].includes(arg)) { index += 1; continue; }
+    if (arg === '--') return args[index + 1] ?? null;
+    if (!arg.startsWith('-')) return arg;
+  }
+  return null;
+}
+
+function pathParts(value: string | null): string[] {
+  return lower(value ?? '').split('\\').filter(Boolean);
+}
+
+function cursorCliPath(value: string | null): boolean {
+  const parts = pathParts(value);
+  const filename = parts.at(-1) ?? '';
+  if (/^cursor-agent(?:\.(?:exe|cmd|ps1))?$/u.test(filename)) return true;
+  // `agent` is a generic executable name. Only Cursor's own installation directory proves ownership.
+  return parts.includes('cursor-agent') && /^(?:agent(?:\.(?:exe|cmd|ps1))?|index\.(?:js|mjs|cjs))$/u.test(filename);
+}
+
+function geminiEntry(value: string | null): boolean {
+  const parts = pathParts(value);
+  const joined = parts.join('/');
+  return /^gemini(?:\.(?:exe|cmd|ps1))?$/u.test(parts.at(-1) ?? '') ||
+    /(?:^|\/)@google\/gemini-cli\/(?:dist\/index\.js|bundle\/gemini\.js)$/u.test(joined);
+}
+
+function cursorDesktopEntry(value: string | null): boolean {
+  return /(?:^|\/)extensions\/cursor-agent-host\/dist\/agent-host-daemon\/dist\/bin\/daemon\.(?:js|cjs)$/u
+    .test(pathParts(value).join('/'));
+}
+
+/** Electron may run Node workers under its own image name without --type. */
+function electronScriptEntry(record: RawProcessRecord): string | null {
+  const args = commandArguments(record.commandLine);
+  const executable = record.executablePath ?? args[0] ?? null;
+  const parts = pathParts(executable);
+  if (!/^(?:cursor|antigravity)(?:\.exe)?$/u.test(parts.at(-1) ?? '')) return null;
+  const entry = args.slice(1).find((arg) => !arg.startsWith('-')) ?? null;
+  if (!entry) return null;
+  const directory = parts.slice(0, -1).join('/').replace(/\/contents\/macos$/u, '/contents');
+  const source = pathParts(entry).join('/');
+  const internal = source.startsWith(`${directory}/resources/app/`) || source.startsWith(`${directory}/resources/app.asar/`);
+  return internal && (/\.(?:js|cjs|mjs)$/u.test(source) || args.includes('--node-ipc')) ? entry : null;
+}
+
+function antigravityHelper(record: RawProcessRecord): boolean {
+  const value = record.executablePath ?? commandArguments(record.commandLine)[0] ?? null;
+  const parts = pathParts(value);
+  if (!/(?:^|\/)resources\/bin\/language_server(?:\.exe)?$/u.test(parts.join('/'))) return false;
+  // The filename is shared by other IDEs. Require Antigravity's installation
+  // directory or an actual Antigravity ancestor to establish ownership.
+  return parts.some((part) => part === 'antigravity' || part === 'antigravity.app') ||
+    (record.ancestors ?? []).some((ancestor) => /^(?:antigravity|antigravity\.exe)$/u.test(basename(ancestor.name) ?? ''));
+}
+
+function desktopAgentHelper(record: RawProcessRecord): boolean {
+  return cursorDesktopEntry(runtimeEntry(record) ?? electronScriptEntry(record)) || antigravityHelper(record);
+}
+
+function isElectronHelper(record: RawProcessRecord): boolean {
+  return commandArguments(record.commandLine).slice(1).some((arg) =>
+    /^--(?:type(?:=|$)|utility-sub-type(?:=|$)|crashpad-handler(?:=|$))/u.test(arg));
+}
+
+function processKind(record: RawProcessRecord, tool: DiscoveredTool): 'cli' | 'desktop' | undefined {
+  if (tool === 'gemini') return 'cli';
+  if (tool === 'cursor') {
+    return cursorCliPath(record.executablePath) || cursorCliPath(record.name) || cursorCliPath(runtimeEntry(record)) ||
+      cursorCliPath(commandArguments(record.commandLine)[0] ?? null)
+      ? 'cli' : 'desktop';
+  }
+  if (tool === 'antigravity') return 'desktop';
+  return undefined;
+}
 
 /**
  * Entry points that only the DeepSeek Harness launches. Matching on the entry
@@ -122,12 +235,26 @@ export function detectProcessTool(
   record: RawProcessRecord,
   options: ProcessNameOptions = {},
 ): DiscoveredTool | null {
-  const commandLine = lower(record.commandLine ?? '');
   const processName = basename(record.name);
   const executableName = basename(record.executablePath);
   const claudeNames = options.claudeExecutableNames ?? DEFAULT_CLAUDE_EXECUTABLE_NAMES;
   const codexNames = options.codexExecutableNames ?? DEFAULT_CODEX_EXECUTABLE_NAMES;
   const dshNames = options.dshExecutableNames ?? DEFAULT_DSH_EXECUTABLE_NAMES;
+  const entry = runtimeEntry(record);
+  const electronEntry = electronScriptEntry(record);
+  const firstArgument = commandArguments(record.commandLine)[0] ?? null;
+  const isGemini = configuredNameMatches(record, options.geminiExecutableNames ?? DEFAULT_GEMINI_EXECUTABLE_NAMES) ||
+    geminiEntry(entry);
+  const cursorCli = cursorCliPath(record.executablePath) || cursorCliPath(record.name) || cursorCliPath(entry) ||
+    cursorCliPath(firstArgument);
+  const isCursor = cursorCli || cursorDesktopEntry(entry ?? electronEntry) || (!isElectronHelper(record) && electronEntry === null &&
+    configuredNameMatches(record, options.cursorExecutableNames ?? DEFAULT_CURSOR_EXECUTABLE_NAMES));
+  const isAntigravity = antigravityHelper(record) || (!isElectronHelper(record) && electronEntry === null &&
+    configuredNameMatches(record, options.antigravityExecutableNames ?? DEFAULT_ANTIGRAVITY_EXECUTABLE_NAMES));
+  // A recognized entry point owns its arguments. A prompt naming another CLI
+  // must not make that Gemini/Cursor/Antigravity process ambiguous.
+  const commandLine = lower(isGemini || isCursor || isAntigravity
+    ? entry ?? firstArgument ?? '' : record.commandLine ?? '');
 
   const isClaude =
     configuredNameMatches(record, claudeNames) ||
@@ -153,11 +280,13 @@ export function detectProcessTool(
     containsPathToken(commandLine, 'bin/dsh') ||
     DSH_ENTRY_TOKENS.some((token) => containsPathToken(commandLine, token)) ||
     (processName === 'dsh.exe' && executableName === 'dsh.exe');
-
   const matched = [
     ...(isClaude ? (['claude'] as const) : []),
     ...(isCodex ? (['codex'] as const) : []),
     ...(isDsh ? (['dsh'] as const) : []),
+    ...(isGemini ? (['gemini'] as const) : []),
+    ...(isCursor ? (['cursor'] as const) : []),
+    ...(isAntigravity ? (['antigravity'] as const) : []),
   ];
   return matched.length === 1 ? matched[0] : null;
 }
@@ -247,10 +376,15 @@ export function groupProcesses(
   }
 
   const toolByPid = new Map<number, DiscoveredTool>();
+  const kindByPid = new Map<number, 'cli' | 'desktop' | undefined>();
+  const desktopHelperPids = new Set<number>();
   for (const record of byPid.values()) {
     const tool = detectProcessTool(record, options);
     if (tool !== null) {
       toolByPid.set(record.pid, tool);
+      const kind = processKind(record, tool);
+      kindByPid.set(record.pid, kind);
+      if (kind === 'desktop' && desktopAgentHelper(record)) desktopHelperPids.add(record.pid);
     }
   }
 
@@ -263,15 +397,20 @@ export function groupProcesses(
 
     let root = record;
     let parentPid = record.parentPid;
+    const desktop = kindByPid.get(record.pid) === 'desktop';
+    // A GUI can launch another independent GUI with its own profile/window.
+    // Only its dedicated agent helpers may be absorbed into a desktop root.
+    const desktopGui = desktop && !desktopHelperPids.has(record.pid);
     const visited = new Set<number>([record.pid]);
-    while (!visited.has(parentPid)) {
+    while (!desktopGui && !visited.has(parentPid)) {
       visited.add(parentPid);
       const parent = byPid.get(parentPid);
-      if (!parent || toolByPid.get(parent.pid) !== tool) {
+      if (!parent || toolByPid.get(parent.pid) !== tool || kindByPid.get(parent.pid) !== kindByPid.get(record.pid)) {
         break;
       }
       root = parent;
       parentPid = parent.parentPid;
+      if (desktop && !desktopHelperPids.has(parent.pid)) break;
     }
     rootByPid.set(record.pid, root);
   }
@@ -288,16 +427,27 @@ export function groupProcesses(
    *
    * Folding is limited to a strict ancestor relationship with the same tool, so two genuinely independent
    * sessions of the same tool are never merged, however similar they look.
+   * Desktop helpers stop at the nearest GUI root; another GUI further up the
+   * chain owns a different window/profile and remains independent.
    */
   const foldedRootPid = new Map<number, number>();
   for (const [pid, root] of rootByPid) {
     const tool = toolByPid.get(pid);
     let outermost = root.pid;
-    // The chain is ordered nearest first, so the last match is the outermost ancestor.
+    const desktop = kindByPid.get(pid) === 'desktop';
+    if (desktop && !desktopHelperPids.has(root.pid)) {
+      foldedRootPid.set(pid, root.pid);
+      continue;
+    }
+    // CLI helpers choose the outermost matching ancestor. Desktop helpers
+    // stop at the first GUI root in this nearest-first chain.
     for (const ancestor of root.ancestors ?? []) {
-      if (toolByPid.get(ancestor.pid) !== tool) continue;
+      if (toolByPid.get(ancestor.pid) !== tool || kindByPid.get(ancestor.pid) !== kindByPid.get(pid)) continue;
       const ancestorRoot = rootByPid.get(ancestor.pid);
-      if (ancestorRoot !== undefined) outermost = ancestorRoot.pid;
+      if (ancestorRoot !== undefined) {
+        outermost = ancestorRoot.pid;
+        if (desktop && !desktopHelperPids.has(ancestorRoot.pid)) break;
+      }
     }
     foldedRootPid.set(pid, outermost);
   }
@@ -320,11 +470,15 @@ export function groupProcesses(
 
   return [...groups.values()]
     .map(({ tool, root, childPids }) => {
-      const workingDirectory = resolveWorkingDirectory(root.commandLine, root.workingDirectory);
+      const kind = kindByPid.get(root.pid);
+      const desktopHelper = desktopHelperPids.has(root.pid);
+      const workingDirectory = resolveWorkingDirectory(root.commandLine, root.workingDirectory, desktopHelper ? undefined : kind);
+      const desktopHostName = hostAppFor(root.name) ? root.name : tool;
       const host = classifySessionHost({
         rootPid: root.pid,
         rootName: root.name,
-        ancestors: root.ancestors ?? [],
+        // An editor/desktop app is the host itself, not Explorer or the shell that launched it.
+        ancestors: kind === 'desktop' ? [{ pid: root.pid, name: desktopHostName }, ...(root.ancestors ?? [])] : root.ancestors ?? [],
         windows: (root.windows ?? []).map((window) => ({
           handle: window.handle,
           pid: window.pid,
@@ -345,6 +499,7 @@ export function groupProcesses(
         executablePath: root.executablePath,
         creationTimeMs: root.creationTimeMs,
         userSid: root.userSid,
+        ...(kind === undefined ? {} : { processKind: kind }),
         ...(workingDirectory === null ? {} : { workingDirectory }),
         /**
          * A session inside a distribution gets a host only when its launching terminal was established.
@@ -361,7 +516,7 @@ export function groupProcesses(
          * that this session has no window of its own to preview.
          */
         ...(isWsl
-          ? hostFromWslTerminal(root.wslTerminal, root.pid)
+          ? hostFromWslTerminal(kind === 'desktop' ? desktopHostName : root.wslTerminal, root.pid)
           : host === null ? {} : { host }),
         ...(isWsl ? { distribution } : {}),
         transportHint: 'unknown' as const,
@@ -396,14 +551,59 @@ function hostFromWslTerminal(
 }
 
 function extractWorkingDirectory(commandLine: string | null): string | null {
-  if (typeof commandLine !== 'string') return null;
-  const match = /(?:^|\s)(?:--cd|--cwd|--directory|-C)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/u.exec(commandLine);
-  const value = match?.[1] ?? match?.[2] ?? match?.[3];
-  return value === undefined || value.trim().length === 0 ? null : value;
+  const args = commandArguments(commandLine).slice(1);
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = /^(?:--cd|--cwd|--directory|-C)(?:=(.*))?$/u.exec(args[index]!);
+    if (!flag) continue;
+    const value = flag[1] ?? args[index + 1];
+    if (value && !value.startsWith('-')) return value;
+  }
+  return null;
 }
 
-function resolveWorkingDirectory(commandLine: string | null, processCwd?: string | null): string | null {
-  const explicit = extractWorkingDirectory(commandLine);
+function desktopProjectDirectory(commandLine: string | null): string | null {
+  const args = commandArguments(commandLine).slice(1);
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    const uriFlag = /^(--folder-uri|--file-uri)(?:=(.*))?$/u.exec(arg);
+    if (!uriFlag) continue;
+    const value = uriFlag[2] ?? args[index + 1];
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      // Remote workspaces belong to a different namespace, handled by session metadata.
+      if (url.protocol !== 'file:') continue;
+      const windows = url.hostname.length > 0 || /^\/[a-z]:\//iu.test(url.pathname);
+      const directory = fileURLToPath(url, { windows });
+      return uriFlag[1] === '--file-uri' ? (windows ? win32 : posix).dirname(directory) : directory;
+    } catch { /* A malformed URI cannot identify a project. */ }
+  }
+  const valueFlags = new Set([
+    '--user-data-dir', '--extensions-dir', '--profile', '--locale', '--log', '--port',
+    '--remote', '--open-url', '--folder-uri', '--file-uri', '--inspect-extensions',
+    '--inspect-brk-extensions', '--logsPath', '--crash-reporter-directory',
+  ]);
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg.startsWith('-')) {
+      if (!arg.includes('=') && valueFlags.has(arg)) index += 1;
+      continue;
+    }
+    if (/^[a-z][a-z0-9+.-]*:\/\//iu.test(arg)) continue;
+    // A workspace file is not a working directory. Its constituent roots are resolved by metadata.
+    if (/\.code-workspace$/iu.test(arg)) return (win32.isAbsolute(arg) ? win32 : posix).dirname(arg);
+    return arg || null;
+  }
+  return null;
+}
+
+function resolveWorkingDirectory(
+  commandLine: string | null,
+  processCwd?: string | null,
+  kind?: 'cli' | 'desktop',
+): string | null {
+  const explicit = extractWorkingDirectory(commandLine) ??
+    (kind === 'desktop' ? desktopProjectDirectory(commandLine) : null);
   if (explicit === null) return processCwd ?? null;
   const paths = /^[a-z]:[\\/]|^[\\]{2}/iu.test(explicit) || /^[a-z]:[\\/]|^[\\]{2}/iu.test(processCwd ?? '') ? win32 : posix;
   if (paths.isAbsolute(explicit)) return explicit;

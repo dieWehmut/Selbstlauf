@@ -5,6 +5,7 @@ import {
   type DshToolConfig,
   type GoalStatus,
   type ResumableGoalStatus,
+  type ToolConfig,
   type WatchdogConfig,
 } from './types.js';
 
@@ -59,6 +60,9 @@ const defaults: WatchdogConfig = {
       sessionWindowMs: 3_600_000,
       allowApiInput: true,
     },
+    gemini: { enabled: true, normalPrompt: '继续' },
+    antigravity: { enabled: true, normalPrompt: '继续' },
+    cursor: { enabled: true, normalPrompt: '继续' },
   },
   processFilters: {
     sameUserOnly: true,
@@ -174,6 +178,15 @@ function parseDshConfig(value: unknown): DshToolConfig {
   };
 }
 
+function parseMonitorConfig(value: unknown, tool: 'gemini' | 'antigravity' | 'cursor'): ToolConfig {
+  if (value === undefined) return defaultConfig.tools[tool];
+  const config = requireRecord(value, `tools.${tool}`);
+  return {
+    enabled: requireBoolean(config.enabled, `tools.${tool}.enabled`),
+    normalPrompt: requirePrompt(config.normalPrompt, `tools.${tool}.normalPrompt`),
+  };
+}
+
 export function parseConfig(value: unknown): WatchdogConfig {
   const config = requireRecord(value, 'config');
   const tools = requireRecord(config.tools, 'tools');
@@ -235,6 +248,9 @@ export function parseConfig(value: unknown): WatchdogConfig {
       },
       codex: parseCodexConfig(tools.codex),
       dsh: parseDshConfig(tools.dsh),
+      gemini: parseMonitorConfig(tools.gemini, 'gemini'),
+      antigravity: parseMonitorConfig(tools.antigravity, 'antigravity'),
+      cursor: parseMonitorConfig(tools.cursor, 'cursor'),
     },
     processFilters: {
       sameUserOnly: requireBoolean(processFilters.sameUserOnly, 'processFilters.sameUserOnly'),

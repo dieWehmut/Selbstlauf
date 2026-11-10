@@ -3,6 +3,26 @@ import { test } from 'node:test';
 
 import { defaultConfig, parseConfig } from '../src/domain/config.js';
 
+test('legacy installations acquire the new monitor defaults without losing existing settings', () => {
+  const legacy = structuredClone(defaultConfig) as unknown as { tools: Record<string, unknown> };
+  for (const tool of ['gemini', 'antigravity', 'cursor']) delete legacy.tools[tool];
+  const parsed = parseConfig(legacy);
+  for (const tool of ['gemini', 'antigravity', 'cursor'] as const) {
+    assert.deepEqual(parsed.tools[tool], { enabled: true, normalPrompt: '继续' });
+    assert(Object.isFrozen(parsed.tools[tool]));
+  }
+  assert.deepEqual(parsed.tools.codex, defaultConfig.tools.codex);
+});
+
+test('new monitor settings preserve disabling and reject malformed policy', () => {
+  for (const tool of ['gemini', 'antigravity', 'cursor'] as const) {
+    const tools = { ...defaultConfig.tools, [tool]: { enabled: false, normalPrompt: 'continue' } };
+    assert.equal(parseConfig({ ...defaultConfig, tools }).tools[tool].enabled, false);
+    assert.throws(() => parseConfig({ ...defaultConfig, tools: { ...tools, [tool]: { enabled: 'true', normalPrompt: 'continue' } } }), /enabled/);
+    assert.throws(() => parseConfig({ ...defaultConfig, tools: { ...tools, [tool]: { enabled: true, normalPrompt: '' } } }), /normalPrompt/);
+  }
+});
+
 test('default config is deeply frozen', () => {
   assert.equal(Object.isFrozen(defaultConfig), true);
   assert.equal(Object.isFrozen(defaultConfig.tools), true);

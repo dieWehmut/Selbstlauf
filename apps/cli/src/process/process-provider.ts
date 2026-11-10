@@ -17,7 +17,7 @@ export interface RawProcessRecord {
   readonly workingDirectory?: string | null;
   /** Immediate parent first, walking outward from this process. */
   readonly ancestors?: readonly RawAncestorRecord[];
-  /** Visible windows owned by an ancestor, plus caller-marked title matches. */
+  /** Titled windows owned by this process or an ancestor, plus caller-marked title matches. */
   readonly windows?: readonly RawWindowRecord[];
   /**
    * The WSL interop socket this process belongs to, as `WSL_INTEROP` reports it.

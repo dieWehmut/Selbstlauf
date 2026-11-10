@@ -63,6 +63,7 @@ const records = await new WindowsProcessProvider({ includeProcessIds: [process.p
 const groups = groupProcesses(records, { currentProcessId: process.pid, sameUserOnly: true });
 const codexRoots = groups.filter((group) => group.tool === 'codex').map((group) => group.rootPid);
 const dshHosts = groups.filter((group) => group.tool === 'dsh');
+const additionalRoots = groups.filter((group) => ['gemini', 'antigravity', 'cursor'].includes(group.tool));
 const oldestHostStart = dshHosts.reduce((oldest, host) => {
   if (host.creationTimeMs === null) return oldest;
   return oldest === null ? host.creationTimeMs : Math.min(oldest, host.creationTimeMs);
@@ -75,14 +76,15 @@ const dshSessions = (await scanDshSessions({ homeDirectory: dshHome })).filter((
   }));
 
 console.log(`machine agents: ${codexRoots.length} codex root process(es), ` +
-  `${dshHosts.length} DeepSeek Harness host(s), ${dshSessions.length} live harness session(s)`);
+  `${dshHosts.length} DeepSeek Harness host(s), ${dshSessions.length} live harness session(s), ` +
+  `${additionalRoots.length} Gemini/Antigravity/Cursor root process(es)`);
 for (const session of dshSessions) {
   console.log(`  harness ${session.sessionId} cwd=${session.cwd} ` +
     `runningStep=${session.turnOpen} ` +
     `ageSec=${Math.round((Date.now() - (dshSessionActivityMs(session) ?? Date.now())) / 1_000)}`);
 }
 
-if (codexRoots.length === 0 && dshSessions.length === 0) {
+if (codexRoots.length === 0 && dshSessions.length === 0 && additionalRoots.length === 0) {
   console.log('no local agent is running; nothing to verify');
   process.exit(0);
 }
@@ -110,6 +112,7 @@ try {
   const wanted = [
     ...codexRoots.map((pid) => (session) => session.tool === 'codex' && session.rootPid === pid),
     ...dshSessions.map((session) => (entry) => entry.id === `dsh:${session.sessionId}`),
+    ...additionalRoots.map((group) => (entry) => entry.tool === group.tool && entry.rootPid === group.rootPid),
   ];
   let sessions = [];
   const deadline = Date.now() + Number(readOption('--timeout-ms') ?? 120_000);
@@ -122,6 +125,15 @@ try {
     const row = sessions.find((session) => session.tool === 'codex' && session.rootPid === pid);
     check(Boolean(row), `codex PID ${pid} is discovered as a watched session`);
     if (row) check(row.alive === true, `codex PID ${pid} is reported alive`);
+  }
+
+  for (const group of additionalRoots) {
+    const rows = sessions.filter((entry) => entry.tool === group.tool && entry.rootPid === group.rootPid && entry.alive);
+    check(rows.length > 0, `${group.tool} PID ${group.rootPid} is discovered alive`);
+    for (const row of rows) {
+      check(row.transport === 'monitor-only', `${group.tool} PID ${group.rootPid} reports monitoring without an input transport`);
+      check(['monitoring', 'association-required', 'disabled', 'paused'].includes(row.lastDecision), `${group.tool} PID ${group.rootPid} reports an explicit monitoring decision`);
+    }
   }
 
   for (const session of dshSessions) {
