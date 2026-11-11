@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { CirclePlay, ExternalLink, RefreshCw, X } from 'lucide-react';
 import type { AgentApi, AgentCatalog, AgentSession, AgentTool } from '../api/agents';
 import { ToolIcon } from '../sidebar/ToolIcon';
+import { AgentInstallationDetails, installationLabel } from './AgentInstallationDetails';
 import './agents.css';
 
 export function AgentLauncher(props: {
@@ -37,7 +38,12 @@ export function AgentLauncher(props: {
       const value = await props.api.catalog();
       if (mounted.current) setCatalog(value);
     } catch (cause) {
-      if (mounted.current) setError(cause instanceof Error ? cause.message : String(cause));
+      if (mounted.current) {
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        setError(reason);
+        setCatalog((previous) => previous === null ? null : { ...previous, tools: previous.tools.map((entry) =>
+          entry.id === 'shell' || entry.id === 'custom' ? entry : { ...entry, installation: { status: 'unknown', reason } }) });
+      }
     } finally { if (mounted.current) setRefreshing(false); }
   };
 
@@ -64,6 +70,7 @@ export function AgentLauncher(props: {
   const selected = catalog?.tools.find((entry) => entry.id === tool);
   const guided = selected?.launchable === false || selected?.kind === 'desktop' || selected?.kind === 'extension';
   const missing = !guided && selected?.available === false && command.trim().length === 0;
+  const application = selected && selected.id !== 'shell' && selected.id !== 'custom';
   const customMissing = tool === 'custom' && command.trim().length === 0;
   const disabled = busy || refreshing || guided || props.demo === true || catalog === null || missing || customMissing || cwd.trim().length === 0;
 
@@ -96,8 +103,9 @@ export function AgentLauncher(props: {
       {props.demo ? <p className="agent-help">{t("在线演示无法启动本机进程。请运行本地服务或桌面版后使用智能体窗口。")}</p> : (
         <form className="agent-launcher__form" onSubmit={(event) => { event.preventDefault(); void launch(); }}>
           <label>{t("智能体")}<select aria-label={t("智能体")} value={tool} disabled={busy || catalog === null} onChange={(event) => { setTool(event.target.value as AgentTool); setCommand(''); setError(null); }}>
-              {(catalog?.tools ?? [{ id: tool, label: '正在检测本机工具…', available: false, kind: undefined }]).map((entry) => (
-                <option key={entry.id} value={entry.id}>{t(entry.label)}{entry.kind === 'desktop' ? t('（桌面应用）') : entry.kind === 'extension' ? t('（编辑器扩展）') : entry.available ? '' : t("（未找到）")}</option>
+              {catalog === null && <option value={tool}>{t('正在检测本机工具…')}</option>}
+              {(catalog?.tools ?? []).map((entry) => (
+                <option key={entry.id} value={entry.id}>{t(entry.label)}{entry.kind === 'desktop' ? t('（桌面应用）') : entry.kind === 'extension' ? t('（编辑器扩展）') : ''}{entry.id !== 'shell' && entry.id !== 'custom' ? ` · ${t(installationLabel(entry))}` : ''}</option>
               ))}
             </select>
           </label>
@@ -108,9 +116,14 @@ export function AgentLauncher(props: {
               <RefreshCw size={14} className={refreshing ? 'spin' : undefined} />{t('重新检测')}
             </button>
           </div>}
+          {application && <AgentInstallationDetails tool={selected} />}
           {guided && <p className="agent-help">{selected?.kind === 'extension'
-            ? t('在编辑器中安装并打开此扩展，然后按接入指南配置模型。')
-            : t('安装并打开此桌面应用，然后按接入指南配置模型。')}</p>}
+            ? selected.installation?.status === 'installed'
+              ? t('在编辑器中打开此扩展，然后按接入指南配置模型。')
+              : t('在编辑器中安装并打开此扩展，然后按接入指南配置模型。')
+            : selected?.installation?.status === 'installed'
+              ? t('打开此桌面应用，然后按接入指南配置模型。')
+              : t('安装并打开此桌面应用，然后按接入指南配置模型。')}</p>}
           {!guided && <>
           <label>{t("工作目录")}<input value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder={t("要让智能体工作的项目目录")} maxLength={4096} disabled={busy} required />
           </label>
@@ -125,7 +138,9 @@ export function AgentLauncher(props: {
             {(selected?.defaultArgs?.length ?? 0) > 0 && <p className="agent-help">{t('默认启动参数')} <code>{selected?.defaultArgs?.join(' ')}</code></p>}
           </details>
           {missing && <div className="agent-help" role="status">
-            {t('没有在本机找到 {tool}。可填写完整路径，或先到环境设置中安装。', { tool: t(selected?.label ?? '智能体') })}{selected?.installCommand && <code>{selected.installCommand}</code>}
+            {selected?.installation?.status === 'not-found'
+              ? t('没有在本机找到 {tool}。可填写完整路径，或先到环境设置中安装。', { tool: t(selected.label) })
+              : t('启动命令未找到。可填写可执行文件的完整路径，或到环境设置检查 CLI 安装。')}{selected?.installCommand && <code>{selected.installCommand}</code>}
             <button className="text-button" type="button" onClick={props.onInstall}>{t("打开环境设置")}</button>
           </div>}
           </>}

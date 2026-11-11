@@ -95,6 +95,52 @@ describe('agent launcher', () => {
     expect(readCatalog).toHaveBeenCalledTimes(2);
   });
 
+  it('shows installed desktop evidence while keeping PTY launch unavailable', async () => {
+    const { api } = setup({ catalog: vi.fn(async () => ({ ...catalog, tools: [...catalog.tools, {
+      id: 'cursor', label: 'Cursor', kind: 'desktop', launchable: false, command: null, available: false,
+      installation: { status: 'installed', path: 'C:\\Apps\\Cursor\\Cursor.exe', source: 'standard-location' },
+    }] } as AgentCatalog)) });
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText('智能体')).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText('智能体'), 'cursor');
+    expect(screen.getByTestId('agent-installation-cursor')).toHaveTextContent('已安装');
+    expect(screen.getByText('C:\\Apps\\Cursor\\Cursor.exe')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /^启动$/u })).not.toBeInTheDocument();
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+
+  it('reports an installed editor extension separately from the unavailable CLI command', async () => {
+    setup({ catalog: vi.fn(async () => ({ ...catalog, tools: [...catalog.tools, {
+      id: 'cline', label: 'Cline', kind: 'cli', command: null, available: false,
+      installation: { status: 'installed', source: 'vscode-extension',
+        extensions: [{ id: 'saoudrizwan.claude-dev', path: 'C:\\User\\.vscode\\extensions\\cline' }] },
+    }] } as AgentCatalog)) });
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText('智能体')).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText('智能体'), 'cline');
+    expect(screen.getByTestId('agent-installation-cline')).toHaveTextContent('已安装');
+    expect(screen.getByText('saoudrizwan.claude-dev')).toBeVisible();
+    expect(screen.getByText('启动命令未找到。可填写可执行文件的完整路径，或到环境设置检查 CLI 安装。')).toBeVisible();
+    expect(screen.queryByText(/没有在本机找到 Cline/u)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^启动$/u })).toBeDisabled();
+  });
+
+  it('shows unknown instead of stale installation evidence after a failed recheck', async () => {
+    const readCatalog = vi.fn().mockResolvedValueOnce({ ...catalog, tools: [...catalog.tools, {
+      id: 'cursor', label: 'Cursor', kind: 'desktop', launchable: false, command: null, available: false,
+      installation: { status: 'installed', path: 'C:\\Apps\\Cursor.exe' },
+    }] }).mockRejectedValueOnce(new Error('检测超时'));
+    setup({ catalog: readCatalog });
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText('智能体')).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText('智能体'), 'cursor');
+    expect(screen.getByTestId('agent-installation-cursor')).toHaveTextContent('已安装');
+    await user.click(screen.getByRole('button', { name: '重新检测本机工具' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('检测超时');
+    expect(screen.getByTestId('agent-installation-cursor')).toHaveTextContent('未知');
+    expect(screen.queryByText('C:\\Apps\\Cursor.exe')).not.toBeInTheDocument();
+  });
+
   it('does not start a process or probe a machine in the hosted demo', () => {
     const api = { catalog: vi.fn(), launch: vi.fn() } as unknown as AgentApi;
     render(<AgentLauncher api={api} demo onClose={vi.fn()} onLaunch={vi.fn()} onInstall={vi.fn()} />);

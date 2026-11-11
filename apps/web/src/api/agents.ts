@@ -31,6 +31,13 @@ export interface AgentCatalog {
     available: boolean;
     kind?: 'cli' | 'desktop' | 'extension' | 'shell' | 'custom';
     launchable?: boolean;
+    installation?: {
+      status: 'installed' | 'not-found' | 'unknown';
+      path?: string;
+      source?: 'path' | 'standard-location' | 'windows-registry' | 'windows-appx' | 'running-executable' | 'vscode-extension';
+      reason?: string;
+      extensions?: { id: string; path: string }[];
+    };
     installCommand?: string;
     installUrl?: string;
     docsUrl?: string;

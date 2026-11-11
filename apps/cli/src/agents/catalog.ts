@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve, win32 } from 'node:path';
 import { AgentSessionError, type AgentCatalog } from './types.js';
 import { AGENT_REGISTRY, agentInstallCommand } from './registry.js';
+import { detectAgentInstallations } from './installation.js';
 
 export const AGENT_PRESETS = AGENT_REGISTRY;
 
@@ -19,6 +20,7 @@ export async function resolveExecutable(command: string, options: {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
+  onError?: (cause: unknown) => void;
 } = {}): Promise<string | null> {
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
@@ -36,17 +38,29 @@ export async function resolveExecutable(command: string, options: {
         if (!(await stat(candidate)).isFile()) continue;
         await access(candidate, platform === 'win32' ? constants.F_OK : constants.X_OK);
         return candidate;
-      } catch { /* Try the next PATH entry. */ }
+      } catch (cause) {
+        if (!(cause && typeof cause === 'object' && 'code' in cause && ['ENOENT', 'ENOTDIR'].includes(String(cause.code)))) options.onError?.(cause);
+      }
     }
   }
   return null;
 }
 
 export async function agentCatalog(platform = process.platform, env = process.env, defaultCwd = homedir()): Promise<AgentCatalog> {
+  const installations = detectAgentInstallations({ platform, env });
   const tools = await Promise.all(AGENT_PRESETS.map(async (preset) => {
     const command = preset.id === 'shell' ? defaultShell(platform, env) : preset.command;
-    const resolved = command === undefined ? null : await resolveExecutable(command, { platform, env });
+    let uncertain = false;
+    let timer: NodeJS.Timeout | undefined;
+    const resolved = command === undefined ? null : await Promise.race([
+      resolveExecutable(command, { platform, env, onError: () => { uncertain = true; } }),
+      new Promise<null>((done) => { timer = setTimeout(() => { uncertain = true; done(null); }, 2000); }),
+    ]).finally(() => { if (timer) clearTimeout(timer); });
     const launchable = preset.kind !== 'desktop' && preset.kind !== 'extension';
+    const installation = (await installations).get(preset.id);
+    const evidence = preset.kind === 'shell' || preset.kind === 'custom' ? undefined : resolved && platform === process.platform
+      ? { ...installation, status: 'installed' as const, path: resolved, source: 'path' as const, reason: undefined }
+      : installation?.status === 'not-found' && uncertain ? { status: 'unknown' as const, reason: '无法完整读取本机 PATH。' } : installation;
     const installCommand = agentInstallCommand(preset, platform);
     return {
       id: preset.id,
@@ -55,6 +69,7 @@ export async function agentCatalog(platform = process.platform, env = process.en
       available: preset.id === 'custom' || resolved !== null,
       kind: preset.kind,
       launchable,
+      ...(evidence === undefined ? {} : { installation: evidence }),
       defaultArgs: preset.defaultArgs ?? [],
       ...(installCommand === undefined ? {} : { installCommand }),
       ...(preset.installUrl === undefined ? {} : { installUrl: preset.installUrl }),

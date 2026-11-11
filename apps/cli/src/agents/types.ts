@@ -6,6 +6,15 @@ export const AGENT_TOOLS = [
 ] as const;
 export type AgentTool = (typeof AGENT_TOOLS)[number];
 
+/** Installation evidence is independent of a running session or a launchable CLI command. */
+export interface AgentInstallation {
+  status: 'installed' | 'not-found' | 'unknown';
+  path?: string;
+  source?: 'path' | 'standard-location' | 'windows-registry' | 'windows-appx' | 'running-executable' | 'vscode-extension';
+  reason?: string;
+  extensions?: { id: string; path: string }[];
+}
+
 /** Kept independent of node-pty so the desktop can supply its Electron-compatible build. */
 export interface AgentPty {
   readonly pid: number;
@@ -65,6 +74,7 @@ export interface AgentCatalog {
     available: boolean;
     kind: AgentKind;
     launchable: boolean;
+    installation?: AgentInstallation;
     defaultArgs: readonly string[];
     installCommand?: string;
     installUrl?: string;

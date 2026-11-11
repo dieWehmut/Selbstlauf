@@ -8,6 +8,20 @@
 .agent-launcher__tool .text-button { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; }
 .agent-launcher__links { display: flex; flex-wrap: wrap; gap: 10px 18px; }
 .agent-launcher__links a { display: inline-flex; align-items: center; gap: 5px; color: var(--accent); font-size: 12px; padding-block: 5px; }
+.agent-installation { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.agent-installation__status { display: flex; align-items: center; gap: 12px; margin: 0; color: var(--muted); font-size: 12px; }
+.agent-installation__badge { padding: 3px 8px; border-radius: var(--radius-sm); background: var(--panel-soft); color: var(--muted); }
+.agent-installation__badge--installed { color: var(--green); background: color-mix(in srgb, var(--green) 10%, var(--panel)); }
+.agent-installation__paths { display: grid; gap: 8px; margin: 0; font-size: 11px; }
+.agent-installation__paths dt { margin-bottom: 4px; color: var(--faint); }
+.agent-installation__paths dd { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.agent-installation code { font-family: var(--mono); overflow-wrap: anywhere; }
+.agent-inventory > .agent-help, .agent-inventory > .agent-error { margin-bottom: 16px; }
+.agent-inventory__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 12px; }
+.agent-inventory__card { min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); background: var(--panel-soft); }
+.agent-inventory__card header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.agent-inventory__card header strong { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.agent-inventory__card header > span { color: var(--faint); font-size: 11px; }
 .agent-launcher label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 12px; }
 .agent-launcher input, .agent-launcher textarea, .agent-launcher select { width: 100%; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); color: var(--text); background: var(--panel-soft); font: 12px var(--mono); }
 .agent-launcher input:focus, .agent-launcher textarea:focus, .agent-launcher select:focus { outline: 2px solid var(--accent); outline-offset: 2px; }

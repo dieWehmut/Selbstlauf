@@ -75,6 +75,7 @@ import { describeAuditDetails } from './timeline/audit-details';
 import { createAgentApi, type AgentApi } from './api/agents';
 import { AgentLauncher } from './agents/AgentLauncher';
 import { AgentWindows } from './agents/AgentWindows';
+import { AgentInstallationInventory } from './agents/AgentInstallationInventory';
 import {
   AccountSection,
   BrowserSection,
@@ -1722,6 +1723,7 @@ function AppearancePanel(props: {
 
 function SettingsPanel(props: {
   remoteApi: WatchdogApi;
+  agentsApi: AgentApi;
   config: WatchdogConfig;
   hookStatus: ClaudeHookStatusView;
   profiles: CodexProfilesView | null;
@@ -1967,6 +1969,7 @@ function SettingsPanel(props: {
             onUpgrade={props.onUpgradeTool}
             onUpgradeAll={props.onUpgradeAllTools}
           />
+          <AgentInstallationInventory api={props.agentsApi} demo={props.staticDemo} />
         </>
       )}
       {activeSection === 'startup' && (
@@ -3350,7 +3353,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         }} /></div>}
 
         {page === 'timeline' && <div className="page-content"><section className="content-section"><div className="section-heading"><div><span className="eyebrow">{t("Audit")}</span><h2>{t("决策与写入")}</h2></div><span className="section-meta">{t("{count} 条", { count: visibleEvents.length })}</span></div><Timeline events={visibleEvents} /></section></div>}
-        {page === 'settings' && <div className="page-content"><SettingsPanel remoteApi={api} config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={changeThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={desktopSettingsReady} desktopPlatform={bridge?.platform} desktopSettingsBusy={desktopSettingsBusy} desktopSettingsError={desktopSettingsError === null ? null : messageText(desktopSettingsError, locale)} staticDemo={staticDemo} origin={`${window.location.origin}${import.meta.env.BASE_URL}`} connected={live} /></div>}
+        {page === 'settings' && <div className="page-content"><SettingsPanel remoteApi={api} agentsApi={agentsApi} config={config} theme={themePreference} activeTheme={theme} palette={palette} palettes={palettes} customized={paletteCustomized} onThemeChange={changeThemePreference} onPaletteChange={changePalette} onPaletteReset={resetPalette} onImportTheme={importTheme} onCopyTheme={copyTheme} environment={environment} environmentRefreshing={environmentRefreshing} onRefreshEnvironment={refreshEnvironment} environmentUpgrading={environmentUpgrading} onUpgradeTool={upgradeTool} onUpgradeAllTools={upgradeAllTools} onNotificationsChange={setNotifications} density={personalization.density} onDensityChange={changeDensity} pet={pet} onPetChange={changePet} hookStatus={hookStatus} profiles={codexProfiles} applyingProfile={applyingProfile} onApplyProfile={applyCodexProfile} saving={saving} running={health.running} onSave={saveConfig} onToggle={toggleWatchdog} onInstall={install} startupInstalled={startupInstalled} onToggleStartup={toggleStartup} onInstallClaudeHook={() => updateClaudeHook('install')} onUninstallClaudeHook={() => updateClaudeHook('uninstall')} onDisableClaudeHook={() => updateClaudeHook('disable')} onUninstall={uninstall} sessions={liveSessions} events={events} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => { navigate('overview'); setSidebarOpen(false); }} onImportThemeText={importThemeText} onImportConfigText={importConfigText} allowReveal={allowReveal} onAllowRevealChange={changeAllowReveal} closeToTray={closeToTray} onCloseToTrayChange={changeCloseToTray} preferredTerminal={preferredTerminal} onPreferredTerminalChange={changePreferredTerminal} desktopBridgeAvailable={desktopSettingsReady} desktopPlatform={bridge?.platform} desktopSettingsBusy={desktopSettingsBusy} desktopSettingsError={desktopSettingsError === null ? null : messageText(desktopSettingsError, locale)} staticDemo={staticDemo} origin={`${window.location.origin}${import.meta.env.BASE_URL}`} connected={live} /></div>}
       </main>
 
       {launcherOpen && <AgentLauncher api={agentsApi} demo={staticDemo} onClose={() => setLauncherOpen(false)} onLaunch={(session) => {

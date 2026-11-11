@@ -6,6 +6,7 @@ import type { AuditEvent, HealthView, SessionView, WatchdogApi, WatchdogEvent } 
 import { MONITORED_TOOL_NAMES } from '../src/api/client';
 import { toolLabel } from '../src/sidebar/session-groups';
 import type { EnvironmentView } from '../src/api/client';
+import type { AgentApi } from '../src/api/agents';
 import { applyLocale, translate, type Locale } from '../src/i18n';
 
 function api(): WatchdogApi {
@@ -417,7 +418,13 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
 
   it('reports the local environment and offers the install commands', async () => {
     const fake = api();
-    render(<App api={fake} />);
+    const agents = { catalog: vi.fn(async () => ({ platform: 'win32', defaultCwd: 'C:\\Work', tools: [
+      { id: 'workbuddy-intl', label: 'WorkBuddy 国际版', kind: 'desktop', command: null, available: false,
+        installation: { status: 'installed', path: 'C:\\Apps\\WorkBuddyAI.exe' } },
+      { id: 'roo', label: 'Roo Code', kind: 'extension', command: null, available: false,
+        installation: { status: 'installed', extensions: [{ id: 'RooVeterinaryInc.roo-cline', path: 'C:\\User\\.vscode\\extensions\\roo' }] } },
+    ] })) } as unknown as AgentApi;
+    render(<App api={fake} agentsApi={agents} />);
     openSettings();
 
     // The environment check lives on the About tab, beside the version card.
@@ -425,9 +432,15 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
     fireEvent.click(within(tabs).getByRole('tab', { name: '关于' }));
 
     // The panel names each agent with its installed and published version.
-    expect(await screen.findByText('Claude Code')).toBeInTheDocument();
+    expect(within(await screen.findByTestId('tool-claude')).getByText('Claude Code')).toBeInTheDocument();
     expect(screen.getByText('2.1.274')).toBeInTheDocument();
     expect(screen.getByText('2.1.276')).toBeInTheDocument();
+
+    // Desktop and extension installations come from the native agent catalog independently of npm versions.
+    await waitFor(() => expect(screen.getByTestId('agent-inventory-workbuddy-intl')).toHaveTextContent('已安装'));
+    expect(screen.getByTestId('agent-inventory-workbuddy-intl')).toHaveTextContent('C:\\Apps\\WorkBuddyAI.exe');
+    expect(screen.getByTestId('agent-inventory-roo')).toHaveTextContent('RooVeterinaryInc.roo-cline');
+    expect(agents.catalog).toHaveBeenCalledTimes(1);
 
     // A missing tool says so instead of pretending it is current.
     expect(screen.getAllByText('未安装').length).toBeGreaterThan(0);
