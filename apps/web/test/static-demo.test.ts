@@ -130,7 +130,7 @@ describe('static Pages demo API', () => {
     config.tools.claude.stopHook.enabled = true;
     config.wslDistribution = 'Ubuntu-24.04';
     config.processFilters.include = ['Tabby'];
-    await api.updateConfig(config);
+    const savedConfig = await api.updateConfig(config);
     await api.installStartup();
     await api.installClaudeHook();
     await api.applyCodexProfile([{ key: 'base_url', value: 'https://example.test/v1' }]);
@@ -139,7 +139,15 @@ describe('static Pages demo API', () => {
     await api.pause((await api.sessions())[0].id);
 
     const reloaded = createStaticDemoApi(storage);
-    expect(await reloaded.config()).toEqual(config);
+    expect(savedConfig).toEqual(expect.objectContaining({
+      dryRun: false, pollIntervalMs: 4200, wslDistribution: 'Ubuntu-24.04',
+      processFilters: expect.objectContaining({ include: ['Tabby'] }),
+      tools: expect.objectContaining({
+        codex: expect.objectContaining({ normalPrompt: 'saved prompt' }),
+        claude: expect.objectContaining({ stopHook: expect.objectContaining({ enabled: true }) }),
+      }),
+    }));
+    expect(await reloaded.config()).toEqual(savedConfig);
     expect((await reloaded.startup()).installed).toBe(true);
     expect(await reloaded.claudeHook()).toEqual(expect.objectContaining({ installed: true, enabled: true }));
     expect((await reloaded.codexProfiles()).active.base_url).toBe('https://example.test/v1');

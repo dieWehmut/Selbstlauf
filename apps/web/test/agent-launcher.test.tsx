@@ -60,6 +60,41 @@ describe('agent launcher', () => {
     expect(onLaunch).not.toHaveBeenCalled();
   });
 
+  it('offers official installation and setup guides for an editor extension without starting a PTY', async () => {
+    const { api } = setup({ catalog: vi.fn(async () => ({ ...catalog, tools: [...catalog.tools, {
+      id: 'roo', label: 'Roo Code', kind: 'extension', launchable: false, command: null, available: false,
+      installUrl: 'https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline',
+      docsUrl: 'https://github.com/RooCodeInc/Roo-Code', guideUrls: ['https://agentrouter.org/docs/roocode.html'],
+    }] } as AgentCatalog)) });
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText('智能体')).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText('智能体'), 'roo');
+    expect(screen.getByRole('link', { name: '官方安装' })).toHaveAttribute('href', 'https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline');
+    expect(screen.getByRole('link', { name: 'AgentRouter 接入指南' })).toHaveAttribute('href', 'https://agentrouter.org/docs/roocode.html');
+    expect(screen.queryByRole('button', { name: '启动' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('工作目录')).not.toBeInTheDocument();
+    expect(api.launch).not.toHaveBeenCalled();
+    await user.selectOptions(screen.getByLabelText('智能体'), 'claude');
+    expect(screen.getByLabelText('工作目录')).toHaveValue('/work/project');
+    expect(screen.getByRole('button', { name: '启动' })).toBeEnabled();
+  });
+
+  it('detects a newly installed CLI without losing the working directory or arguments', async () => {
+    const readCatalog = vi.fn().mockResolvedValueOnce(catalog).mockResolvedValueOnce({
+      ...catalog, tools: catalog.tools.map((entry) => entry.id === 'opencode' ? { ...entry, available: true, command: '/bin/opencode' } : entry),
+    });
+    const { api } = setup({ catalog: readCatalog });
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText('智能体')).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText('智能体'), 'opencode');
+    await user.type(screen.getByLabelText('额外启动参数（每行一个）'), '--version');
+    await user.click(screen.getByRole('button', { name: '重新检测本机工具' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '启动' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: '启动' }));
+    expect(api.launch).toHaveBeenCalledWith({ tool: 'opencode', cwd: '/work/project', args: ['--version'] });
+    expect(readCatalog).toHaveBeenCalledTimes(2);
+  });
+
   it('does not start a process or probe a machine in the hosted demo', () => {
     const api = { catalog: vi.fn(), launch: vi.fn() } as unknown as AgentApi;
     render(<AgentLauncher api={api} demo onClose={vi.fn()} onLaunch={vi.fn()} onInstall={vi.fn()} />);

@@ -358,7 +358,11 @@ npm --workspace apps/desktop run smoke         # 无界面校验内置服务
 
 ### 智能体窗口：真实输入输出
 
-侧栏的「智能体窗口」为每个窗口启动一个真实 PTY 进程，页面里显示的就是该进程自己写出的字节；键盘、多行粘贴和输入框发送都写回同一个 PTY。点「启动智能体」可以选择本机已安装的 Claude Code、OpenCode、Codex、Gemini CLI 或终端，也可以填任意可执行文件；工作目录、窗口名称和每个参数都原样传入。
+侧栏的「智能体窗口」为每个窗口启动一个真实 PTY 进程，页面里显示的就是该进程自己写出的字节；键盘、多行粘贴和输入框发送都写回同一个 PTY。点「启动智能体」可以选择 Claude Code、OpenCode、Codex、Gemini CLI、Qwen Code、OpenClaw、Hermes Agent、Pi、Crush、Cline、Kilo Code、Grok Build、DeepSeek Harness 或终端，也可以填任意可执行文件；工作目录、窗口名称和每个参数都原样传入。OpenClaw 默认运行 `tui`，需要已配置的 gateway。
+
+目录覆盖 [AgentRouter](https://agentrouter.org/docs/) 的全部 17 篇工具指南：Roo Code 和 Claude App、Trae、ZCode、WorkBuddy、Craft Agents 也可从同一面板打开官方安装和接入指南，另保留 Antigravity、Cursor。CLI 缺少时显示安装命令，环境设置支持安装官方 npm 包；Hermes 使用官方手动安装指南。安装后可点「重新检测」。桌面、浏览器和手机界面使用同一套官方图标，来源与 SHA-256 记录在 `apps/web/public/tool-icons/sources.json`。
+
+进程监控已增加上述新 CLI 和桌面应用的真实入口识别。新工具显示进程与可确认的目录；其会话记录和输入尚未接入时，会明确显示监控能力及限制。托管终端窗口继续提供真实输入输出。共享 VS Code 扩展宿主不会被当作一个已运行的 Roo 会话。完整覆盖表见 [AgentRouter 智能体实施记录](docs/implementation/agentrouter-agents.md)。
 
 ```bash
 npm install

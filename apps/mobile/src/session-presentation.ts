@@ -1,9 +1,9 @@
 import type { Session } from "./client";
 import { isAdditionalMonitoredTool, monitoringTransportReason } from "../../web/src/session/monitoring-reasons";
+import { toolLabel } from "../../web/src/sidebar/tool-labels";
 
 export function sessionToolName(tool: string): string {
-  return ({ claude: "Claude", codex: "Codex", dsh: "DeepSeek", opencode: "OpenCode",
-    gemini: "Gemini CLI", antigravity: "Antigravity", cursor: "Cursor", shell: "Shell" } as Record<string, string>)[tool] ?? tool;
+  return tool === 'shell' ? 'Shell' : toolLabel(tool);
 }
 
 /** Activity must come from the tool's own turn state, never from a silence timer. */

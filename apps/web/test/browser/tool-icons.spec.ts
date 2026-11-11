@@ -122,3 +122,23 @@ test('the icon falls back to a glyph rather than a broken image when the asset i
   expect(state.fallbacks, 'a missing asset must fall back to a glyph').toBeGreaterThan(0);
   expect(state.fallbacks, 'every failed image should have been replaced').toBeGreaterThanOrEqual(state.images === 0 ? 1 : state.fallbacks);
 });
+
+test('every documented provider icon decodes and is visible in both themes', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1000, height: 600 });
+  await page.goto('/test/browser/fixtures/tool-icons.html');
+  const rows = page.locator('[data-provider]');
+  await expect(rows).toHaveCount(21);
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+    for (const row of await rows.all()) {
+      const image = row.locator('img:visible');
+      await expect(image).toHaveCount(1);
+      await expect.poll(async () => image.evaluate((element) => {
+        const img = element as HTMLImageElement;
+        return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
+      })).toBe(true);
+    }
+    await expect(page.locator('.tool-icon--fallback')).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`all-official-icons-${theme}.png`) });
+  }
+});

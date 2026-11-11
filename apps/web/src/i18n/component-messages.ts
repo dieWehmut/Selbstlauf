@@ -1,6 +1,17 @@
 import type { Translations } from './index';
 // Settings and reusable component messages, maintained with their callers.
 export const componentMessages: Translations = {
+  '（桌面应用）': { zhTW: '（桌面應用）', en: ' (desktop app)', ja: '（デスクトップアプリ）' },
+  '（编辑器扩展）': { zhTW: '（編輯器擴充套件）', en: ' (editor extension)', ja: '（エディター拡張機能）' },
+  '重新检测本机工具': { zhTW: '重新偵測本機工具', en: 'Detect local tools again', ja: 'ローカルツールを再検出' },
+  '重新检测': { zhTW: '重新偵測', en: 'Detect again', ja: '再検出' },
+  '官方安装': { zhTW: '官方安裝', en: 'Official installation', ja: '公式インストール' },
+  '官方文档': { zhTW: '官方文件', en: 'Official documentation', ja: '公式ドキュメント' },
+  'AgentRouter 接入指南': { zhTW: 'AgentRouter 接入指南', en: 'AgentRouter setup guide', ja: 'AgentRouter 接続ガイド' },
+  '默认启动参数': { zhTW: '預設啟動參數', en: 'Default launch arguments', ja: '既定の起動引数' },
+  '在编辑器中安装并打开此扩展，然后按接入指南配置模型。': { zhTW: '在編輯器中安裝並開啟此擴充套件，然後依接入指南設定模型。', en: 'Install and open this extension in your editor, then configure the model using the setup guide.', ja: 'エディターで拡張機能をインストールして開き、接続ガイドに従ってモデルを設定してください。' },
+  '安装并打开此桌面应用，然后按接入指南配置模型。': { zhTW: '安裝並開啟此桌面應用，然後依接入指南設定模型。', en: 'Install and open this desktop app, then configure the model using the setup guide.', ja: 'デスクトップアプリをインストールして開き、接続ガイドに従ってモデルを設定してください。' },
+  '已检测到本机进程；该智能体暂未接入会话记录和输入通道。': { zhTW: '已偵測到本機程序；該智能體暫未接入對話紀錄與輸入通道。', en: 'A local process was detected. Conversation records and input are not connected for this agent yet.', ja: 'ローカルプロセスを検出しました。このエージェントの会話記録と入力はまだ接続されていません。' },
   '手机远控尚未启用。选择连接范围后启用，可连接正在使用的电脑服务。': { zhTW: '手機遠端控制尚未啟用。選擇連線範圍後啟用，即可連線至正在使用的電腦服務。', en: 'Mobile remote control is disabled. Choose a connection scope and enable it to connect to this computer service.', ja: 'モバイル遠隔操作は無効です。接続範囲を選び、有効にすると現在使用中のサービスに接続できます。' },
   '连接范围': { zhTW: '連線範圍', en: 'Connection scope', ja: '接続範囲' },
   '仅本机（模拟器或隧道）': { zhTW: '僅本機（模擬器或通道）', en: 'Local only (emulator or tunnel)', ja: 'ローカルのみ（エミュレーターまたはトンネル）' },

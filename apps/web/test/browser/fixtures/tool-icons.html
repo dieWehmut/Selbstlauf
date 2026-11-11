@@ -1,0 +1,22 @@
+<!doctype html>
+<html data-theme="light"><head><meta charset="UTF-8"><title>Official icon browser verification</title></head>
+<body><div id="icons"></div>
+<script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { ToolIcon } from '../../../src/sidebar/ToolIcon';
+import '../../../src/styles/index.css';
+
+const providers = ['claude', 'claude-app', 'codex', 'qwen', 'opencode', 'openclaw', 'hermes',
+  'pi', 'crush', 'cline', 'roo', 'kilo', 'trae', 'zcode', 'workbuddy', 'craft-agents',
+  'gemini', 'antigravity', 'cursor', 'grok', 'dsh'];
+createRoot(document.getElementById('icons')).render(React.createElement('div', { className: 'icon-inventory' },
+  ...providers.map((tool) => React.createElement('div', { key: tool, 'data-provider': tool },
+    React.createElement(ToolIcon, { tool, size: 32 }), React.createElement('span', null, tool)))));
+</script>
+<style>
+body { padding: 20px; }
+.icon-inventory { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.icon-inventory > div { display: flex; align-items: center; gap: 12px; min-height: 54px; }
+</style>
+</body></html>

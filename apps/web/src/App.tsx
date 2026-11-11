@@ -43,6 +43,8 @@ import { getLocale, translate, useI18n, type Locale, type MessageParams } from '
 import { LanguageSection } from './i18n/LanguageSection';
 import {
   createApi,
+  TOOL_NAMES,
+  MONITORED_TOOL_NAMES,
   type AuditEvent,
   type ClaudeHookStatusView,
   type CodexProfileEditView,
@@ -466,6 +468,7 @@ const fallbackConfig: WatchdogConfig = {
   maxAttemptsPerQuietPeriod: 1,
   wslDistribution: '',
   tools: {
+    ...Object.fromEntries(MONITORED_TOOL_NAMES.map((tool) => [tool, { enabled: true, normalPrompt: '继续' }])),
     claude: {
       enabled: true,
       normalPrompt: '继续',
@@ -520,6 +523,7 @@ function mergeConfig(raw: WatchdogConfig): WatchdogConfig {
     ...raw,
     processFilters: { ...fallbackConfig.processFilters, ...raw.processFilters },
     tools: {
+      ...Object.fromEntries(MONITORED_TOOL_NAMES.map((tool) => [tool, { enabled: true, normalPrompt: '继续', ...tools[tool] }])),
       claude: {
         ...fallbackConfig.tools.claude,
         ...claude,
@@ -1158,7 +1162,7 @@ function EnvironmentToolCard({ tool, upgrading, busy, onUpgrade }: {
     <article className={`tool-card tool-card--${tool.state}`} data-testid={`tool-${tool.id}`}>
       <header>
         <div className="tool-card__id">
-          <strong>{tool.label}</strong>
+          <strong><ToolIcon tool={tool.id} size={18} /> {tool.label}</strong>
           <span className="tool-card__package">{tool.packageName}</span>
         </div>
         <span className={`state-chip state-chip--${tool.state === 'current' ? 'ready' : tool.state === 'outdated' ? 'waiting' : tool.state === 'missing' ? 'limited' : 'error'}`}>
@@ -1170,18 +1174,19 @@ function EnvironmentToolCard({ tool, upgrading, busy, onUpgrade }: {
         <div><dt>{t("当前版本")}</dt><dd>{tool.installed ?? t("未安装")}</dd></div>
         <div><dt>{t("最新版本")}</dt><dd>{tool.latest ?? '--'}</dd></div>
       </dl>
-      {tool.state === 'outdated' && <code className="tool-card__command">{tool.installCommand}</code>}
-      {tool.state === 'outdated' && (
+      {(tool.state === 'outdated' || tool.state === 'missing') && tool.installCommand && <code className="tool-card__command">{tool.installCommand}</code>}
+      {tool.installUrl && <a className="tool-card__command" href={tool.installUrl} target="_blank" rel="noreferrer">{t('官方安装')}</a>}
+      {(tool.state === 'outdated' || tool.state === 'missing') && tool.installable !== false && (
         <div className="tool-card__actions">
           <button
             className="button button--primary"
             type="button"
-            aria-label={t('升级 {tool}', { tool: tool.label })}
+            aria-label={t(tool.state === 'missing' ? '安装 {tool}' : '升级 {tool}', { tool: tool.label })}
             disabled={busy}
             onClick={onUpgrade}
           >
             {upgrading ? <RefreshCw className="spin" size={15} /> : <CircleArrowUp size={15} />}
-            {upgrading ? t("升级中") : t("升级")}
+            {upgrading ? t("升级中") : t(tool.state === 'missing' ? '安装' : '升级')}
           </button>
         </div>
       )}
@@ -1837,7 +1842,7 @@ function SettingsPanel(props: {
         <div className="section-title"><div><span className="eyebrow">Watchdog</span><h2>{t("常规")}</h2></div><Gauge size={20} /></div>
         <p className="section-hint">{t("检测节奏、续写提示词与进程范围，保存后立即生效。")}</p>
         <div className="switch-row"><div><strong>{t("启用自动续写")}</strong><span>{t("关闭后继续发现进程和记录事件，停止自动发送续写提示词")}</span></div><label className="switch"><input aria-label={t("启用自动续写")} type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span /></label></div>
-        {(['claude', 'codex', 'dsh', 'gemini', 'antigravity', 'cursor'] as const).map((tool) => <div className="switch-row" key={tool}><div><strong>{t('监控 {tool}', { tool: toolLabel(tool) })}</strong><span>{t(['gemini', 'antigravity', 'cursor'].includes(tool) ? "控制该工具的监控；输入能力取决于会话" : "控制该工具的自动续写；进程仍显示以便查看")}</span></div><label className="switch"><input aria-label={t('监控 {tool}', { tool: toolLabel(tool) })} type="checkbox" checked={draft.tools[tool]?.enabled ?? true} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, [tool]: { normalPrompt: '继续', ...draft.tools[tool], enabled: event.target.checked } } })} /><span /></label></div>)}
+        {TOOL_NAMES.map((tool) => <div className="switch-row" key={tool}><div><strong><ToolIcon tool={tool} size={16} /> {t('监控 {tool}', { tool: toolLabel(tool) })}</strong><span>{t(isAdditionalMonitoredTool(tool) ? "控制该工具的监控；输入能力取决于会话" : "控制该工具的自动续写；进程仍显示以便查看")}</span></div><label className="switch"><input aria-label={t('监控 {tool}', { tool: toolLabel(tool) })} type="checkbox" checked={draft.tools[tool]?.enabled ?? true} onChange={(event) => setDraft({ ...draft, tools: { ...draft.tools, [tool]: { normalPrompt: '继续', ...draft.tools[tool], enabled: event.target.checked } } })} /><span /></label></div>)}
       </section>
       <section className="settings-section">
         <div className="section-title"><div><span className="eyebrow">{t("Timing")}</span><h2>{t("检测节奏")}</h2></div><Gauge size={20} /></div>

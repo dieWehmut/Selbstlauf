@@ -1,6 +1,11 @@
 import { subscribeLiveEvent } from './live-socket';
 
-export type ToolName = 'claude' | 'codex' | 'dsh' | 'gemini' | 'antigravity' | 'cursor';
+export const MONITORED_TOOL_NAMES = [
+  'gemini', 'antigravity', 'cursor', 'opencode', 'qwen', 'openclaw', 'hermes', 'pi',
+  'crush', 'cline', 'roo', 'kilo', 'claude-app', 'trae', 'zcode', 'workbuddy', 'craft-agents',
+] as const;
+export const TOOL_NAMES = ['claude', 'codex', 'dsh', ...MONITORED_TOOL_NAMES] as const;
+export type ToolName = (typeof TOOL_NAMES)[number];
 export type TransportKind =
   | 'classic-console'
   | 'pty'
@@ -91,7 +96,7 @@ export interface WatchdogConfig {
     gemini?: { enabled: boolean; normalPrompt: string };
     antigravity?: { enabled: boolean; normalPrompt: string };
     cursor?: { enabled: boolean; normalPrompt: string };
-  };
+  } & Partial<Record<(typeof MONITORED_TOOL_NAMES)[number], { enabled: boolean; normalPrompt: string }>>;
   processFilters: { sameUserOnly: boolean; include: readonly string[]; exclude: readonly string[] };
 }
 
@@ -183,6 +188,8 @@ export interface EnvironmentToolView {
   readonly latest: string | null;
   readonly state: ToolState;
   readonly installCommand: string;
+  readonly installable?: boolean;
+  readonly installUrl?: string;
 }
 
 export interface EnvironmentView {

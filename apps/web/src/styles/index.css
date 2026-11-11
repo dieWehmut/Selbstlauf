@@ -563,7 +563,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .tool-card--missing { border-style: dashed; }
 .tool-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .tool-card__id { display: grid; gap: 3px; min-width: 0; }
-.tool-card__id strong { font-size: 14px; }
+.tool-card__id strong { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .tool-card__package { color: var(--faint); font: 10px var(--mono); overflow-wrap: anywhere; }
 .tool-card__versions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
 .tool-card__versions dt { color: var(--faint); font: 10px var(--mono); text-transform: uppercase; }

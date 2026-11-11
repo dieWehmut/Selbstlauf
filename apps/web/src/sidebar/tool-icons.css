@@ -1,0 +1,9 @@
+.tool-icon__image { color-scheme: light; }
+.tool-icon .tool-icon__image.tool-icon__image--dark { display: none; }
+.tool-icon__image--roo, .tool-icon__image--roocode { filter: invert(1); }
+:root[data-theme='dark'] .tool-icon__image { color-scheme: dark; }
+:root[data-theme='dark'] .tool-icon__image--light { display: none; }
+:root[data-theme='dark'] .tool-icon .tool-icon__image--dark { display: block; }
+:root[data-theme='dark'] .tool-icon__image--cline { filter: invert(1); }
+:root[data-theme='dark'] .tool-icon__image--roo,
+:root[data-theme='dark'] .tool-icon__image--roocode { filter: none; }

@@ -3,6 +3,8 @@ import { Component, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/App';
 import type { AuditEvent, HealthView, SessionView, WatchdogApi, WatchdogEvent } from '../src/api/client';
+import { MONITORED_TOOL_NAMES } from '../src/api/client';
+import { toolLabel } from '../src/sidebar/session-groups';
 import type { EnvironmentView } from '../src/api/client';
 import { applyLocale, translate, type Locale } from '../src/i18n';
 
@@ -890,9 +892,8 @@ describe('watchdog dashboard', () => {
   it('names an unknown tool honestly in the table as well as the sidebar', async () => {
     const fake = api();
     const [template] = await fake.sessions();
-    // `opencode` is a tool the app can install (it is in the environment catalogue), so a service that reports
-    // it as a session's tool is the realistic case — the union simply refuses to admit it yet.
-    fake.sessions = vi.fn(async () => [{ ...template!, id: 'unknown-tool', tool: 'opencode' as SessionView['tool'] }]);
+    // A future service may name a tool this client has never seen.
+    fake.sessions = vi.fn(async () => [{ ...template!, id: 'unknown-tool', tool: 'future-agent' as SessionView['tool'] }]);
     render(<App api={fake} />);
 
     const table = await waitFor(() => {
@@ -901,16 +902,15 @@ describe('watchdog dashboard', () => {
       return cell as HTMLElement;
     });
     const sidebar = document.querySelector('.sidebar-row__label');
-    expect(document.querySelector('.sidebar-row__open')?.getAttribute('title')).toContain('opencode');
-    expect(table.textContent).toBe('opencode');
+    expect(document.querySelector('.sidebar-row__open')?.getAttribute('title')).toContain('future-agent');
+    expect(table.textContent).toBe('future-agent');
   });
 
   /**
    * A session whose tool the config does not describe must not take the app down with it.
    *
-   * `nextPrompt` reads `config.tools[session.tool].normalPrompt`, and `config.tools` has exactly claude, codex and
-   * dsh. The web client casts the sessions response without validating it, so a service reporting another tool —
-   * with no pending prompt to answer first, which is what `opencode` is in the fixture — reaches that lookup with no
+   * `nextPrompt` reads `config.tools[session.tool].normalPrompt`. The web client casts the sessions response
+   * without validating it, so a service reporting another tool with no pending prompt reaches that lookup with no
    * entry and throws *while the table renders*. There is no error boundary above it, so React unmounts the tree and
    * the whole console goes blank.
    */
@@ -920,13 +920,13 @@ describe('watchdog dashboard', () => {
     fake.sessions = vi.fn(async () => [{
       ...template!,
       id: 'unknown-tool-no-prompt',
-      tool: 'opencode' as SessionView['tool'],
+      tool: 'future-agent' as SessionView['tool'],
       pendingPrompt: null,
     }]);
     render(<App api={fake} />);
 
     // The row is there, named, with a stated absence where its next input would be.
-    expect((await screen.findAllByText('opencode')).length, 'the table did not survive the unknown tool').toBeGreaterThan(0);
+    expect((await screen.findAllByText('future-agent')).length, 'the table did not survive the unknown tool').toBeGreaterThan(0);
     expect(document.querySelector('.process-table tbody tr td:nth-child(6)')?.textContent, 'the prompt cell says nothing at all').toBe('—');
   });
 
@@ -1145,14 +1145,15 @@ describe('watchdog dashboard', () => {
     render(<App api={fake} />);
     await screen.findByRole('group', { name: '进程列表' });
     openSettings();
-    for (const label of ['Gemini CLI', 'Antigravity', 'Cursor']) {
+    for (const label of MONITORED_TOOL_NAMES.map(toolLabel)) {
       expect(await screen.findByRole('checkbox', { name: `监控 ${label}` })).toBeChecked();
     }
-    expect(screen.getAllByText('控制该工具的监控；输入能力取决于会话')).toHaveLength(3);
+    expect(screen.getAllByText('控制该工具的监控；输入能力取决于会话')).toHaveLength(MONITORED_TOOL_NAMES.length);
     fireEvent.click(screen.getByRole('checkbox', { name: '监控 Cursor' }));
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
     await waitFor(() => expect(fake.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
       tools: expect.objectContaining({
+        ...Object.fromEntries(MONITORED_TOOL_NAMES.map(tool => [tool, { enabled: tool !== 'cursor', normalPrompt: '继续' }])),
         claude: expect.objectContaining({ normalPrompt: '请继续' }),
         gemini: { enabled: true, normalPrompt: '继续' },
         antigravity: { enabled: true, normalPrompt: '继续' },

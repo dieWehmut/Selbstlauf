@@ -91,7 +91,10 @@ const sessionGroups = computed<EnvironmentGroup[]>(() => {
   }));
 });
 
-const availableTools = computed(() => catalog.value?.tools.filter((tool) => tool.available) ?? []);
+const availableTools = computed(() => catalog.value?.tools.filter((tool) => tool.id !== 'custom') ?? []);
+const selectedLaunchTool = computed(() => availableTools.value.find((tool) => tool.id === launchTool.value));
+const guidedLaunch = computed(() => selectedLaunchTool.value?.launchable === false || ['desktop', 'extension'].includes(selectedLaunchTool.value?.kind ?? ''));
+const canLaunch = computed(() => !!selectedLaunchTool.value?.available && !guidedLaunch.value && !!launchCwd.value.trim());
 const controlsAvailable = computed(() => connectionStatus.value === "connected");
 let pendingTab: Tab | undefined;
 let handlingHistory = false;
@@ -167,6 +170,7 @@ async function submitPrompt() {
   if (prompt.value.trim() === text) prompt.value = "";
 }
 async function launch() {
+  if (!canLaunch.value) return;
   const launched = await remote.launchAgent({
     tool: launchTool.value,
     cwd: launchCwd.value,
@@ -190,8 +194,8 @@ async function removeSelectedAgent() {
 watch(catalog, (value) => {
   if (!value) return;
   if (!launchCwd.value) launchCwd.value = value.defaultCwd;
-  if (!value.tools.some((tool) => tool.id === launchTool.value && tool.available)) {
-    launchTool.value = value.tools.find((tool) => tool.available)?.id ?? "shell";
+  if (!value.tools.some((tool) => tool.id === launchTool.value)) {
+    launchTool.value = value.tools.find((tool) => tool.available && tool.launchable !== false)?.id ?? "shell";
   }
 }, { immediate: true });
 let draftHost = "";
@@ -302,7 +306,7 @@ onUnmounted(() => {
           <button class="primary-button" type="button" @click="screen = 'devices'">连接电脑</button>
         </div>
         <div v-else-if="sessions.length === 0" class="panel empty-state">
-          <AppIcon name="sessions" /><h2>没有发现会话</h2><p class="hint">电脑上的 Claude、Codex、DeepSeek、Gemini、Antigravity 和 Cursor 会话会显示在这里。</p>
+          <AppIcon name="sessions" /><h2>没有发现会话</h2><p class="hint">电脑上已识别的智能体进程会显示在这里。</p>
           <button class="tonal-button" type="button" :disabled="busy" @click="remote.refresh"><AppIcon name="refresh" />刷新</button>
         </div>
         <section v-for="environment in sessionGroups" v-else :key="environment.key" class="environment-section">
@@ -361,17 +365,26 @@ onUnmounted(() => {
           <h2>打开智能体窗口</h2>
           <label>智能体
             <select v-model="launchTool" :disabled="!controlsAvailable">
-              <option v-for="tool in availableTools" :key="tool.id" :value="tool.id">{{ tool.label }}</option>
+              <option v-for="tool in availableTools" :key="tool.id" :value="tool.id">{{ tool.label }}{{ tool.kind === 'desktop' ? '（桌面应用）' : tool.kind === 'extension' ? '（编辑器扩展）' : tool.available ? '' : '（未安装）' }}</option>
             </select>
           </label>
-          <label>电脑工作目录<input v-model="launchCwd" placeholder="C:\project 或 /home/user/project" /></label>
-          <label>窗口名称（可选）<input v-model="launchTitle" placeholder="新任务" /></label>
-          <button class="primary-button full-width" type="submit" :disabled="busy || !controlsAvailable || !launchCwd.trim() || availableTools.length === 0"><AppIcon name="play" />启动</button>
+          <span v-if="selectedLaunchTool" class="agent-label"><SessionToolIcon :tool="selectedLaunchTool.id" />{{ selectedLaunchTool.label }}</span>
+          <template v-if="!guidedLaunch">
+            <label>电脑工作目录<input v-model="launchCwd" placeholder="C:\project 或 /home/user/project" /></label>
+            <label>窗口名称（可选）<input v-model="launchTitle" placeholder="新任务" /></label>
+            <p v-if="selectedLaunchTool && !selectedLaunchTool.available" class="hint">尚未在电脑上找到此工具，请先在电脑安装。<code v-if="selectedLaunchTool.installCommand">{{ selectedLaunchTool.installCommand }}</code></p>
+            <button class="primary-button full-width" type="submit" :disabled="busy || !controlsAvailable || !canLaunch"><AppIcon name="play" />启动</button>
+          </template>
+          <p v-else class="hint">请在电脑安装并打开此应用或编辑器扩展，然后按接入指南配置模型。</p>
+          <div v-if="selectedLaunchTool" class="chip-row">
+            <a v-if="selectedLaunchTool.installUrl" :href="selectedLaunchTool.installUrl" target="_blank" rel="noreferrer">官方安装</a>
+            <a v-for="url in selectedLaunchTool.guideUrls" :key="url" :href="url" target="_blank" rel="noreferrer">AgentRouter 接入指南</a>
+          </div>
         </form>
         <h2 class="subheading">已打开窗口</h2>
         <div v-if="agents.length" class="list-panel">
           <button v-for="agent in agents" :key="agent.id" class="list-row" type="button" @click="openAgent(agent)">
-            <span class="icon-disc secondary"><AppIcon name="terminal" /></span>
+            <span class="icon-disc secondary"><SessionToolIcon :tool="agent.tool" /></span>
             <span class="row-copy"><strong>{{ agent.title }}</strong><small>{{ toolName(agent.tool) }} · {{ agent.cwd }} · PID {{ agent.pid }}</small></span>
             <span class="state-label" :data-running="agent.status === 'running'">{{ agent.status === 'running' ? '运行中' : agent.status === 'stopping' ? '正在结束' : '已结束' }}</span>
           </button>
@@ -381,7 +394,7 @@ onUnmounted(() => {
 
       <template v-else-if="screen === 'terminal' && selectedAgent">
         <section class="panel session-summary">
-          <span class="agent-label"><AppIcon name="terminal" />{{ toolName(selectedAgent.tool) }}</span>
+          <span class="agent-label"><SessionToolIcon :tool="selectedAgent.tool" />{{ toolName(selectedAgent.tool) }}</span>
           <h2>{{ selectedAgent.title }}</h2>
           <p class="path-copy">{{ selectedAgent.cwd }}</p>
           <div class="chip-row"><span>{{ selectedAgent.status }}</span><span>PID {{ selectedAgent.pid }}</span></div>

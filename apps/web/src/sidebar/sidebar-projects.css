@@ -31,5 +31,4 @@
 @media (max-height: 550px) {
   .sidebar-processes { gap: 8px; }
 }
-:root[data-theme='dark'] .tool-icon__image--codex { filter: invert(1); }
 .process-id .process-project-root { font-family: inherit; font-size: 12px; color: var(--text); }

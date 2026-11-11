@@ -87,18 +87,7 @@ export function sessionActivityLabel(activity: SessionActivity, locale?: Locale)
 }
 
 /** The label shown beside a row: the tool name, matching the process table. */
-export function toolLabel(tool: string): string {
-  switch (tool) {
-    case 'codex': return 'Codex';
-    case 'claude': return 'Claude Code';
-    case 'opencode': return 'opencode';
-    case 'dsh': return 'DeepSeek Harness';
-    case 'gemini': return 'Gemini CLI';
-    case 'antigravity': return 'Antigravity';
-    case 'cursor': return 'Cursor';
-    default: return tool;
-  }
-}
+export { toolLabel } from './tool-labels';
 
 /**
  * How long a session has been quiet, or null when that is not known.

@@ -1,0 +1,35 @@
+/** Publisher files shared by WebUI, desktop and the Android bundle. */
+export const TOOL_ICON_FILES: Readonly<Record<string, string>> = Object.freeze({
+  codex: 'codex.png',
+  claude: 'claude.png',
+  'claude-app': 'claude.png',
+  'claude-code': 'claude.png',
+  'claude-code-vscode': 'claude.png',
+  dsh: 'dsh.ico',
+  deepseek: 'dsh.ico',
+  opencode: 'opencode.png',
+  gemini: 'gemini.png',
+  antigravity: 'antigravity.svg',
+  cursor: 'cursor.png',
+  grok: 'grok.svg',
+  qwen: 'qwen.svg',
+  qwencode: 'qwen.svg',
+  openclaw: 'openclaw.svg',
+  hermes: 'hermes.png',
+  pi: 'pi.svg',
+  crush: 'crush.png',
+  cline: 'cline.png',
+  roo: 'roo.png',
+  roocode: 'roo.png',
+  kilo: 'kilo.svg',
+  kilocode: 'kilo.svg',
+  trae: 'trae.png',
+  zcode: 'zcode.png',
+  workbuddy: 'workbuddy.svg',
+  'craft-agents': 'craft-agents.svg',
+  craft: 'craft-agents.svg',
+});
+
+export const TOOL_ICON_DARK_FILES: Readonly<Record<string, string>> = Object.freeze({
+  codex: 'codex-dark.png',
+});

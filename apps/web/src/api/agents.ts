@@ -1,6 +1,8 @@
 import { subscribeLiveEvent, subscribeLiveOutput } from './live-socket';
 
-export type AgentTool = 'claude' | 'opencode' | 'codex' | 'dsh' | 'gemini' | 'shell' | 'custom';
+export type AgentTool = 'claude' | 'opencode' | 'codex' | 'dsh' | 'gemini' | 'grok' |
+  'qwen' | 'openclaw' | 'hermes' | 'pi' | 'crush' | 'cline' | 'roo' | 'kilo' |
+  'claude-app' | 'trae' | 'zcode' | 'workbuddy' | 'craft-agents' | 'antigravity' | 'cursor' | 'shell' | 'custom';
 
 export interface AgentSession {
   id: string;
@@ -22,7 +24,19 @@ export interface AgentSession {
 export interface AgentCatalog {
   platform: string;
   defaultCwd: string;
-  tools: { id: AgentTool; label: string; command: string | null; available: boolean; installCommand?: string }[];
+  tools: {
+    id: AgentTool;
+    label: string;
+    command: string | null;
+    available: boolean;
+    kind?: 'cli' | 'desktop' | 'extension' | 'shell' | 'custom';
+    launchable?: boolean;
+    installCommand?: string;
+    installUrl?: string;
+    docsUrl?: string;
+    guideUrls?: string[];
+    defaultArgs?: string[];
+  }[];
 }
 
 export interface AgentLaunch {

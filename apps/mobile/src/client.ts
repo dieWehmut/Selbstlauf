@@ -1,4 +1,6 @@
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
+import type { ToolName as MonitoredToolName } from "../../web/src/api/client";
+import type { AgentTool as CatalogAgentTool } from "../../web/src/api/agents";
 
 export type ConnectionStatus =
   | "disconnected"
@@ -7,7 +9,7 @@ export type ConnectionStatus =
   | "reconnecting"
   | "needs_pairing";
 
-export type ToolName = "claude" | "codex" | "dsh" | "gemini" | "antigravity" | "cursor";
+export type ToolName = MonitoredToolName;
 
 export interface RemoteInfo {
   name: string;
@@ -60,7 +62,7 @@ export interface SessionOutput {
   reason?: string;
 }
 
-export type AgentTool = "claude" | "opencode" | "codex" | "dsh" | "gemini" | "shell";
+export type AgentTool = CatalogAgentTool;
 
 export interface AgentCatalog {
   platform: string;
@@ -71,6 +73,11 @@ export interface AgentCatalog {
     command: string | null;
     available: boolean;
     installCommand?: string;
+    kind?: 'cli' | 'desktop' | 'extension' | 'shell' | 'custom';
+    launchable?: boolean;
+    installUrl?: string;
+    docsUrl?: string;
+    guideUrls?: string[];
   }[];
 }
 

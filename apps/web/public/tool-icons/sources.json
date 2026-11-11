@@ -1,18 +1,168 @@
 {
-  "gemini.png": {
-    "source": "https://geminicli.com/icon.png",
-    "product": "Gemini CLI",
-    "sha256": "351e9f5b1bf863d738cd7be4ed040a625a1419450ae7fc490143e4042b7c2438"
-  },
   "antigravity.svg": {
     "source": "https://antigravity.google/favicon.svg",
     "product": "Google Antigravity",
     "sha256": "de7911c3d206a3d2fe3d5b4e76e84b185c581d7a259406f64db247b5b824f02e"
+  },
+  "claude.png": {
+    "source": "https://anthropic.gallery.vsassets.io/_apis/public/gallery/publisher/anthropic/extension/claude-code/latest/assetbyname/Microsoft.VisualStudio.Services.Icons.Default",
+    "resolvedSource": "https://anthropic.gallery.vsassets.io/_apis/public/gallery/publisher/anthropic/extension/claude-code/latest/assetbyname/Microsoft.VisualStudio.Services.Icons.Default",
+    "sha256": "7241633e5a39b44a947c7b9a821637f30d6e86716e7a8c847136d91f9c3f6ba1",
+    "publisher": "https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code",
+    "product": "Claude Code / Claude Desktop",
+    "retrievedAt": "2026-11-11",
+    "treatment": "Original mark from Anthropic’s published Claude Code extension, unchanged."
+  },
+  "cline.png": {
+    "source": "https://cline.bot/assets/branding/favicons/favicon-256x256.png",
+    "resolvedSource": "https://cline.bot/assets/branding/favicons/favicon-256x256.png",
+    "sha256": "9062b3c30af301c59c6d919ee94d45d8bdd52cebbfbc1745e2b1b93d8f59dfe5",
+    "publisher": "https://cline.bot/",
+    "product": "Cline",
+    "retrievedAt": "2026-11-11",
+    "treatment": "Original publisher asset, unchanged; CSS inversion supplies contrast in dark themes."
+  },
+  "codex-dark.png": {
+    "source": "OpenAI.Codex WindowsApps assets/Square44x44Logo.targetsize-256_altform-unplated.png",
+    "publisher": "https://openai.com/codex/",
+    "product": "Codex",
+    "installedPackage": "OpenAI.Codex_26.1103.7773.0_x64__2p2nqsd0c76g0",
+    "installedVersion": "26.1103.7773.0",
+    "retrievedAt": "2026-11-11",
+    "treatment": "Original installed publisher asset, unchanged.",
+    "sha256": "2b001fb1f4e7d76e4d459c2ad8f9739e963ffc1c2137abcfffe8da3ee7775f7c"
+  },
+  "codex.png": {
+    "source": "OpenAI.Codex WindowsApps assets/Square44x44Logo.targetsize-256_altform-lightunplated.png",
+    "publisher": "https://openai.com/codex/",
+    "product": "Codex",
+    "installedPackage": "OpenAI.Codex_26.1103.7773.0_x64__2p2nqsd0c76g0",
+    "installedVersion": "26.1103.7773.0",
+    "retrievedAt": "2026-11-11",
+    "treatment": "Original installed publisher asset, unchanged.",
+    "sha256": "b45359d98553406d60c45e699cbe80de6fe733d51661a317ca37b41632b58823"
+  },
+  "craft-agents.svg": {
+    "source": "https://raw.githubusercontent.com/lukilabs/craft-agents-oss/3ce9fc12837541d688a59a8f0a2e9755ceb89ac2/apps/electron/resources/icon.svg",
+    "publisher": "https://github.com/lukilabs/craft-agents-oss",
+    "product": "Craft Agents",
+    "retrievedAt": "2026-11-11",
+    "sha256": "fd195ad28212109ce8fbcd6d2181556bc26b91e79998011af23d5bf0f08cf37c",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "crush.png": {
+    "source": "https://raw.githubusercontent.com/charmbracelet/crush/1b7582dbba81e0f716e50f20fe44bd04faf7251f/internal/ui/notification/crush-icon-solo.png",
+    "publisher": "https://github.com/charmbracelet/crush",
+    "product": "Crush",
+    "retrievedAt": "2026-11-11",
+    "sha256": "a41177d5afbdbc6838526d0a1b62076a686a18d2949e262eb405a2142dd082f2",
+    "treatment": "Original publisher asset, unchanged."
   },
   "cursor.png": {
     "source": "Cursor resources/app/out/vs/glass/browser/media/cursor-splash-logo-normal.png",
     "product": "Cursor",
     "installedVersion": "3.29.15",
     "sha256": "b88e36c14b197abceb79a85ecc103ad3b9caeee5591c0948c616465102a4ec5d"
+  },
+  "dsh.ico": {
+    "source": "https://www.deepseek.com/favicon.ico",
+    "publisher": "https://www.deepseek.com/",
+    "product": "DeepSeek Harness",
+    "retrievedAt": "2026-11-11",
+    "sha256": "30a4420e6e4dcb17fd7de560c5004346c2bc8cd971d2d5f5ee15326603e51321",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "gemini.png": {
+    "source": "https://geminicli.com/icon.png",
+    "product": "Gemini CLI",
+    "sha256": "351e9f5b1bf863d738cd7be4ed040a625a1419450ae7fc490143e4042b7c2438"
+  },
+  "grok.svg": {
+    "source": "https://grok.com/images/favicon.svg",
+    "publisher": "https://grok.com/",
+    "product": "Grok",
+    "retrievedAt": "2026-11-11",
+    "sha256": "c3db0dfaf760b702b8490c6cbefe07fd8bfe00db43cae6a0acccf768f44d6179",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "hermes.png": {
+    "source": "https://web-assets.nousresearch.com/marketing/754169a88337d08230e1372758ce7160c1d9c4ee/assets/hermes-agent/icon.png",
+    "publisher": "https://hermes-agent.nousresearch.com/",
+    "product": "Hermes Agent",
+    "retrievedAt": "2026-11-11",
+    "sha256": "5fbced606189c9bfc2925a16f8903333041cabbf1f8699fe9fe9b3e24504048f",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "kilo.svg": {
+    "source": "https://kilo.ai/favicon/favicon.svg?v=3",
+    "publisher": "https://kilo.ai/",
+    "product": "Kilo Code",
+    "retrievedAt": "2026-11-11",
+    "sha256": "729bf088d9a114d567f133acf36f613cabd83662e4616afcea5ea403e87be8d2",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "openclaw.svg": {
+    "source": "https://raw.githubusercontent.com/openclaw/openclaw/44a2948a9eaf4345069d4b652ae382d10dd08f62/ui/public/favicon.svg",
+    "publisher": "https://github.com/openclaw/openclaw",
+    "product": "OpenClaw",
+    "retrievedAt": "2026-11-11",
+    "treatment": "Original publisher asset, unchanged; identical to verified Orchester resource.",
+    "sha256": "74e1fb7542675f68aafe502576f7c857c3f3620d07095e910515e3c05d62ab2e"
+  },
+  "opencode.png": {
+    "source": "https://opencode.ai/favicon-96x96-v3.png",
+    "publisher": "https://opencode.ai/",
+    "product": "OpenCode",
+    "retrievedAt": "2026-11-11",
+    "sha256": "aa34092540de60c889610edfa3c25316e215f12d88af29cfba530d09aee7265c",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "pi.svg": {
+    "source": "https://pi.dev/favicon.svg?v=5a5f85f5-15dd-48a7-9443-9fbf7d537bcf",
+    "publisher": "https://pi.dev/",
+    "product": "Pi",
+    "retrievedAt": "2026-11-11",
+    "sha256": "d266b2c1d2c7bf169ca30d438963b176fba16fea6263b9ac30c8302f34ad7ce7",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "qwen.svg": {
+    "source": "https://raw.githubusercontent.com/QwenLM/qwen-code/e19e1ebe7881960ab2e3319d677c491254600571/packages/desktop/bootstrap/qwen-code-logo.svg",
+    "publisher": "https://github.com/QwenLM/qwen-code",
+    "product": "Qwen Code",
+    "retrievedAt": "2026-11-11",
+    "treatment": "Original publisher asset, unchanged; identical to verified Orchester resource.",
+    "sha256": "24156c849c9124505e13b38c6583a9d5d85a1f57d996c324d967f480a4d88696"
+  },
+  "roo.png": {
+    "source": "https://raw.githubusercontent.com/RooCodeInc/Roo-Code/b867ec9145750d0ae1ff7f02d35406e9bf2a0b16/src/assets/icons/icon.png",
+    "publisher": "https://github.com/RooCodeInc/Roo-Code",
+    "product": "Roo Code",
+    "retrievedAt": "2026-11-11",
+    "sha256": "6dfbd44c806ace9d2b2d71f011cfb72fea5bfd501ab586e841a4c5f87c10f39a",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "trae.png": {
+    "source": "https://lf-cdn.trae.com.cn/obj/trae-com-cn/trae_website_prod_cn/favicon.png",
+    "publisher": "https://www.trae.cn/",
+    "product": "Trae",
+    "retrievedAt": "2026-11-11",
+    "sha256": "49d523938a22af5a70dd79923725df38674823026e2f917e76337319969f4af4",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "workbuddy.svg": {
+    "source": "https://assets.workbuddy.cn/web/workbuddy/5611ca0b566ae70e862617fecf6f3c8b05e5515a/assets/logo.svg",
+    "publisher": "https://www.workbuddy.cn/",
+    "product": "WorkBuddy",
+    "retrievedAt": "2026-11-11",
+    "sha256": "10ccbc099e7bc3d5ff12c315c4edd7b21386aa7166c1ec19997b3d55010d5c7d",
+    "treatment": "Original publisher asset, unchanged."
+  },
+  "zcode.png": {
+    "source": "https://zcode.z.ai/favicon-48x48.png?v=20260707-transparent",
+    "publisher": "https://zcode.z.ai/cn",
+    "product": "ZCode",
+    "retrievedAt": "2026-11-11",
+    "sha256": "15a7b9bf5beae276bc6c18e70e8d9a2c7988e0115a5374c40587fc7038c4f1ca",
+    "treatment": "Original publisher asset, unchanged."
   }
 }
