@@ -1,4 +1,8 @@
-/** Agents with verified process identity but no transcript/input adapter yet. */
+/**
+ * Agents with verified process identity but no transcript/input adapter yet.
+ * WorkBuddy is a product-level identity: its CN/international installation
+ * choices do not establish the edition of an observed process.
+ */
 export const MONITOR_ONLY_TOOL_NAMES = [
   'opencode', 'qwen', 'openclaw', 'hermes', 'pi', 'crush', 'cline', 'roo', 'kilo',
   'claude-app', 'trae', 'zcode', 'workbuddy', 'craft-agents',

@@ -8,7 +8,7 @@ import { TOOL_ICON_DARK_FILES, TOOL_ICON_FILES } from '../src/sidebar/tool-icon-
 
 // Independent coverage inventory from AgentRouter's guides and existing tools.
 const providers = ['claude', 'claude-app', 'codex', 'qwen', 'opencode', 'openclaw', 'hermes',
-  'pi', 'crush', 'cline', 'roo', 'kilo', 'trae', 'zcode', 'workbuddy', 'craft-agents',
+  'pi', 'crush', 'cline', 'roo', 'kilo', 'trae', 'zcode', 'workbuddy', 'workbuddy-intl', 'craft-agents',
   'gemini', 'antigravity', 'cursor', 'grok', 'dsh'];
 
 describe('official tool icons', () => {

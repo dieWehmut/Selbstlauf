@@ -32,7 +32,7 @@ test('catalog preserves missing CLI choices and offers publisher guides for desk
     assert.ok(tool.installUrl?.startsWith('https://'), id);
   }
   const service = new ManagedAgentSessions();
-  for (const id of ['roo', 'claude-app', 'trae', 'zcode', 'workbuddy', 'craft-agents', 'antigravity', 'cursor']) {
+  for (const id of ['roo', 'claude-app', 'trae', 'zcode', 'workbuddy', 'workbuddy-intl', 'craft-agents', 'antigravity', 'cursor']) {
     const tool = catalog.tools.find((entry) => entry.id === id)!;
     assert.equal(tool.launchable, false, id);
     assert.equal(tool.available, false, id);
@@ -42,6 +42,28 @@ test('catalog preserves missing CLI choices and offers publisher guides for desk
   }
   assert.equal(service.list().length, 0);
   await service.stop();
+});
+
+test('WorkBuddy editions retain distinct publisher installation choices without inventing CLI commands', async () => {
+  const catalog = await agentCatalog('linux', { PATH: '' }, tmpdir());
+  const domestic = catalog.tools.find((entry) => entry.id === 'workbuddy')!;
+  const international = catalog.tools.find((entry) => entry.id === 'workbuddy-intl')!;
+  assert.equal(domestic.label, 'WorkBuddy 国内版');
+  assert.equal(international.label, 'WorkBuddy 国际版');
+  assert.equal(domestic.installUrl, 'https://www.workbuddy.cn/');
+  assert.equal(international.installUrl, 'https://www.workbuddy.ai/');
+  assert.equal(domestic.docsUrl, 'https://www.workbuddy.cn/docs/workbuddy/');
+  assert.equal(international.docsUrl, 'https://www.workbuddy.ai/docs/workbuddy/');
+  assert.deepEqual(domestic.guideUrls, ['https://agentrouter.org/docs/workbuddy.html']);
+  // AgentRouter's existing integration guide links to the domestic edition.
+  // An international guide has not been published there.
+  assert.equal(international.guideUrls, undefined);
+  for (const edition of [domestic, international]) {
+    assert.equal(edition.kind, 'desktop');
+    assert.equal(edition.command, null);
+    assert.equal(edition.launchable, false);
+    assert.equal(edition.installCommand, undefined);
+  }
 });
 
 test('OpenClaw starts the interactive TUI by default and honors an explicit argv override', {

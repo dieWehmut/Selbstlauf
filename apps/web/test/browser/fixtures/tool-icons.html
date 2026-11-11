@@ -8,7 +8,7 @@ import { ToolIcon } from '../../../src/sidebar/ToolIcon';
 import '../../../src/styles/index.css';
 
 const providers = ['claude', 'claude-app', 'codex', 'qwen', 'opencode', 'openclaw', 'hermes',
-  'pi', 'crush', 'cline', 'roo', 'kilo', 'trae', 'zcode', 'workbuddy', 'craft-agents',
+  'pi', 'crush', 'cline', 'roo', 'kilo', 'trae', 'zcode', 'workbuddy', 'workbuddy-intl', 'craft-agents',
   'gemini', 'antigravity', 'cursor', 'grok', 'dsh'];
 createRoot(document.getElementById('icons')).render(React.createElement('div', { className: 'icon-inventory' },
   ...providers.map((tool) => React.createElement('div', { key: tool, 'data-provider': tool },

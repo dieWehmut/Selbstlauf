@@ -2,7 +2,7 @@ import { subscribeLiveEvent, subscribeLiveOutput } from './live-socket';
 
 export type AgentTool = 'claude' | 'opencode' | 'codex' | 'dsh' | 'gemini' | 'grok' |
   'qwen' | 'openclaw' | 'hermes' | 'pi' | 'crush' | 'cline' | 'roo' | 'kilo' |
-  'claude-app' | 'trae' | 'zcode' | 'workbuddy' | 'craft-agents' | 'antigravity' | 'cursor' | 'shell' | 'custom';
+  'claude-app' | 'trae' | 'zcode' | 'workbuddy' | 'workbuddy-intl' | 'craft-agents' | 'antigravity' | 'cursor' | 'shell' | 'custom';
 
 export interface AgentSession {
   id: string;

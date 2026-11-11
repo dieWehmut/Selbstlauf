@@ -11,6 +11,13 @@ Crush, Cline, Roo Code, Kilo Code, Claude Desktop, Trae, ZCode, WorkBuddy and
 Craft Agents. Gemini CLI, Antigravity, Cursor, Grok and DeepSeek Harness are also
 covered. Claude Desktop and Claude Code share Anthropic's official Claude mark.
 
+WorkBuddy's domestic and international catalog entries share `workbuddy.svg`.
+The icons linked by [the Chinese site](https://www.workbuddy.cn/) and
+[the international site](https://www.workbuddy.ai/) are byte-identical
+(`10ccbc099e7bc3d5ff12c315c4edd7b21386aa7166c1ec19997b3d55010d5c7d`).
+Both original official URLs are recorded in the source manifest. The editions
+have separate official installation and documentation links.
+
 The shared file registry in `src/sidebar/tool-icon-files.ts` supplies WebUI and
 Android. WebUI resolves URLs against Vite's configured base; Android bundles the
 same files, including in an APK without a network connection. Unknown/custom

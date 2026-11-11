@@ -6,7 +6,7 @@ test('the live catalog renders every AgentRouter product with an official icon a
   page.on('pageerror', (error) => errors.push(error.message));
   const catalog = await (await page.request.get('/api/agents/catalog')).json() as AgentCatalog;
   const expected = ['claude', 'codex', 'gemini', 'qwen', 'opencode', 'openclaw', 'hermes', 'pi', 'crush',
-    'cline', 'roo', 'kilo', 'claude-app', 'trae', 'zcode', 'workbuddy', 'craft-agents'];
+    'cline', 'roo', 'kilo', 'claude-app', 'trae', 'zcode', 'workbuddy', 'workbuddy-intl', 'craft-agents'];
   expect(catalog.tools.map((tool) => tool.id)).toEqual(expect.arrayContaining(expected));
   await page.goto('/');
   await page.getByRole('button', { name: '启动智能体', exact: true }).click();
@@ -18,6 +18,14 @@ test('the live catalog renders every AgentRouter product with an official icon a
     await expect(icon).toBeVisible();
     await expect.poll(() => icon.evaluate((element) => (element as HTMLImageElement).complete && (element as HTMLImageElement).naturalWidth > 0)).toBe(true);
     await expect(dialog.getByRole('link', { name: '官方安装', exact: true })).toHaveAttribute('href', tool.installUrl!);
+    if (tool.id === 'workbuddy' || tool.id === 'workbuddy-intl') {
+      const international = tool.id === 'workbuddy-intl';
+      const website = international ? 'https://www.workbuddy.ai/' : 'https://www.workbuddy.cn/';
+      await expect(dialog.locator('.agent-launcher__tool strong')).toHaveText(international ? 'WorkBuddy 国际版' : 'WorkBuddy 国内版');
+      await expect(dialog.getByRole('link', { name: '官方安装', exact: true })).toHaveAttribute('href', website);
+      await expect(dialog.getByRole('link', { name: '官方文档', exact: true })).toHaveAttribute('href', `${website}docs/workbuddy/`);
+      await expect(icon).toHaveAttribute('src', /\/tool-icons\/workbuddy\.svg$/u);
+    }
     for (const url of tool.guideUrls ?? []) {
       await expect(dialog.locator(`a[href="${url}"]`)).toBeVisible();
     }

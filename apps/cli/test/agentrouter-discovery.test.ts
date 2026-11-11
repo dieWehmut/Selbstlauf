@@ -89,6 +89,21 @@ test('additional agents preserve older settings and reject malformed new monitor
   }
 });
 
+test('WorkBuddy edition hints cannot create a regional process identity', () => {
+  const record = processRecord('"C:/Programs/WorkBuddy/WorkBuddy.exe"', {
+    name: 'WorkBuddy.exe', executablePath: 'C:/Programs/WorkBuddy/WorkBuddy.exe',
+  });
+  for (const hint of ['', 'https://www.workbuddy.cn/', 'https://www.workbuddy.ai/',
+    '--edition=international', '--prompt "use WorkBuddy 国际版 workbuddy-intl"']) {
+    const process = { ...record, commandLine: `${record.commandLine} ${hint}` };
+    assert.equal(detectProcessTool(process), 'workbuddy');
+    const [group] = groupProcesses([process], { sameUserOnly: false });
+    assert.equal(group?.tool, 'workbuddy');
+    assert.equal(group?.host?.label, 'WorkBuddy');
+  }
+  assert.equal(detectProcessTool(processRecord('node report.js https://www.workbuddy.ai/ --edition=international')), null);
+});
+
 test('new agents stay process-monitor-only without invented activity or transport probing', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'agentrouter-runtime-'));
   const config = new ConfigStore(join(directory, 'config.json'));

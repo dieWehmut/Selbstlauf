@@ -190,6 +190,8 @@ const ADDITIONAL_CLI_ENTRIES: readonly { tool: DiscoveredTool; names: readonly s
 const ADDITIONAL_DESKTOP_NAMES: readonly { tool: DiscoveredTool; names: readonly string[] }[] = [
   { tool: 'trae', names: ['trae', 'trae cn'] },
   { tool: 'zcode', names: ['zcode', 'z code'] },
+  // Both publisher editions are WorkBuddy. Neither URLs nor arbitrary argv
+  // prove the edition, so only the shared product is identified here.
   { tool: 'workbuddy', names: ['workbuddy'] },
   { tool: 'craft-agents', names: ['craft-agents', 'craft agents'] },
 ];

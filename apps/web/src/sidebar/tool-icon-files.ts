@@ -26,6 +26,7 @@ export const TOOL_ICON_FILES: Readonly<Record<string, string>> = Object.freeze({
   trae: 'trae.png',
   zcode: 'zcode.png',
   workbuddy: 'workbuddy.svg',
+  'workbuddy-intl': 'workbuddy.svg',
   'craft-agents': 'craft-agents.svg',
   craft: 'craft-agents.svg',
 });

@@ -127,7 +127,7 @@ test('every documented provider icon decodes and is visible in both themes', asy
   await page.setViewportSize({ width: 1000, height: 600 });
   await page.goto('/test/browser/fixtures/tool-icons.html');
   const rows = page.locator('[data-provider]');
-  await expect(rows).toHaveCount(21);
+  await expect(rows).toHaveCount(22);
   for (const theme of ['light', 'dark']) {
     await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
     for (const row of await rows.all()) {

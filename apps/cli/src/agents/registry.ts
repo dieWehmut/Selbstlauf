@@ -60,8 +60,12 @@ export const AGENT_REGISTRY: readonly AgentDefinition[] = Object.freeze(([
     installUrl: 'https://www.trae.cn/', docsUrl: 'https://www.trae.cn/', guideUrls: [guide('trae')] },
   { id: 'zcode', label: 'ZCode', kind: 'desktop',
     installUrl: 'https://zcode.z.ai/cn', docsUrl: 'https://zcode.z.ai/cn', guideUrls: [guide('zcode')] },
-  { id: 'workbuddy', label: 'WorkBuddy', kind: 'desktop',
-    installUrl: 'https://www.workbuddy.cn/', docsUrl: 'https://www.workbuddy.cn/', guideUrls: [guide('workbuddy')] },
+  // The publisher's sites identify CN/international editions separately.
+  // These are installation choices; a running WorkBuddy process does not prove its edition.
+  { id: 'workbuddy', label: 'WorkBuddy 国内版', kind: 'desktop',
+    installUrl: 'https://www.workbuddy.cn/', docsUrl: 'https://www.workbuddy.cn/docs/workbuddy/', guideUrls: [guide('workbuddy')] },
+  { id: 'workbuddy-intl', label: 'WorkBuddy 国际版', kind: 'desktop',
+    installUrl: 'https://www.workbuddy.ai/', docsUrl: 'https://www.workbuddy.ai/docs/workbuddy/' },
   { id: 'craft-agents', label: 'Craft Agents', kind: 'desktop',
     installUrl: 'https://github.com/craft-ai-agents/craft-agents-oss/releases', docsUrl: 'https://github.com/craft-ai-agents/craft-agents-oss', guideUrls: [guide('craft-agents')] },
   { id: 'antigravity', label: 'Antigravity', kind: 'desktop',

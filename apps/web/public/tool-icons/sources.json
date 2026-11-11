@@ -155,7 +155,21 @@
     "product": "WorkBuddy",
     "retrievedAt": "2026-11-11",
     "sha256": "10ccbc099e7bc3d5ff12c315c4edd7b21386aa7166c1ec19997b3d55010d5c7d",
-    "treatment": "Original publisher asset, unchanged."
+    "treatment": "Original publisher asset, unchanged.",
+    "verifiedEditionSources": [
+      {
+        "edition": "domestic",
+        "publisher": "https://www.workbuddy.cn/",
+        "source": "https://assets.workbuddy.cn/web/workbuddy/5611ca0b566ae70e862617fecf6f3c8b05e5515a/assets/logo.svg",
+        "sha256": "10ccbc099e7bc3d5ff12c315c4edd7b21386aa7166c1ec19997b3d55010d5c7d"
+      },
+      {
+        "edition": "international",
+        "publisher": "https://www.workbuddy.ai/",
+        "source": "https://download.codebuddy.ai/web/workbuddy/05fd33c3609bc9cf5ae1fc387a142a2ad0fab64e/assets/logo.svg",
+        "sha256": "10ccbc099e7bc3d5ff12c315c4edd7b21386aa7166c1ec19997b3d55010d5c7d"
+      }
+    ]
   },
   "zcode.png": {
     "source": "https://zcode.z.ai/favicon-48x48.png?v=20260707-transparent",
