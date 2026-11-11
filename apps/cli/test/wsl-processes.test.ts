@@ -195,7 +195,7 @@ test('filesystem recovery failure preserves both discovery errors', async () => 
   assert.match(result.error ?? '', /UNC unavailable/u);
 });
 
-for (const discovery of ['WSL processes', 'WSL launchers'] as const) {
+for (const discovery of ['WSL processes', 'WSL launchers', 'WSL distributions'] as const) {
   test(`${discovery} timeout kills a real probe that ignores SIGTERM`, {
     skip: process.platform === 'win32',
   }, async () => {
@@ -215,8 +215,12 @@ for (const discovery of ['WSL processes', 'WSL launchers'] as const) {
         await assert.rejects(runWslProbe({
           distribution: 'Ubuntu-22.04', wslPath: executable, timeoutMs: 500,
         }, 'pwd'), /timed out after 500ms/u);
-      } else {
+      } else if (discovery === 'WSL launchers') {
         assert.deepEqual(await listWslLaunchers({ powershellPath: executable, timeoutMs: 500 }), []);
+      } else {
+        const startedAt = Date.now();
+        assert.deepEqual(await listWslDistributions(executable, { timeoutMs: 500 }), []);
+        assert(Date.now() - startedAt < 2_000, 'a hung distribution command must meet its deadline');
       }
       pid = Number(await readFile(pidFile, 'utf8'));
       let alive = true;

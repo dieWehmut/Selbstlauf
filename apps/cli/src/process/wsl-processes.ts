@@ -327,15 +327,48 @@ export async function listWslProcesses(options: WslDiscoveryOptions): Promise<Ws
 }
 
 /** The distributions this machine has, as `wsl.exe -l -q` reports them. */
-export async function listWslDistributions(wslPath = 'wsl.exe'): Promise<string[]> {
+export async function listWslDistributions(wslPath = 'wsl.exe', options: { readonly timeoutMs?: number } = {}): Promise<string[]> {
+  const timeoutMs = options.timeoutMs !== undefined && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+    ? options.timeoutMs : DEFAULT_WSL_PROBE_TIMEOUT_MS;
   return await new Promise<string[]>((resolve) => {
+    const createdAfterMs = Date.now();
     const child = spawn(wslPath, ['-l', '-q'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    registerWslProbeProcess(child, createdAfterMs, Date.now());
     let stdout = '';
-    child.stdout.on('data', (chunk) => { stdout += String(chunk); });
+    let outputBytes = 0;
+    let settled = false;
+    let stopping = false;
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (result: string[]) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(cleanupTimer);
+      child.stdout.destroy();
+      child.stderr.destroy();
+      child.unref();
+      resolve(result);
+    };
+    const stop = () => {
+      if (settled || stopping) return;
+      stopping = true;
+      // As with process probes, use this child's recorded spawn interval and
+      // verified owned tree. A stalled WSL bridge must not strand the caller.
+      cleanupTimer = setTimeout(() => finish([]), WSL_PROBE_CLEANUP_TIMEOUT_MS);
+      void killWslProbeProcess(child).then(() => finish([]), () => finish([]));
+    };
+    const timer = setTimeout(stop, timeoutMs);
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (stopping || settled) return;
+      outputBytes += chunk.length;
+      if (outputBytes > 64 * 1024) { stop(); return; }
+      stdout += String(chunk);
+    });
     // A machine without WSL, or with none installed, is an ordinary state.
-    child.on('error', () => { resolve([]); });
-    child.on('close', () => {
-      resolve(
+    child.on('error', () => { finish([]); });
+    child.on('close', (code) => {
+      if (stopping) return;
+      finish(code !== 0 ? [] :
         stdout
           // `wsl.exe` emits UTF-16LE, which arrives with NUL bytes interleaved when read as UTF-8.
           .replaceAll('\u0000', '')
