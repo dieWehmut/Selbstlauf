@@ -11,7 +11,7 @@ import { executableExistsOnPath } from './system-path.js';
  * Two different mechanisms are used because the tools are not distributed the
  * same way: every catalog entry except Hermes is published on npm and is best
  * read from the package manager's own report, while Hermes is a Python install
- * that answers `hermes version` with a banner.
+ * that answers `hermes --version` with a banner.
  *
  * Every probe is best-effort. A missing executable, a malformed report, or an
  * offline registry must degrade to "unknown" rather than fail the whole scan,
@@ -87,6 +87,12 @@ export function parseNpmGlobalVersions(report: string): Map<string, string> {
 
 const HERMES_VERSION_PATTERN = /\bv(\d+(?:\.\d+)+)/u;
 
+/** Vendor banners and plain semver output are both common for standalone installs. */
+export function parseExecutableVersion(banner: string): string | null {
+  const match = /(?:^|[\s])v?(\d+(?:\.\d+)+)(?:[\s]|$)/u.exec(banner.trim());
+  return match?.[1] ?? null;
+}
+
 /** Read `0.18.0` out of `Hermes Agent v0.18.0 (2026.7.1) ...`. */
 export function parseHermesVersion(banner: string): string | null {
   const match = HERMES_VERSION_PATTERN.exec(banner);
@@ -126,7 +132,8 @@ export async function readInstalledVersions(options: ProbeOptions = {}): Promise
     }
     let version: string | null = null;
     try {
-      version = parseHermesVersion(await runExecutable(entry.executable));
+      const banner = await runExecutable(entry.executable);
+      version = entry.id === 'hermes' ? parseHermesVersion(banner) ?? parseExecutableVersion(banner) : parseExecutableVersion(banner);
     } catch {
       version = null;
     }

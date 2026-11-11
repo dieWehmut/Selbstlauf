@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import {
   parseNpmGlobalVersions,
   parseHermesVersion,
+  parseExecutableVersion,
   readInstalledVersions,
   readLatestVersions,
 } from '../src/environment/probe.js';
@@ -69,12 +70,32 @@ test('asks the registry for every npm-published tool', async () => {
   assert.equal(latest.has('@anthropic-ai/claude-code'), false, 'an empty answer means unknown');
   assert.deepEqual(asked.sort(), [
     '@anthropic-ai/claude-code',
+    '@charmland/crush',
+    '@deepseek-ai/dsh',
+    '@earendil-works/pi-coding-agent',
     '@google/gemini-cli',
+    '@kilocode/cli',
     '@openai/codex',
+    '@qwen-code/qwen-code',
     '@xai-official/grok',
+    'cline',
     'openclaw',
     'opencode-ai',
   ]);
+});
+
+test('standalone CLI versions are readable without a global npm package', async () => {
+  for (const banner of ['1.2.3', 'v1.2.3', 'qwen v1.2.3', 'crush version 1.2.3\n']) {
+    assert.equal(parseExecutableVersion(banner), '1.2.3', banner);
+  }
+  assert.equal(parseExecutableVersion('version unavailable'), null);
+  const installed = await readInstalledVersions({
+    runNpm: async () => '{}', fileExists: (executable) => ['qwen', 'hermes', 'pi', 'crush'].includes(executable),
+    runExecutable: async (executable) => executable === 'hermes' ? 'Hermes Agent v0.18.0 (2026.7.1)' : '1.2.3\n',
+  });
+  const byId = new Map(installed.map((entry) => [entry.id, entry.installed]));
+  assert.equal(byId.get('hermes'), '0.18.0');
+  for (const id of ['qwen', 'pi', 'crush']) assert.equal(byId.get(id), '1.2.3', id);
 });
 
 test('a registry failure leaves the version unknown instead of failing the scan', async () => {

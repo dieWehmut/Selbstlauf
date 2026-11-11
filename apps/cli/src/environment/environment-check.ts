@@ -19,6 +19,8 @@ export interface ToolReport {
   readonly latest: string | null;
   readonly state: ToolState;
   readonly installCommand: string;
+  readonly installable?: boolean;
+  readonly installUrl?: string;
 }
 
 export interface EnvironmentReport {
@@ -103,6 +105,8 @@ function buildReport(
       // install is up to date.
       state: decideToolState({ installed: local, latest: published }),
       installCommand: entry.installCommand,
+      installable: entry.updateSource === 'npm',
+      installUrl: entry.installUrl,
     });
   });
 

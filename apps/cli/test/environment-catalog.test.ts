@@ -9,12 +9,18 @@ import {
 
 test('describes every supported agent with its package and install command', () => {
   const names = AGENT_CATALOG.map((entry) => entry.id);
-  assert.deepEqual(names, ['claude', 'codex', 'gemini', 'grok', 'opencode', 'openclaw']);
+  assert.deepEqual(names, ['claude', 'codex', 'gemini', 'grok', 'opencode', 'openclaw', 'qwen', 'hermes', 'pi', 'crush', 'dsh', 'cline', 'kilo']);
 
   for (const entry of AGENT_CATALOG) {
     assert.ok(entry.label.length > 0, `${entry.id} has a label`);
-    assert.ok(entry.packageName.length > 0, `${entry.id} has a package`);
-    assert.match(entry.installCommand, /^npm i -g /u, `${entry.id} documents its install command`);
+    assert.ok(entry.installUrl?.startsWith('https://'), `${entry.id} has an official installer link`);
+    if (entry.updateSource === 'npm') {
+      assert.ok(entry.packageName.length > 0, `${entry.id} has a package`);
+      assert.match(entry.installCommand, /^npm i -g /u, `${entry.id} documents its install command`);
+    } else {
+      assert.equal(entry.id, 'hermes');
+      assert.equal(entry.packageName, '', 'Python tools must not be sent to npm');
+    }
   }
 });
 

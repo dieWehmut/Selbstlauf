@@ -2,17 +2,10 @@ import { access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve, win32 } from 'node:path';
-import { AgentSessionError, type AgentCatalog, type AgentTool } from './types.js';
+import { AgentSessionError, type AgentCatalog } from './types.js';
+import { AGENT_REGISTRY, agentInstallCommand } from './registry.js';
 
-export const AGENT_PRESETS: readonly { id: AgentTool; label: string; command?: string; packageName?: string }[] = [
-  { id: 'claude', label: 'Claude Code', command: 'claude', packageName: '@anthropic-ai/claude-code' },
-  { id: 'opencode', label: 'OpenCode', command: 'opencode', packageName: 'opencode-ai' },
-  { id: 'codex', label: 'Codex', command: 'codex', packageName: '@openai/codex' },
-  { id: 'dsh', label: 'DeepSeek Harness', command: 'dsh', packageName: '@deepseek-ai/dsh' },
-  { id: 'gemini', label: 'Gemini CLI', command: 'gemini', packageName: '@google/gemini-cli' },
-  { id: 'shell', label: '终端' },
-  { id: 'custom', label: '自定义智能体' },
-];
+export const AGENT_PRESETS = AGENT_REGISTRY;
 
 export function environmentPath(env: NodeJS.ProcessEnv): string {
   return Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
@@ -53,12 +46,20 @@ export async function agentCatalog(platform = process.platform, env = process.en
   const tools = await Promise.all(AGENT_PRESETS.map(async (preset) => {
     const command = preset.id === 'shell' ? defaultShell(platform, env) : preset.command;
     const resolved = command === undefined ? null : await resolveExecutable(command, { platform, env });
+    const launchable = preset.kind !== 'desktop' && preset.kind !== 'extension';
+    const installCommand = agentInstallCommand(preset, platform);
     return {
       id: preset.id,
       label: preset.label,
       command: resolved,
       available: preset.id === 'custom' || resolved !== null,
-      ...(preset.packageName === undefined ? {} : { installCommand: `npm install -g ${preset.packageName}` }),
+      kind: preset.kind,
+      launchable,
+      defaultArgs: preset.defaultArgs ?? [],
+      ...(installCommand === undefined ? {} : { installCommand }),
+      ...(preset.installUrl === undefined ? {} : { installUrl: preset.installUrl }),
+      ...(preset.docsUrl === undefined ? {} : { docsUrl: preset.docsUrl }),
+      ...(preset.guideUrls === undefined ? {} : { guideUrls: preset.guideUrls }),
     };
   }));
   return { platform, defaultCwd, tools };

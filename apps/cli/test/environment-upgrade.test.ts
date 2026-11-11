@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { AGENT_CATALOG, decideToolState } from '../src/environment/catalog.js';
-import { ToolUpgrader, isKnownToolId } from '../src/environment/upgrade.js';
+import { ToolUpgrader, isKnownToolId, installArguments } from '../src/environment/upgrade.js';
 
 test('recognizes only catalog tool ids', () => {
   for (const entry of AGENT_CATALOG) assert.equal(isKnownToolId(entry.id), true, entry.id);
@@ -34,6 +34,26 @@ test('refuses an unknown tool instead of running an arbitrary command', async ()
   assert.equal(result.ok, false);
   assert.match(result.error ?? '', /unknown tool/u);
   assert.equal(ran, 0, 'nothing is executed for an unknown id');
+});
+
+test('new CLI installers use only their official npm package and reviewed options', async () => {
+  const runs: Array<readonly string[]> = [];
+  const upgrader = new ToolUpgrader({ runNpm: async (args) => { runs.push(args); return 'ok'; } });
+  for (const id of ['qwen', 'pi', 'crush', 'cline', 'kilo']) assert.equal((await upgrader.upgrade(id)).ok, true);
+  assert.deepEqual(runs, [
+    ['i', '-g', '@qwen-code/qwen-code@latest'],
+    ['i', '-g', '@earendil-works/pi-coding-agent@latest', '--ignore-scripts'],
+    ['i', '-g', '@charmland/crush@latest'],
+    ['i', '-g', 'cline@latest'],
+    ['i', '-g', '@kilocode/cli@latest'],
+  ]);
+  const manual = await upgrader.upgrade('hermes');
+  assert.equal(manual.ok, false);
+  assert.match(manual.error ?? '', /official installation guide/u);
+  assert.equal(runs.length, 5, 'Hermes must never execute a shell script or an npm install');
+  const entry = AGENT_CATALOG.find((value) => value.id === 'codex')!;
+  assert.throws(() => installArguments({ ...entry, packageName: '@openai/codex;evil' }), TypeError);
+  assert.throws(() => installArguments({ ...entry, installArgs: ['--prefix=/tmp/evil'] }), TypeError);
 });
 
 test('reports a failed install without throwing', async () => {

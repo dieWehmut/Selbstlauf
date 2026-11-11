@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { EnvironmentCheck, buildCheckReport } from '../src/environment/environment-check.js';
 import { ToolUpgrader } from '../src/environment/upgrade.js';
+import { AGENT_CATALOG } from '../src/environment/catalog.js';
 
 test('reports every catalog tool with its state and install command', async () => {
   const check = new EnvironmentCheck({
@@ -25,7 +26,7 @@ test('reports every catalog tool with its state and install command', async () =
   });
 
   const report = await check.report();
-  assert.equal(report.tools.length, 6);
+  assert.equal(report.tools.length, 13);
 
   const byId = new Map(report.tools.map((tool) => [tool.id, tool]));
   assert.equal(byId.get('claude')?.state, 'outdated');
@@ -38,7 +39,9 @@ test('reports every catalog tool with its state and install command', async () =
 
   // Every card carries the copy that the manual-install panel offers.
   for (const tool of report.tools) {
-    assert.ok(tool.installCommand.startsWith('npm i -g '), tool.id);
+    assert.equal(tool.installable, tool.id !== 'hermes', tool.id);
+    assert.ok(tool.installUrl?.startsWith('https://'), tool.id);
+    if (tool.installable) assert.ok(tool.installCommand.startsWith('npm i -g '), tool.id);
     assert.ok(tool.label.length > 0, tool.id);
   }
 });
@@ -64,7 +67,7 @@ test('lists the upgradeable tools and the ones that need a manual install', asyn
   });
 
   assert.deepEqual(report.upgrades, ['claude']);
-  assert.deepEqual(report.missing, ['grok']);
+  assert.deepEqual(report.missing, AGENT_CATALOG.map((entry) => entry.id).filter((id) => !['claude', 'codex', 'gemini', 'opencode', 'openclaw'].includes(id)));
   assert.equal(report.checkedAtMs > 0, true);
 });
 
@@ -105,7 +108,7 @@ test('survives a probe that throws and still answers', async () => {
     },
   });
   const report = await check.report();
-  assert.equal(report.tools.length, 6);
+  assert.equal(report.tools.length, 13);
   for (const tool of report.tools) assert.equal(tool.state, 'missing');
 });
 

@@ -1,80 +1,30 @@
-/**
- * The agent CLIs Selbstlauf knows how to report on.
- *
- * CC Switch shows a "local environment" panel that lists the agent CLIs a person
- * actually runs, their installed and published versions, and the exact npm
- * command that installs each one. The catalog is data rather than code so the
- * panel, the version probes, and the documented install commands can never
- * disagree with each other.
- *
- * Command shapes were verified against the installed tools on this host:
- *   - `npm ls -g --json` reports the npm-installed CLIs and their versions.
- *   - `hermes version` prints `Hermes Agent v0.18.0 (2026.7.1)`.
- */
+import { AGENT_REGISTRY, agentInstallCommand } from '../agents/registry.js';
 
+/** CLI-only view of the shared registry; desktop and extension installers remain publisher links. */
 export interface AgentCatalogEntry {
   readonly id: string;
   readonly label: string;
-  /** npm package that publishes the CLI. */
+  /** Empty for tools distributed outside npm (Hermes). */
   readonly packageName: string;
-  /** Executable probed on PATH when the package manager cannot answer. */
   readonly executable: string;
-  /** Cut-and-paste install/upgrade command shown in the manual panel. */
   readonly installCommand: string;
-  /** How the published version is discovered. */
+  readonly installUrl?: string;
+  readonly installArgs: readonly string[];
   readonly updateSource: 'npm' | 'none';
 }
 
-export const AGENT_CATALOG: readonly AgentCatalogEntry[] = Object.freeze([
-  Object.freeze({
-    id: 'claude',
-    label: 'Claude Code',
-    packageName: '@anthropic-ai/claude-code',
-    executable: 'claude',
-    installCommand: 'npm i -g @anthropic-ai/claude-code@latest',
-    updateSource: 'npm',
-  }),
-  Object.freeze({
-    id: 'codex',
-    label: 'Codex',
-    packageName: '@openai/codex',
-    executable: 'codex',
-    installCommand: 'npm i -g @openai/codex@latest',
-    updateSource: 'npm',
-  }),
-  Object.freeze({
-    id: 'gemini',
-    label: 'Gemini CLI',
-    packageName: '@google/gemini-cli',
-    executable: 'gemini',
-    installCommand: 'npm i -g @google/gemini-cli@latest',
-    updateSource: 'npm',
-  }),
-  Object.freeze({
-    id: 'grok',
-    label: 'Grok Build',
-    packageName: '@xai-official/grok',
-    executable: 'grok',
-    installCommand: 'npm i -g @xai-official/grok@latest',
-    updateSource: 'npm',
-  }),
-  Object.freeze({
-    id: 'opencode',
-    label: 'OpenCode',
-    packageName: 'opencode-ai',
-    executable: 'opencode',
-    installCommand: 'npm i -g opencode-ai@latest',
-    updateSource: 'npm',
-  }),
-  Object.freeze({
-    id: 'openclaw',
-    label: 'OpenClaw',
-    packageName: 'openclaw',
-    executable: 'openclaw',
-    installCommand: 'npm i -g openclaw@latest',
-    updateSource: 'npm',
-  }),
-]);
+export const AGENT_CATALOG: readonly AgentCatalogEntry[] = Object.freeze(
+  AGENT_REGISTRY.filter((entry) => entry.kind === 'cli').map((entry) => Object.freeze({
+    id: entry.id,
+    label: entry.label,
+    packageName: entry.packageName ?? '',
+    executable: entry.command!,
+    installCommand: agentInstallCommand(entry)!,
+    installUrl: entry.installUrl,
+    installArgs: entry.installArgs ?? [],
+    updateSource: entry.packageName === undefined ? 'none' as const : 'npm' as const,
+  })),
+);
 
 const VERSION_PATTERN = /^\d+(\.\d+)*$/u;
 

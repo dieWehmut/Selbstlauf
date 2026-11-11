@@ -1,4 +1,9 @@
-export const AGENT_TOOLS = ['claude', 'opencode', 'codex', 'dsh', 'gemini', 'shell', 'custom'] as const;
+import type { AgentKind } from './registry.js';
+
+export const AGENT_TOOLS = [
+  'claude', 'opencode', 'codex', 'dsh', 'gemini', 'grok', 'qwen', 'openclaw', 'hermes', 'pi', 'crush',
+  'cline', 'roo', 'kilo', 'claude-app', 'trae', 'zcode', 'workbuddy', 'craft-agents', 'antigravity', 'cursor', 'shell', 'custom',
+] as const;
 export type AgentTool = (typeof AGENT_TOOLS)[number];
 
 /** Kept independent of node-pty so the desktop can supply its Electron-compatible build. */
@@ -58,7 +63,13 @@ export interface AgentCatalog {
     label: string;
     command: string | null;
     available: boolean;
+    kind: AgentKind;
+    launchable: boolean;
+    defaultArgs: readonly string[];
     installCommand?: string;
+    installUrl?: string;
+    docsUrl?: string;
+    guideUrls?: readonly string[];
   }[];
 }
 

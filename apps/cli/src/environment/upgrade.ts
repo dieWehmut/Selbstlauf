@@ -50,11 +50,11 @@ function findEntry(id: string): AgentCatalogEntry | undefined {
  * string to a shell interpreter.
  */
 export function installArguments(entry: AgentCatalogEntry): readonly string[] {
-  const parts = entry.installCommand.split(/\s+/u).filter(Boolean);
-  if (parts[0] !== 'npm' || parts[1] !== 'i' || parts[2] !== '-g' || parts.length !== 4) {
-    throw new TypeError(`catalog install command is not a supported shape: ${entry.installCommand}`);
+  if (entry.updateSource !== 'npm' || !/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/iu.test(entry.packageName)
+    || entry.installArgs.some((argument) => argument !== '--ignore-scripts')) {
+    throw new TypeError(`catalog entry is not an npm installer: ${entry.id}`);
   }
-  return [parts[1], parts[2], parts[3]];
+  return ['i', '-g', `${entry.packageName}@latest`, ...entry.installArgs];
 }
 
 export class ToolUpgrader {
@@ -75,6 +75,9 @@ export class ToolUpgrader {
     const entry = findEntry(id);
     if (entry === undefined) {
       return { id, ok: false, error: `unknown tool: ${id}` };
+    }
+    if (entry.updateSource !== 'npm') {
+      return { id, ok: false, error: `Use the official installation guide: ${entry.installUrl}` };
     }
 
     const run = async (): Promise<UpgradeResult> => {

@@ -77,11 +77,14 @@ export class ManagedAgentSessions {
         throw new AgentSessionError(400, `工作目录不存在或无法访问：${cwd}`);
       }
       const preset = AGENT_PRESETS.find((entry) => entry.id === request.tool)!;
+      if (preset.kind === 'desktop' || preset.kind === 'extension') {
+        throw new AgentSessionError(400, `${preset.label} 请从官方桌面应用或编辑器扩展打开。`);
+      }
       const name = request.command ?? (request.tool === 'shell' ? defaultShell(this.platform, this.env) : preset.command);
       if (name === undefined) throw new AgentSessionError(400, '请填写智能体的可执行命令。');
       const executable = await resolveExecutable(name, { platform: this.platform, env: this.env, cwd });
       if (executable === null) throw new AgentSessionError(400, `找不到命令 ${name}，请安装该工具或填写可执行文件的完整路径。`);
-      const args = request.args ?? (request.tool === 'shell' && this.platform === 'win32' ? ['-NoLogo'] : []);
+      const args = request.args ?? (request.tool === 'shell' && this.platform === 'win32' ? ['-NoLogo'] : [...(preset.defaultArgs ?? [])]);
       const command = terminalCommand(executable, args, this.platform, this.env);
       const backend = await this.loadBackend();
       if (this.closed) throw new AgentSessionError(503, '终端服务正在关闭。');
