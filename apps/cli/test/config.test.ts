@@ -126,9 +126,9 @@ test('rejects invalid Claude Stop Hook durations and identifies each setting', (
 test('rejects unknown tool names', () => {
   const input = structuredClone(defaultConfig) as unknown as Record<string, unknown>;
   const tools = input.tools as Record<string, unknown>;
-  tools.opencode = { enabled: true, normalPrompt: 'continue' };
+  tools['future-agent'] = { enabled: true, normalPrompt: 'continue' };
 
-  assert.throws(() => parseConfig(input), /unknown tool.*opencode/i);
+  assert.throws(() => parseConfig(input), /unknown tool.*future-agent/i);
 });
 
 test('freezes the DeepSeek Harness tool defaults', () => {

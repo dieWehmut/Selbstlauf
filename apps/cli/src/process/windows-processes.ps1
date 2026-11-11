@@ -374,7 +374,7 @@ $windowTitleMarkers = @(
 # The signature that marks a supported CLI or desktop agent. It is used to keep
 # the record (the node image name alone is far too broad) and to describe why an
 # otherwise unrelated process is being reported.
-$workingDirectoryPattern = '(?i)(?:claude-code|claude\.(?:ps1|cmd|exe)|@openai[\\/]codex|codex\.js|codex\.exe|@deepseek-ai[\\/]dsh|deepseek-harness[\\/]apps[\\/]cli[\\/]lib[\\/]bin\.js|deepseek-harness[\\/]packages[\\/]subprocess|dsh\.(?:cmd|ps1|exe)|@google[\\/]gemini-cli[\\/](?:dist[\\/]index\.js|bundle[\\/]gemini\.js)|gemini\.(?:cmd|ps1|exe)|cursor-agent|cursor\.exe|antigravity\.exe|cursor-agent-host[\\/]dist[\\/]agent-host-daemon[\\/]dist[\\/]bin[\\/]daemon\.(?:js|cjs))'
+$workingDirectoryPattern = '(?i)(?:claude-code|claude\.(?:ps1|cmd|exe)|@openai[\\/]codex|codex\.js|codex\.exe|@deepseek-ai[\\/]dsh|deepseek-harness[\\/]apps[\\/]cli[\\/]lib[\\/]bin\.js|deepseek-harness[\\/]packages[\\/]subprocess|dsh\.(?:cmd|ps1|exe)|@google[\\/]gemini-cli[\\/](?:dist[\\/]index\.js|bundle[\\/]gemini\.js)|gemini\.(?:cmd|ps1|exe)|cursor-agent|cursor\.exe|antigravity\.exe|cursor-agent-host[\\/]dist[\\/]agent-host-daemon[\\/]dist[\\/]bin[\\/]daemon\.(?:js|cjs)|cline[\\/]bin[\\/]\.cline|@kilocode[\\/]cli[\\/]bin[\\/]\.kilo)'
 
 function ConvertTo-NullableString {
     param([AllowNull()][object]$Value)
@@ -531,7 +531,7 @@ $records = @(
             $processName.Trim().ToLowerInvariant()
         }
         $candidate =
-            ($processBaseName -match '^(?:node|codex|claude|dsh|gemini|cursor|cursor-agent|antigravity|agent|language_server)(?:[-.]|$)') -or
+            ($processBaseName -match '^(?:node|bun|python|codex|claude|dsh|gemini|cursor|cursor-agent|antigravity|agent|language_server|opencode|qwen|openclaw|hermes|pi|crush|cline|kilo|kilocode|trae(?: cn)?|zcode|z code|workbuddy|craft-agents|craft agents)(?:[-.]|$)') -or
             ($null -ne $processBaseName -and $includeNames -contains $processBaseName) -or
             ($processCommandLine -match $workingDirectoryPattern) -or
             # The watchdog's own process must always be reported so the caller

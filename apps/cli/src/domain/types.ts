@@ -1,4 +1,10 @@
-export const TOOL_NAMES = ['claude', 'codex', 'dsh', 'gemini', 'antigravity', 'cursor'] as const;
+/** Agents with verified process identity but no transcript/input adapter yet. */
+export const MONITOR_ONLY_TOOL_NAMES = [
+  'opencode', 'qwen', 'openclaw', 'hermes', 'pi', 'crush', 'cline', 'roo', 'kilo',
+  'claude-app', 'trae', 'zcode', 'workbuddy', 'craft-agents',
+] as const;
+export type MonitorOnlyToolName = (typeof MONITOR_ONLY_TOOL_NAMES)[number];
+export const TOOL_NAMES = ['claude', 'codex', 'dsh', 'gemini', 'antigravity', 'cursor', ...MONITOR_ONLY_TOOL_NAMES] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
 export const GOAL_STATUSES = [
@@ -101,7 +107,7 @@ export interface WatchdogConfig {
     readonly gemini: ToolConfig;
     readonly antigravity: ToolConfig;
     readonly cursor: ToolConfig;
-  };
+  } & Partial<Readonly<Record<MonitorOnlyToolName, ToolConfig>>>;
   readonly processFilters: {
     readonly sameUserOnly: boolean;
     readonly include: readonly string[];

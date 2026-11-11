@@ -9,6 +9,7 @@ import { ConfigStore } from '../src/store/config-store.js';
 import { AuditStore } from '../src/store/audit-store.js';
 import { CodexConfigProfiles } from '../src/codex/profile-store.js';
 import { EnvironmentCheck } from '../src/environment/environment-check.js';
+import { AGENT_CATALOG } from '../src/environment/catalog.js';
 import { ToolUpgrader } from '../src/environment/upgrade.js';
 import {
   WatchdogHttpServer,
@@ -118,12 +119,12 @@ test('serves the local environment report and refreshes it on demand', async (t)
 
   const report = await request(base, '/api/environment');
   assert.equal(report.response.status, 200);
-  assert.equal(report.json.tools.length, 6);
+  assert.deepEqual(report.json.tools.map((tool: { id: string }) => tool.id), AGENT_CATALOG.map(tool => tool.id));
   const claude = report.json.tools.find((tool: { id: string }) => tool.id === 'claude');
   assert.equal(claude.state, 'outdated');
   assert.equal(claude.installCommand, 'npm i -g @anthropic-ai/claude-code@latest');
   assert.deepEqual(report.json.upgrades, ['claude']);
-  assert.equal(report.json.manualCommands.length, 6);
+  assert.deepEqual(report.json.manualCommands, AGENT_CATALOG.map(tool => tool.installCommand));
   assert.equal(scans, 1);
 
   // A refresh re-probes; the cached read stays free.

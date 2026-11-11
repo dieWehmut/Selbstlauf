@@ -1,6 +1,7 @@
 import { posix, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RawProcessRecord } from './process-provider.js';
+import { MONITOR_ONLY_TOOL_NAMES, type ToolName } from '../domain/types.js';
 import {
   classifySessionHost,
   hostAppFor,
@@ -8,7 +9,7 @@ import {
   type SessionHost,
 } from './host-apps.js';
 
-export type DiscoveredTool = 'claude' | 'codex' | 'dsh' | 'gemini' | 'antigravity' | 'cursor';
+export type DiscoveredTool = ToolName;
 
 export interface ProcessNameOptions {
   readonly claudeExecutableNames?: readonly string[];
@@ -73,7 +74,7 @@ export interface DiscoveredProcessSession {
   readonly transportHint: 'unknown';
 }
 
-const DEFAULT_CLAUDE_EXECUTABLE_NAMES = ['claude.ps1', 'claude.cmd', 'claude.exe'];
+const DEFAULT_CLAUDE_EXECUTABLE_NAMES = ['claude', 'claude.ps1', 'claude.cmd', 'claude.exe'];
 const DEFAULT_CODEX_EXECUTABLE_NAMES = ['codex.exe'];
 const DEFAULT_DSH_EXECUTABLE_NAMES = ['dsh.exe', 'dsh.cmd', 'dsh.ps1'];
 const DEFAULT_GEMINI_EXECUTABLE_NAMES = ['gemini', 'gemini.exe', 'gemini.cmd', 'gemini.ps1'];
@@ -105,9 +106,10 @@ function commandArguments(commandLine: string | null, arguments_?: readonly stri
 /** The actual script executed by Node/Bun or a POSIX launcher, not prompt text. */
 function runtimeEntry(record: RawProcessRecord): string | null {
   const args = commandArguments(record.commandLine, record.arguments);
-  if (!/^(?:node|bun|sh|bash|zsh)(?:\.exe)?$/u.test(basename(args[0] ?? null) ?? '')) return null;
+  if (!/^(?:node|bun|sh|bash|zsh|python(?:\d+(?:\.\d+)?)?)(?:\.exe)?$/u.test(basename(args[0] ?? null) ?? '')) return null;
   for (let index = 1; index < args.length; index += 1) {
     const arg = args[index]!;
+    if (arg === '-m') return /^python/u.test(basename(args[0] ?? null) ?? '') ? args[index + 1] ?? null : null;
     // Evaluation text is never an executable entry point, even if it mentions a package.
     if (/^(?:--eval|--print|--command)(?:=|$)|^-(?:e|p|c)/u.test(arg)) return null;
     if (['--require', '-r', '--import', '--loader', '--experimental-loader'].includes(arg)) { index += 1; continue; }
@@ -146,7 +148,7 @@ function electronScriptEntry(record: RawProcessRecord): string | null {
   const args = commandArguments(record.commandLine, record.arguments);
   const executable = record.executablePath ?? args[0] ?? null;
   const parts = pathParts(executable);
-  if (!/^(?:cursor|antigravity)(?:\.exe)?$/u.test(parts.at(-1) ?? '')) return null;
+  if (!/^(?:cursor|antigravity|claude|trae(?: cn)?|zcode|z code|workbuddy|craft[- ]agents)(?:\.exe)?$/u.test(parts.at(-1) ?? '')) return null;
   const entry = args.slice(1).find((arg) => !arg.startsWith('-')) ?? null;
   if (!entry) return null;
   const directory = parts.slice(0, -1).join('/').replace(/\/contents\/macos$/u, '/contents');
@@ -174,7 +176,55 @@ function isElectronHelper(record: RawProcessRecord): boolean {
     /^--(?:type(?:=|$)|utility-sub-type(?:=|$)|crashpad-handler(?:=|$))/u.test(arg));
 }
 
+const ADDITIONAL_CLI_ENTRIES: readonly { tool: DiscoveredTool; names: readonly string[]; packageEntry?: RegExp }[] = [
+  { tool: 'opencode', names: ['opencode'], packageEntry: /(?:^|\/)(?:opencode-ai\/bin\/opencode(?:\.exe)?|opencode-(?:linux|darwin|windows)-[^/]+\/bin\/opencode(?:\.exe)?)$/u },
+  { tool: 'qwen', names: ['qwen'], packageEntry: /(?:^|\/)@qwen-code\/qwen-code\/cli-entry\.js$/u },
+  { tool: 'openclaw', names: ['openclaw'], packageEntry: /(?:^|\/)openclaw\/(?:openclaw\.mjs|dist\/index\.js)$/u },
+  { tool: 'hermes', names: ['hermes'], packageEntry: /(?:^|\/)(?:hermes-agent\/hermes_cli\/main\.py|hermes_cli\/main\.py)$|^hermes_cli(?:\.main)?$/u },
+  { tool: 'pi', names: ['pi'], packageEntry: /(?:^|\/)@(?:mariozechner|earendil-works)\/pi-coding-agent\/dist\/(?:bundle\/)?cli\.js$/u },
+  { tool: 'crush', names: ['crush'], packageEntry: /(?:^|\/)@charmland\/crush\/run-crush\.js$/u },
+  { tool: 'cline', names: ['cline'], packageEntry: /(?:^|\/)(?:cline\/bin\/\.?cline|@cline\/cli-(?:linux|darwin|windows)-[^/]+\/bin\/cline)(?:\.exe)?$/u },
+  { tool: 'kilo', names: ['kilo', 'kilocode'], packageEntry: /(?:^|\/)@kilocode\/cli(?:-(?:linux|darwin|windows)-[^/]+)?\/bin\/\.?kilo(?:\.exe)?$/u },
+];
+
+const ADDITIONAL_DESKTOP_NAMES: readonly { tool: DiscoveredTool; names: readonly string[] }[] = [
+  { tool: 'trae', names: ['trae', 'trae cn'] },
+  { tool: 'zcode', names: ['zcode', 'z code'] },
+  { tool: 'workbuddy', names: ['workbuddy'] },
+  { tool: 'craft-agents', names: ['craft-agents', 'craft agents'] },
+];
+
+function launcherName(value: string | null): string {
+  return (basename(value) ?? '').replace(/\.(?:exe|cmd|ps1)$/u, '');
+}
+
+/** Claude Desktop and the CLI share an image name; its install directory distinguishes them. */
+function claudeDesktop(record: RawProcessRecord): boolean {
+  if (launcherName(record.executablePath ?? record.name) !== 'claude') return false;
+  const parts = pathParts(record.executablePath ?? commandArguments(record.commandLine, record.arguments)[0] ?? null);
+  return parts.includes('anthropicclaude') || parts.includes('claude.app') ||
+    parts.some(part => /^anthropic\.claude_[^/]+$/u.test(part));
+}
+
+function additionalProcessTool(record: RawProcessRecord, entry: string | null, electronEntry: string | null): DiscoveredTool | null {
+  const candidates = [record.name, record.executablePath].map(launcherName);
+  const scriptName = launcherName(entry);
+  const script = pathParts(entry).join('/');
+  for (const preset of ADDITIONAL_CLI_ENTRIES) {
+    if (candidates.some(name => preset.names.includes(name)) || preset.names.includes(scriptName) ||
+      preset.packageEntry?.test(script) || preset.packageEntry?.test(pathParts(record.executablePath).join('/'))) return preset.tool;
+  }
+  // VS Code extension hosts have no per-extension process identity. Only an
+  // independently executed entry inside the official Roo installation qualifies.
+  if (/(?:^|\/)rooveterinaryinc\.roo-cline-[^/]+\/dist\/extension\.(?:js|cjs)$/u.test(script)) return 'roo';
+  if (isElectronHelper(record) || electronEntry !== null) return null;
+  if (claudeDesktop(record)) return 'claude-app';
+  return ADDITIONAL_DESKTOP_NAMES.find(preset => candidates.some(name => preset.names.includes(name)))?.tool ?? null;
+}
+
 function processKind(record: RawProcessRecord, tool: DiscoveredTool): 'cli' | 'desktop' | undefined {
+  if (ADDITIONAL_DESKTOP_NAMES.some(preset => preset.tool === tool) || tool === 'claude-app') return 'desktop';
+  if ((MONITOR_ONLY_TOOL_NAMES as readonly string[]).includes(tool)) return 'cli';
   if (tool === 'gemini') return 'cli';
   if (tool === 'cursor') {
     return cursorCliPath(record.executablePath) || cursorCliPath(record.name) || cursorCliPath(runtimeEntry(record)) ||
@@ -245,6 +295,10 @@ export function detectProcessTool(
   const entry = runtimeEntry(record);
   const electronEntry = electronScriptEntry(record);
   const firstArgument = commandArguments(record.commandLine, record.arguments)[0] ?? null;
+  const additional = additionalProcessTool(record, entry, electronEntry);
+  if (additional !== null) return additional;
+  // A desktop child using Claude's image is never a Claude Code CLI.
+  if (claudeDesktop(record)) return null;
   const isGemini = configuredNameMatches(record, options.geminiExecutableNames ?? DEFAULT_GEMINI_EXECUTABLE_NAMES) ||
     geminiEntry(entry);
   const cursorCli = cursorCliPath(record.executablePath) || cursorCliPath(record.name) || cursorCliPath(entry) ||

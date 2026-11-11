@@ -1,11 +1,13 @@
 import {
   GOAL_STATUSES,
   TOOL_NAMES,
+  MONITOR_ONLY_TOOL_NAMES,
   type CodexToolConfig,
   type DshToolConfig,
   type GoalStatus,
   type ResumableGoalStatus,
   type ToolConfig,
+  type MonitorOnlyToolName,
   type WatchdogConfig,
 } from './types.js';
 
@@ -39,6 +41,7 @@ const defaults: WatchdogConfig = {
    */
   wslDistribution: '',
   tools: {
+    ...Object.fromEntries(MONITOR_ONLY_TOOL_NAMES.map(tool => [tool, { enabled: true, normalPrompt: '继续' }])),
     claude: {
       enabled: true,
       normalPrompt: '继续',
@@ -178,8 +181,8 @@ function parseDshConfig(value: unknown): DshToolConfig {
   };
 }
 
-function parseMonitorConfig(value: unknown, tool: 'gemini' | 'antigravity' | 'cursor'): ToolConfig {
-  if (value === undefined) return defaultConfig.tools[tool];
+function parseMonitorConfig(value: unknown, tool: 'gemini' | 'antigravity' | 'cursor' | MonitorOnlyToolName): ToolConfig {
+  if (value === undefined) return defaultConfig.tools[tool] ?? { enabled: true, normalPrompt: '继续' };
   const config = requireRecord(value, `tools.${tool}`);
   return {
     enabled: requireBoolean(config.enabled, `tools.${tool}.enabled`),
@@ -231,6 +234,7 @@ export function parseConfig(value: unknown): WatchdogConfig {
       ? defaultConfig.wslDistribution
       : requireOptionalDistribution(config.wslDistribution),
     tools: {
+      ...Object.fromEntries(MONITOR_ONLY_TOOL_NAMES.map(tool => [tool, parseMonitorConfig(tools[tool], tool)])),
       claude: {
         enabled: requireBoolean(claude.enabled, 'tools.claude.enabled'),
         normalPrompt: requirePrompt(claude.normalPrompt, 'tools.claude.normalPrompt'),

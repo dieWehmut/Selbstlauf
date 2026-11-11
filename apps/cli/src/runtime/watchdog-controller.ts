@@ -27,6 +27,7 @@ import {
 import { listLoopbackListenPorts } from '../dsh/loopback-ports.js';
 import { DshHostClient } from '../dsh/web-host.js';
 import { defaultConfig } from '../domain/config.js';
+import { MONITOR_ONLY_TOOL_NAMES } from '../domain/types.js';
 import type {
   GoalSnapshot,
   SessionSnapshot,
@@ -373,7 +374,7 @@ export class WatchdogController {
           session.codexAdapter.configurePolicy(this.currentConfig.tools.codex);
         }
         session.engine.observeSession(id, timestamp, {
-          enabled: this.currentConfig.enabled && this.currentConfig.tools[group.tool].enabled,
+          enabled: this.currentConfig.enabled && (this.currentConfig.tools[group.tool]?.enabled ?? true),
           paused: session.userPaused,
           alive: true,
         });
@@ -420,7 +421,7 @@ export class WatchdogController {
       }
 
       for (const session of this.sessions.values()) {
-        if (isObservedTool(session.group.tool)) continue;
+        if (isMonitoringTool(session.group.tool)) continue;
         const intents = session.engine.tick(timestamp);
         await this.auditDecision(session, timestamp);
         for (const intent of intents) await this.injectAutomatic(session, intent.issuedAtMs);
@@ -440,6 +441,7 @@ export class WatchdogController {
   public async output(sessionId: string): Promise<SessionOutput | null> {
     const session = this.sessions.get(sessionId);
     if (session === undefined) return null;
+    if (isProcessOnlyTool(session.group.tool)) return unavailableSessionOutput(sessionId, 'transcript-format-unsupported');
     if (session.observedSession !== null) return readObservedSessionOutput(sessionId, session.observedSession);
     if (session.group.tool === 'claude' && session.claudeFile !== null) {
       return readSessionOutput(sessionId, 'claude-jsonl', session.claudeFile.path);
@@ -471,7 +473,7 @@ export class WatchdogController {
     for (const session of this.sessions.values()) {
       session.engine.setEnabled(
         session.id,
-        config.enabled && config.tools[session.group.tool].enabled,
+        config.enabled && (config.tools[session.group.tool]?.enabled ?? true),
       );
       if (session.group.tool === 'claude') {
         session.claudeLeaseSessionId = null;
@@ -997,7 +999,7 @@ export class WatchdogController {
     session.engine = this.createEngine(config);
     session.engineKey = key;
     session.engine.observeSession(session.id, previous?.lastActivityAt ?? timestamp, {
-      enabled: config.enabled && config.tools[session.group.tool].enabled,
+      enabled: config.enabled && (config.tools[session.group.tool]?.enabled ?? true),
       paused: session.userPaused,
       alive: session.alive,
     });
@@ -1214,6 +1216,11 @@ export class WatchdogController {
     claudeFiles: readonly ClaudeSessionFile[],
     timestamp: number,
   ): Promise<void> {
+    if (isProcessOnlyTool(session.group.tool)) {
+      session.transportKind = 'monitor-only';
+      session.transportError = 'Live process detected; transcript and input adapters are not available for this agent';
+      return;
+    }
     if (isObservedTool(session.group.tool)) {
       const observed = this.observedSessions.get(session.id) ?? null;
       session.observedSession = observed;
@@ -1309,6 +1316,7 @@ export class WatchdogController {
   }
 
   private async updateActivity(session: RuntimeSession, timestamp: number): Promise<void> {
+    if (isProcessOnlyTool(session.group.tool)) return;
     if (isObservedTool(session.group.tool)) {
       const activity = session.observedSession?.lastActivityAtMs ?? null;
       if (activity !== null && session.observedActivityAtMs !== null && activity > session.observedActivityAtMs) {
@@ -1408,7 +1416,7 @@ export class WatchdogController {
   }
 
   private async injectAutomatic(session: RuntimeSession, timestamp: number): Promise<void> {
-    if (isObservedTool(session.group.tool)) {
+    if (isMonitoringTool(session.group.tool)) {
       session.engine.recordTransportError(session.id, timestamp);
       await this.record(session, 'skip', { reason: 'monitor-only-tool' });
       return;
@@ -1612,8 +1620,8 @@ export class WatchdogController {
 
   private toView(session: RuntimeSession): RuntimeSessionView {
     const state = session.engine.getState(session.id);
-    const enabled = isObservedTool(session.group.tool) ? this.currentConfig.tools[session.group.tool].enabled : state?.enabled ?? false;
-    const lastActivityAtMs = isObservedTool(session.group.tool) ? session.observedSession?.lastActivityAtMs ?? null : state?.lastActivityAt ?? null;
+    const enabled = isMonitoringTool(session.group.tool) ? this.currentConfig.tools[session.group.tool]?.enabled ?? true : state?.enabled ?? false;
+    const lastActivityAtMs = isMonitoringTool(session.group.tool) ? session.observedSession?.lastActivityAtMs ?? null : state?.lastActivityAt ?? null;
     return Object.freeze({
       id: session.id,
       tool: session.group.tool as ToolName,
@@ -1629,8 +1637,8 @@ export class WatchdogController {
       lastActivityAtMs,
       quietForMs: lastActivityAtMs === null ? null : Math.max(0, this.now() - lastActivityAtMs),
       pendingPrompt: session.pendingPrompt,
-      lastDecision: isObservedTool(session.group.tool)
-        ? !session.alive ? 'process-exited' : state?.paused ? 'paused' : !enabled ? 'disabled' : session.observedSession ? 'monitoring' : 'association-required'
+      lastDecision: isMonitoringTool(session.group.tool)
+        ? !session.alive ? 'process-exited' : state?.paused ? 'paused' : !enabled ? 'disabled' : session.observedSession || isProcessOnlyTool(session.group.tool) ? 'monitoring' : 'association-required'
         : state?.lastDecision ?? 'new',
       platform: session.group.distribution ? 'linux' : this.platform,
       conversationTitle: session.conversationTitle,
@@ -1701,6 +1709,14 @@ interface WriteResultLike {
 
 function isObservedTool(tool: string): tool is 'gemini' | 'antigravity' | 'cursor' {
   return tool === 'gemini' || tool === 'antigravity' || tool === 'cursor';
+}
+
+function isProcessOnlyTool(tool: string): boolean {
+  return (MONITOR_ONLY_TOOL_NAMES as readonly string[]).includes(tool);
+}
+
+function isMonitoringTool(tool: string): boolean {
+  return isObservedTool(tool) || isProcessOnlyTool(tool);
 }
 
 function engineKey(config: WatchdogConfig): string {
