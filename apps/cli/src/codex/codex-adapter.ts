@@ -58,7 +58,7 @@ const TERMINAL_STATUSES = new Set(['complete', 'blocked', 'usage_limited', 'budg
 
 /** Coordinates process/thread association, goal policy, and optional App Server injection. */
 export class CodexAdapter {
-  private readonly reader: CodexStateReader;
+  private reader: CodexStateReader;
   private readonly ownsReader: boolean;
   private normalPrompt: string;
   private goalPrompt: string;
@@ -85,6 +85,19 @@ export class CodexAdapter {
     this.normalPrompt = requirePrompt(policy.normalPrompt, 'normalPrompt');
     this.goalPrompt = requirePrompt(policy.goalPrompt, 'goalPrompt');
     this.goalStatuses = Object.freeze([...policy.goalStatuses]);
+  }
+
+  /** Replace an owned state snapshot while keeping prompt policy and the App Server connection. */
+  public refreshState(statePath: string, goalPath?: string): void {
+    if (!this.ownsReader) {
+      throw new TypeError('CodexAdapter cannot refresh an injected stateReader');
+    }
+    const nextReader = openCodexState(statePath, {
+      ...(goalPath === undefined ? {} : { goalPath }),
+    });
+    const previousReader = this.reader;
+    this.reader = nextReader;
+    previousReader.close();
   }
 
   public get hasConnectedAppServer(): boolean {

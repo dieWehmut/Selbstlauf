@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -32,6 +32,8 @@ export interface WslStateSnapshot {
 }
 
 const SIDECARS = ['', '-wal', '-shm'] as const;
+const STATE_DATABASE_PATTERN = /^state(?:_\d+)?\.sqlite$/iu;
+const GOAL_DATABASE_PATTERN = /^goals?(?:_\d+)?\.sqlite$/iu;
 
 /**
  * Copy a database and its sidecars.
@@ -54,6 +56,47 @@ function newest(names: readonly string[], pattern: RegExp): string | null {
 }
 
 /**
+ * A cheap revision for the database files a WSL snapshot will read.
+ *
+ * Main database and WAL changes can introduce threads, move their working directory, or update goals.
+ * The shared-memory index is deliberately excluded: merely opening a WAL database for reading can update
+ * it, which would otherwise cause a refresh on every poll. Access times and directory metadata are also
+ * excluded so listing or copying this state does not change its revision.
+ *
+ * Returns null when the state database is absent or its metadata cannot be read. No SQLite connection is
+ * opened against the source home, including when it is a WSL UNC path.
+ */
+export function codexStateRevision(codexHomeDirectory: string): string | null {
+  try {
+    const entries = readdirSync(codexHomeDirectory);
+    const state = stateDatabaseName(entries);
+    if (state === null) return null;
+    const goal = newest(entries, GOAL_DATABASE_PATTERN);
+    const databases = goal === null || goal === state ? [state] : [state, goal];
+    const revision: readonly (string | null)[][] = databases.map((name) => {
+      const files: (string | null)[] = [name];
+      for (const suffix of ['', '-wal']) {
+        const metadata = statSync(join(codexHomeDirectory, `${name}${suffix}`), {
+          bigint: true,
+          throwIfNoEntry: false,
+        });
+        if (metadata === undefined) {
+          if (suffix === '') throw new Error('Codex state database disappeared');
+          files.push(null);
+        } else {
+          if (!metadata.isFile()) throw new Error('Codex state database is not a file');
+          files.push(metadata.size.toString(), metadata.mtimeNs.toString());
+        }
+      }
+      return files;
+    });
+    return JSON.stringify(revision);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Copy the Codex state databases out of a distribution and return the local paths.
  *
  * Returns null when the home cannot be listed or holds no state database, which is an ordinary state: a
@@ -67,9 +110,9 @@ export function snapshotWslCodexState(options: WslStateSnapshotOptions): WslStat
     return null;
   }
 
-  const state = newest(entries, /^state(?:_\d+)?\.sqlite$/iu);
+  const state = stateDatabaseName(entries);
   if (state === null) return null;
-  const goal = newest(entries, /^goals?(?:_\d+)?\.sqlite$/iu);
+  const goal = newest(entries, GOAL_DATABASE_PATTERN);
 
   const directory = options.targetDirectory ?? mkdtempSync(join(tmpdir(), 'selbstlauf-wsl-codex-'));
   mkdirSync(directory, { recursive: true });
@@ -101,5 +144,5 @@ export function snapshotWslCodexState(options: WslStateSnapshotOptions): WslStat
 
 /** A path a `threads`-bearing database can be read from, for callers that need the state file alone. */
 export function stateDatabaseName(entries: readonly string[]): string | null {
-  return newest(entries, /^state(?:_\d+)?\.sqlite$/iu);
+  return newest(entries, STATE_DATABASE_PATTERN);
 }
