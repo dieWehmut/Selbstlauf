@@ -2,6 +2,8 @@ import { stat } from 'node:fs/promises';
 import { resolve, sep, posix } from 'node:path';
 
 export interface CodexProcessContext {
+  /** A thread whose live writer ownership has been verified independently of process cwd. */
+  readonly threadId?: string;
   readonly commandLine: string;
   readonly arguments?: readonly string[];
   readonly cwd: string | null;
@@ -82,7 +84,7 @@ export function associateCodexThread(
   options: { readonly activityFactory?: (thread: CodexThreadRecord) => RolloutActivity } = {},
 ): ThreadAssociationResult {
   const activityFactory = options.activityFactory ?? ((thread) => createRolloutActivity(thread.rolloutPath, thread.status));
-  const resumeId = extractResumeThreadId(process.commandLine, process.arguments);
+  const resumeId = process.threadId ?? extractResumeThreadId(process.commandLine, process.arguments);
   if (resumeId !== null) {
     const explicit = threads.filter((thread) => thread.id.toLowerCase() === resumeId);
     if (explicit.length === 1) {

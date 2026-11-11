@@ -8,7 +8,8 @@ import { join } from 'node:path';
 
 import { CodexAdapter, type CodexContinuationContext } from '../codex/codex-adapter.js';
 import { AppServerClient } from '../codex/app-server.js';
-import { snapshotWslCodexState } from '../codex/wsl-state.js';
+import { codexStateRevision, snapshotWslCodexState } from '../codex/wsl-state.js';
+import { buildCodexThreadOwnersProbe, parseCodexThreadOwnersProbe, readCodexThreadOwners, type CodexThreadOwner } from '../codex/live-thread-owners.js';
 import { ClaudeLeaseStore } from '../claude/lease-store.js';
 import {
   associateClaudeSession,
@@ -83,6 +84,10 @@ export interface WatchdogControllerOptions {
   readonly wslFilesystem?: (distribution: string) => Promise<WslProcFilesystemResult>;
   /** Copies distribution state to a local working directory; overridable for tests. */
   readonly wslStateSnapshot?: typeof snapshotWslCodexState;
+  /** Current source revision, independent of the SQLite working copy. */
+  readonly wslStateRevision?: (codexHomeDirectory: string) => string | null;
+  /** Read active kernel writer ownership; stale lock files are never sessions. */
+  readonly codexThreadOwnerReader?: (homeDirectory: string, distribution?: string) => Promise<readonly CodexThreadOwner[]>;
   readonly claudeProjectsDirectory?: string;
   readonly dshHomeDirectory?: string;
   readonly codexStatePath?: string;
@@ -208,6 +213,10 @@ export class WatchdogController {
   private wslShellUnavailable = false;
   private wslCommandRetryAtMs = 0;
   private readonly wslStateSnapshot: typeof snapshotWslCodexState;
+  private readonly wslStateRevision: (codexHomeDirectory: string) => string | null;
+  private readonly codexThreadOwnerReader: (homeDirectory: string, distribution?: string) => Promise<readonly CodexThreadOwner[]>;
+  private wslCodexRevision: string | null = null;
+  private readonly retiredWslStateDirectories = new Set<string>();
   /** The last WSL discovery failure, so a persistent one is not written to the audit log every poll. */
   private lastWslError: string | null = null;
   /** The distribution owning the cached home, database copy, and CLI launcher. Null means WSL is disabled. */
@@ -272,6 +281,14 @@ export class WatchdogController {
     this.wslProbeTimeoutMs = options.wslProbeTimeoutMs ?? 5_000;
     this.wslFilesystem = options.wslFilesystem;
     this.wslStateSnapshot = options.wslStateSnapshot ?? snapshotWslCodexState;
+    this.wslStateRevision = options.wslStateRevision ?? codexStateRevision;
+    this.codexThreadOwnerReader = options.codexThreadOwnerReader ?? (async (home, distribution) => {
+      if (distribution) {
+        if (this.wslShellUnavailable) return [];
+        return parseCodexThreadOwnersProbe(await this.readWslProbe(distribution, buildCodexThreadOwnersProbe(home)));
+      }
+      return process.platform === 'linux' ? readCodexThreadOwners(home) : [];
+    });
     this.claudeProjectsDirectory = options.claudeProjectsDirectory ?? DEFAULT_CLAUDE_PROJECTS;
     this.dshHomeDirectory = options.dshHomeDirectory ?? defaultDshHome();
     this.codexStatePath = options.codexStatePath;
@@ -341,7 +358,9 @@ export class WatchdogController {
       const timestamp = this.now();
       const processGroups = await this.discover();
       if (this.stopping) return;
-      const groups = await this.expandObservedSessions(await this.expandDshSessions(processGroups, timestamp), timestamp);
+      if (processGroups.some(group => group.tool === 'codex' && group.distribution)) await this.refreshWslCodexState();
+      const codexGroups = await this.expandCodexSessions(processGroups);
+      const groups = await this.expandObservedSessions(await this.expandDshSessions(codexGroups, timestamp), timestamp);
       if (this.stopping) return;
       const claudeFiles = groups.some((group) => group.tool === 'claude')
         ? await this.scanClaudeFiles()
@@ -800,6 +819,41 @@ export class WatchdogController {
     return result;
   }
 
+  /** A shared daemon owns threads, not one conversation in its launch directory. */
+  private async expandCodexSessions(groups: readonly DiscoveredProcessSession[]): Promise<readonly DiscoveredProcessSession[]> {
+    const result = groups.filter(group => group.tool !== 'codex');
+    const namespaces = new Map<string, DiscoveredProcessSession[]>();
+    for (const group of groups) {
+      if (group.tool !== 'codex') continue;
+      const namespace = group.distribution ?? '';
+      const entries = namespaces.get(namespace) ?? [];
+      entries.push(group); namespaces.set(namespace, entries);
+    }
+    for (const [distribution, namespace] of namespaces) {
+      let owners: readonly CodexThreadOwner[] = [];
+      try {
+        if (namespace.some(isCodexAppServer)) {
+          const home = distribution ? this.wslHomeDirectory ?? await this.resolveWslHome(distribution) : homedir();
+          if (home) {
+            if (distribution) this.wslHomeDirectory = home;
+            owners = await this.codexThreadOwnerReader(home, distribution || undefined);
+          }
+        }
+      } catch {
+        // An unavailable ownership source provides no evidence for historical threads.
+      }
+      for (const group of namespace) {
+        const pids = new Set([group.rootPid, ...group.childPids]);
+        const ids = [...new Set(owners.filter(owner => pids.has(owner.pid)).map(owner => owner.threadId))];
+        if (ids.length === 0) { result.push(group); continue; }
+        for (const threadId of ids) result.push({
+          ...group, threadId, logicalId: `${sessionIdFor(group)}:thread:${threadId}`,
+        });
+      }
+    }
+    return result;
+  }
+
   /**
    * The DeepSeek Harness `web` host serves every workspace from one process, so
    * a host PID is not an agent. Each materialized session that is still live
@@ -1025,6 +1079,11 @@ export class WatchdogController {
     this.wslCodexPaths = null;
     this.wslHomeDirectory = undefined;
     this.wslStateDirectory = null;
+    for (const directory of this.retiredWslStateDirectories) {
+      try { rmSync(directory, { recursive: true, force: true }); } catch { /* Best-effort owned-copy cleanup. */ }
+    }
+    this.retiredWslStateDirectories.clear();
+    this.wslCodexRevision = null;
     this.wslCodexLaunch = null;
     this.wslStateError = null;
     this.lastWslError = null;
@@ -1057,15 +1116,50 @@ export class WatchdogController {
     // `/home/han` -> `\\wsl.localhost\Ubuntu-22.04\home\han\.codex`
     const uncCodexHome = `\\\\wsl.localhost\\${distribution}${join(home, '.codex').replaceAll('/', '\\')}`;
     try {
+      const revision = this.wslStateRevision(uncCodexHome);
       const snapshot = this.wslStateSnapshot({ uncCodexHome });
       if (snapshot === null) return null;
       this.wslStateDirectory = snapshot.directory;
+      this.wslCodexRevision = revision;
       const paths: CodexPaths = { statePath: snapshot.statePath, goalPath: snapshot.goalPath };
       this.wslCodexPaths = paths;
       return paths;
     } catch (error) {
       this.wslStateError = `could not read the Codex state inside ${distribution}: ${errorMessage(error)}`;
       return null;
+    }
+  }
+
+  /** Refresh changed WSL databases before association without replacing the input transport. */
+  private async refreshWslCodexState(): Promise<void> {
+    const distribution = this.wslCacheDistribution;
+    if (!distribution || !this.wslHomeDirectory || !this.wslCodexPaths) return;
+    const home = `\\\\wsl.localhost\\${distribution}${join(this.wslHomeDirectory, '.codex').replaceAll('/', '\\')}`;
+    const revision = this.wslStateRevision(home);
+    if (revision === null || revision === this.wslCodexRevision) return;
+    let snapshot;
+    try { snapshot = this.wslStateSnapshot({ uncCodexHome: home }); }
+    catch (error) {
+      await this.auditGlobal('transport-error', { reason: `codex-state-refresh: ${errorMessage(error)}` });
+      return;
+    }
+    if (snapshot === null) return;
+    const oldDirectory = this.wslStateDirectory;
+    try {
+      for (const session of this.sessions.values()) {
+        if (session.group.distribution === distribution) session.codexAdapter?.refreshState(snapshot.statePath, snapshot.goalPath);
+      }
+      this.wslCodexPaths = { statePath: snapshot.statePath, goalPath: snapshot.goalPath };
+      this.wslStateDirectory = snapshot.directory;
+      this.wslCodexRevision = revision;
+      if (oldDirectory) {
+        try { rmSync(oldDirectory, { recursive: true, force: true }); }
+        catch { this.retiredWslStateDirectories.add(oldDirectory); }
+      }
+    } catch (error) {
+      // A partially refreshed reader can still own this copy; release it on shutdown.
+      this.retiredWslStateDirectories.add(snapshot.directory);
+      await this.auditGlobal('transport-error', { reason: `codex-state-refresh: ${errorMessage(error)}` });
     }
   }
 
@@ -1605,7 +1699,8 @@ export class WatchdogController {
     return {
       commandLine: session.group.commandLine ?? '',
       ...(session.group.arguments === undefined ? {} : { arguments: session.group.arguments }),
-      cwd: session.group.workingDirectory ?? null,
+      cwd: isCodexAppServer(session.group) && !session.group.threadId ? null : session.group.workingDirectory ?? null,
+      ...(session.group.threadId === undefined ? {} : { threadId: session.group.threadId }),
       creationTimeMs: session.group.creationTimeMs ?? timestamp,
     };
   }
@@ -1737,6 +1832,10 @@ function sessionIdFor(group: DiscoveredProcessSession): string {
     return `wsl:${group.distribution}:${group.tool}:${group.rootPid}`;
   }
   return `${group.tool}:${group.rootPid}`;
+}
+
+function isCodexAppServer(group: DiscoveredProcessSession): boolean {
+  return group.codexAppServer === true;
 }
 
 /**
