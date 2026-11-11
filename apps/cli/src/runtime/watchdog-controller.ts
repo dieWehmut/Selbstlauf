@@ -217,6 +217,7 @@ export class WatchdogController {
   private readonly codexThreadOwnerReader: (homeDirectory: string, distribution?: string) => Promise<readonly CodexThreadOwner[]>;
   private wslCodexRevision: string | null = null;
   private readonly retiredWslStateDirectories = new Set<string>();
+  private readonly verifiedCodexOwners = new Map<string, { group: DiscoveredProcessSession; threadIds: readonly string[] }>();
   /** The last WSL discovery failure, so a persistent one is not written to the audit log every poll. */
   private lastWslError: string | null = null;
   /** The distribution owning the cached home, database copy, and CLI launcher. Null means WSL is disabled. */
@@ -284,7 +285,7 @@ export class WatchdogController {
     this.wslStateRevision = options.wslStateRevision ?? codexStateRevision;
     this.codexThreadOwnerReader = options.codexThreadOwnerReader ?? (async (home, distribution) => {
       if (distribution) {
-        if (this.wslShellUnavailable) return [];
+        if (this.wslShellUnavailable) throw new Error('WSL thread discovery is temporarily unavailable');
         return parseCodexThreadOwnersProbe(await this.readWslProbe(distribution, buildCodexThreadOwnersProbe(home)));
       }
       return process.platform === 'linux' ? readCodexThreadOwners(home) : [];
@@ -322,6 +323,7 @@ export class WatchdogController {
     await this.claudeLeaseStore?.clearAll();
     for (const session of this.sessions.values()) session.codexAdapter?.close();
     this.sessions.clear();
+    this.verifiedCodexOwners.clear();
     this.clearWslRuntime();
   }
 
@@ -831,6 +833,7 @@ export class WatchdogController {
     }
     for (const [distribution, namespace] of namespaces) {
       let owners: readonly CodexThreadOwner[] = [];
+      let ownershipUnavailable = false;
       try {
         if (namespace.some(isCodexAppServer)) {
           const home = distribution ? this.wslHomeDirectory ?? await this.resolveWslHome(distribution) : homedir();
@@ -840,14 +843,23 @@ export class WatchdogController {
           }
         }
       } catch {
-        // An unavailable ownership source provides no evidence for historical threads.
+        ownershipUnavailable = true;
       }
       for (const group of namespace) {
         const pids = new Set([group.rootPid, ...group.childPids]);
-        const ids = [...new Set(owners.filter(owner => pids.has(owner.pid)).map(owner => owner.threadId))];
+        const key = sessionIdFor(group);
+        const previous = this.verifiedCodexOwners.get(key);
+        const ids = ownershipUnavailable && previous && !processIdentityChanged(previous.group, group)
+          ? previous.threadIds
+          : [...new Set(owners.filter(owner => pids.has(owner.pid)).map(owner => owner.threadId))];
+        if (!ownershipUnavailable) {
+          if (ids.length) this.verifiedCodexOwners.set(key, { group, threadIds: ids });
+          else this.verifiedCodexOwners.delete(key);
+        }
         if (ids.length === 0) { result.push(group); continue; }
         for (const threadId of ids) result.push({
           ...group, threadId, logicalId: `${sessionIdFor(group)}:thread:${threadId}`,
+          ...(ownershipUnavailable ? { codexThreadOwnershipPending: true } : {}),
         });
       }
     }
@@ -1062,6 +1074,9 @@ export class WatchdogController {
 
   /** Release readers before removing the state copy they own; native sessions stay intact. */
   private clearWslRuntime(): void {
+    for (const [key, value] of this.verifiedCodexOwners) {
+      if (value.group.distribution !== undefined) this.verifiedCodexOwners.delete(key);
+    }
     for (const [id, session] of this.sessions) {
       if (session.group.distribution === undefined) continue;
       session.codexAdapter?.close();
@@ -1393,9 +1408,12 @@ export class WatchdogController {
         : status === 'idle' || status === 'completed' || status === 'inactive' ? false : session.runningTurn;
       session.conversationId = association.thread.id;
       session.goal = session.codexAdapter.getGoal(context);
-      const inputAvailable = !session.group.distribution || !this.wslShellUnavailable || session.codexAdapter.hasConnectedAppServer;
+      const inputAvailable = !session.group.codexThreadOwnershipPending && (!session.group.distribution || !this.wslShellUnavailable || session.codexAdapter.hasConnectedAppServer);
       session.transportKind = inputAvailable ? 'codex-app-server' : 'monitor-only';
-      session.transportError = inputAvailable ? undefined : 'WSL command channel is unavailable; no connected Codex input transport exists';
+      session.transportError = inputAvailable ? undefined : session.group.codexThreadOwnershipPending
+        ? '会话检测暂不可用，显示上次确认的项目。'
+        : 'WSL command channel is unavailable; no connected Codex input transport exists';
+      if (session.group.codexThreadOwnershipPending) session.runningTurn = undefined;
     } else {
       session.codexActivity = null;
       session.codexRolloutPath = null;
@@ -1410,6 +1428,7 @@ export class WatchdogController {
   }
 
   private async updateActivity(session: RuntimeSession, timestamp: number): Promise<void> {
+    if (session.group.codexThreadOwnershipPending) return;
     if (isProcessOnlyTool(session.group.tool)) return;
     if (isObservedTool(session.group.tool)) {
       const activity = session.observedSession?.lastActivityAtMs ?? null;
@@ -1578,6 +1597,9 @@ export class WatchdogController {
     prompt: string,
     explicitPrompt = false,
   ): Promise<WriteResultLike> {
+    if (session.group.codexThreadOwnershipPending) {
+      return { ok: false, error: '暂时无法确认此会话，检测恢复后再试。' };
+    }
     if (session.group.tool === 'codex') {
       if (session.group.distribution && this.wslShellUnavailable && !session.codexAdapter?.hasConnectedAppServer) {
         return { ok: false, error: 'WSL command channel is unavailable; no connected Codex input transport exists' };

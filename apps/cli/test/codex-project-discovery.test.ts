@@ -117,3 +117,38 @@ test('WSL projects refresh while the desktop stays running and an unchanged sour
     noInput();
   } finally { await controller.stop(); await rm(f.root, { recursive: true, force: true }); }
 });
+
+test('an unavailable owner scan preserves verified projects without permitting input, then a successful empty scan retires them', async t => {
+  const noInput = forbidModelInput(t);
+  const f = await fixture();
+  let unavailable = false;
+  let released = false;
+  const controller = new WatchdogController({
+    ...f, platform: 'win32', currentProcessId: 50, codexStatePath: f.statePath,
+    provider: { listProcesses: async () => [
+      { pid: 50, parentPid: 1, name: 'Selbstlauf.exe', commandLine: null, executablePath: null, creationTimeMs: 1000, userSid: 'user' },
+      { pid: 100, parentPid: 1, name: 'codex.exe', commandLine: 'codex.exe app-server', arguments: ['codex.exe', 'app-server'], executablePath: null, creationTimeMs: 1000, userSid: 'user', workingDirectory: '/work' },
+    ] }, codexThreadOwnerReader: async () => {
+      if (unavailable) throw new Error('temporary WSL probe failure');
+      return released ? [] : [{ pid: 100, threadId: SELF }];
+    },
+  });
+  try {
+    await controller.poll();
+    const first = (await controller.list()).find(row => row.conversationId === SELF)!;
+    assert.ok(first?.alive);
+    unavailable = true;
+    await controller.poll();
+    const pending = (await controller.list()).find(row => row.id === first.id)!;
+    assert.equal(pending.alive, true, 'a failed read cannot establish that the thread exited');
+    assert.equal(pending.sessionCwd, '/work/Selbstlauf');
+    assert.equal(pending.transport, 'monitor-only');
+    assert.ok(pending.transportError);
+    assert.equal((await controller.inject(first.id, 'must not be sent', false)).ok, false);
+    unavailable = false;
+    released = true;
+    await controller.poll();
+    assert.equal((await controller.list()).find(row => row.id === first.id)?.alive, false);
+    noInput();
+  } finally { await controller.stop(); await rm(f.root, { recursive: true, force: true }); }
+});

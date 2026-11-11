@@ -52,6 +52,8 @@ export interface DiscoveredProcessSession {
   readonly threadId?: string;
   /** A real App Server subcommand on this process or a folded Codex child. */
   readonly codexAppServer?: boolean;
+  /** Current process is verified, but its last known thread ownership could not be refreshed. */
+  readonly codexThreadOwnershipPending?: boolean;
   /** Separate a standalone CLI session from the editor/desktop app hosting it. */
   readonly processKind?: 'cli' | 'desktop';
   /**
