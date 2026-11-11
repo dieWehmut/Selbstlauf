@@ -1,0 +1,399 @@
+{
+  "recordedAtUtc": "2026-11-11T12:20:35.554880+00:00",
+  "productHead": "f85ce747ac68c960c2fdbe9e5e7f2b7e9ab00057",
+  "scope": "AgentRouter catalog, official icons, installation controls, process identity, actual local Windows installation and Android Studio/emulator verification",
+  "passed": true,
+  "coverage": {
+    "agentRouterGuides": 17,
+    "agentRouterProducts": 16,
+    "additionalHomepageCli": "gemini",
+    "catalogEntries": 24,
+    "cliEntries": 13,
+    "npmInstallationEntries": 12,
+    "manualInstallationCli": "hermes",
+    "brandedEntries": 22,
+    "publisherIconFiles": 21,
+    "productGraphics": 20,
+    "allPublisherIconHashesMatch": true,
+    "workbuddyEditions": [
+      {
+        "id": "workbuddy",
+        "label": "WorkBuddy 国内版",
+        "kind": "desktop",
+        "installationUrl": "https://www.workbuddy.cn/",
+        "documentationUrl": "https://www.workbuddy.cn/docs/workbuddy/",
+        "cliLaunchable": false
+      },
+      {
+        "id": "workbuddy-intl",
+        "label": "WorkBuddy 国际版",
+        "kind": "desktop",
+        "installationUrl": "https://www.workbuddy.ai/",
+        "documentationUrl": "https://www.workbuddy.ai/docs/workbuddy/",
+        "cliLaunchable": false
+      }
+    ]
+  },
+  "localTests": {
+    "cli": {
+      "total": 467,
+      "passed": 453,
+      "skipped": 14,
+      "failed": 0,
+      "exitCode": 0,
+      "regressionSubtestsObserved": 9
+    },
+    "desktop": {
+      "total": 171,
+      "passed": 171,
+      "skipped": 0,
+      "failed": 0,
+      "exitCode": 0
+    },
+    "mobile": {
+      "total": 31,
+      "passed": 31,
+      "skipped": 0,
+      "failed": 0,
+      "exitCode": 0
+    }
+  },
+  "sourceIdentity": {
+    "cliModifiedSourceDistFilesMatched": 6,
+    "desktopSourceDistFilesMatched": 31,
+    "registrySourceDistFilesMatched": 3,
+    "allCompiledFilesUnchangedAtFinalCapture": true
+  },
+  "ci": {
+    "runId": 42997956985,
+    "url": "https://github.com/dieWehmut/Selbstlauf/actions/runs/42997956985",
+    "actualHead": "8e65d4fb4dc2e9bfbd875d1a7d8500db0922f351",
+    "status": "completed",
+    "conclusion": "success",
+    "browserPassed": 106,
+    "pagesPassed": 4,
+    "selectedUiAndSharedGitObjectsMatchProductHead": true,
+    "ranAtProductHead": false,
+    "deploymentUrl": "https://diewehmut.github.io/Selbstlauf/"
+  },
+  "windows": {
+    "version": "0.9.5",
+    "architecture": "x64",
+    "installationDirectory": "C:\\Users\\han\\AppData\\Local\\Programs\\Selbstlauf",
+    "artifacts": {
+      "frozenManifest": {
+        "bytes": 38442,
+        "sha256": "f7ea0216a158b7ae946fda0a3e9041031adc653247169fda7cd4fcd2a14f0e01"
+      },
+      "installer": {
+        "bytes": 172573168,
+        "sha256": "ab019be56b15e7b42d1b93a898fccb436a745112505a8b8614419bd6cc3cd022"
+      },
+      "asar": {
+        "bytes": 541508,
+        "sha256": "7e146479cc2bbe492f85e34a52567ebc5238898dc30f19e4695eb36c8cda3dd2"
+      }
+    },
+    "counts": {
+      "frozenStageInputsChecked": 218,
+      "frozenSourceInputsChecked": 218,
+      "frozenResourceFilesChecked": 178,
+      "directResourcesPlusAsarCount": 179,
+      "desktopAsarFrozenInputsChecked": 16,
+      "allInstalledPackagedFilesChecked": 430,
+      "resourcesTreeFilesIncluded": 359,
+      "missing": 0,
+      "different": 0,
+      "unexpectedExtras": 0
+    },
+    "configurationUnchanged": true,
+    "configurationSha256": "b9423f6297145f859cba41845d80ae20d25208524b286f378a358082af46229c",
+    "nativeApiCatalogCount": 24,
+    "nativeApiCliCount": 13,
+    "officialBrandIconsDecodedAndHashVerified": 22,
+    "workbuddyEditionsLinksVerified": true,
+    "desktopPtyButtonsAbsent": true,
+    "readOnlyBrowserErrors": {
+      "pageErrors": [],
+      "consoleErrors": [],
+      "resourceFailures": [],
+      "mutationRequests": []
+    },
+    "continuousRuntime": {
+      "capturedAtUtc": "2026-11-11T11:11:21.2858624Z",
+      "phase": "after",
+      "processId": 22996,
+      "executable": "C:\\Users\\han\\AppData\\Local\\Programs\\Selbstlauf\\Selbstlauf.exe",
+      "processStartUtc": "2026-11-11T11:00:26.3922739Z",
+      "mainWindowHandle": 1050392,
+      "health": {
+        "ok": true,
+        "running": true,
+        "watchdogRunning": true,
+        "dryRun": false,
+        "loopbackOnly": true,
+        "startedAtMs": 1794394842095,
+        "lastPollAtMs": 1794395478870,
+        "nowMs": 1794395481242,
+        "url": "http://127.0.0.1:48920"
+      },
+      "configSha256": "b9423f6297145f859cba41845d80ae20d25208524b286f378a358082af46229c",
+      "sameStartedProcess": true,
+      "browserPolls": [
+        1794395220787,
+        1794395223665
+      ],
+      "continuousAcrossBrowserVerification": true
+    },
+    "actualNativeConpty": {
+      "exitCode": 0,
+      "realOutputObserved": true,
+      "ownedSessionRemoved": true,
+      "outputAfterCleanupStatus": 404,
+      "originalSessionIdsPreserved": true
+    },
+    "userAgentProcessesPreserved": true
+  },
+  "android": {
+    "framework": "Vue 3 + Capacitor 8.6.0",
+    "apk": {
+      "sha256": "cf7b8ff92d5ad8980a7beed8d4c953e05743f1d7d2185afe4b2e8341bc0967ed",
+      "installedMatches": true
+    },
+    "studio": {
+      "version": "Rabbit 2 | 2026.2.2 Patch 1",
+      "pid": 7829,
+      "project": "/home/han/project/Selbstlauf/apps/mobile/android",
+      "state": "READY",
+      "run": "IDE Shift-F10 Run app built, deployed and launched the app; not solely CLI"
+    },
+    "device": {
+      "serial": "emulator-5554",
+      "avd": "orchester-qa",
+      "androidRelease": "16",
+      "api": "36",
+      "model": "sdk_gphone64_x86_64",
+      "physicalPhone": false
+    },
+    "tests": {
+      "nativeInstrumentation": 4,
+      "failed": 0,
+      "instrumentationTimeSeconds": 26.755,
+      "realShellPty": true,
+      "sessionBackend": "disposable fixture",
+      "physicalWifiVerified": false,
+      "nativeCatalog": {
+        "tools": 24,
+        "cli": 13,
+        "brands": 22
+      },
+      "nativeIconsDecoded": 22,
+      "nativeIconsMatchApkBytes": 22,
+      "publisherOriginalFilesInApk": 21,
+      "workBuddyDomesticAndInternationalLinks": true,
+      "rotationLandscapeAndPortrait": true
+    },
+    "cleanup": {
+      "ownedGatewaysStopped": true,
+      "ownedFixtureDirectoryEmpty": true,
+      "adbReverse": "",
+      "adbForward": "",
+      "ownedPairingRecordsAndKeystoreTokensRemoved": true,
+      "otherDeviceRecordsPreserved": true,
+      "rotation": {
+        "accelerometerRotation": "1",
+        "userRotation": "0"
+      },
+      "kvmUserAclRemoved": true,
+      "kvmEffectivePermissionsRestored": "root:kvm 0660",
+      "kvmResidualAclMask": false,
+      "kvmExactOriginalAclRestored": true,
+      "exactAclRestorationEvidence": "kvm-exact-restoration.json",
+      "earlierExactAclRestoreInteropTimedOut": true,
+      "rootFollowupRestorationToolExitCode": 0
+    },
+    "leftOpen": {
+      "studio": 7829,
+      "emulator": 106668,
+      "app": "5307",
+      "appState": "unpaired dashboard"
+    },
+    "localDependenciesRetained": [
+      "libpulse0",
+      "libasyncns0",
+      "libogg0",
+      "libflac8",
+      "libopus0",
+      "libvorbis0a",
+      "libvorbisenc2",
+      "libsndfile1"
+    ],
+    "exactKvmRestoration": {
+      "exactOriginalPermissionsRestored": true,
+      "namedUserGrants": false,
+      "aclAttributePresent": false,
+      "mode": "0o660",
+      "owner": "root",
+      "group": "kvm",
+      "removedRedundantMaskAcl": true
+    }
+  },
+  "limits": [
+    "New agent adapters provide process monitoring; unsupported transcripts/activity/input remain explicitly unknown.",
+    "No missing global agent applications were installed and no model requests were sent.",
+    "Android verification used the local emulator with adb reverse; physical-phone Wi-Fi was not tested.",
+    "CI actually ran at 8e65d4f; selected UI/shared Git objects match f85ce74.",
+    "This final evidence pass did not repeat the older 377-test local Web suite.",
+    "Regular Playwright was used because the Browser plugin was unavailable."
+  ],
+  "screenshots": [
+    {
+      "path": "assets/2026-11-11-agentrouter-windows.png",
+      "sourceEvidence": "windows/installed-native-window-final.png",
+      "bytes": 281893,
+      "sha256": "72298fa5a37fb25c4b04be6af116d64e0f53c6cd3b5ab54c7c6bcc59ae4a3710"
+    },
+    {
+      "path": "assets/2026-11-11-agentrouter-workbuddy-intl.png",
+      "sourceEvidence": "windows/installed-live-workbuddy-intl-browser.png",
+      "bytes": 157102,
+      "sha256": "12ab8904b7feb218ceefe2e8ea4ed8562c72f3d9d0ff133789ef7f69b7943b1e"
+    },
+    {
+      "path": "assets/2026-11-11-agentrouter-studio.png",
+      "sourceEvidence": "android/studio-app-running.png",
+      "bytes": 162992,
+      "sha256": "deff8f96d4fe26985d5139e0b979946f7ab1c351b2e1317af36db5fa4288d4a0"
+    },
+    {
+      "path": "assets/2026-11-11-agentrouter-android-workbuddy.png",
+      "sourceEvidence": "android/native-workbuddy-intl.png",
+      "bytes": 188546,
+      "sha256": "25d192c75bb777e6b39dd2ed1876fd0e3fa52504b1983aeaae8aba67a9cdb68f"
+    }
+  ],
+  "rawLocalEvidence": [
+    {
+      "path": "tmp/agentrouter-final-20261111/qa/final-evidence-report.json",
+      "bytes": 14873,
+      "sha256": "e1966200f25ea2f0b44d1ddcdebc98e2ba71e87bf29ff3f6c258b26fb8610fa1"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/qa/cli-full.log",
+      "bytes": 41597,
+      "sha256": "542f7828821ee5ea7a06c9ef6672a502b8227894bfcc44f333fc988dde5d041a"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/qa/desktop-full.log",
+      "bytes": 13701,
+      "sha256": "72573c43c39672928ab2b7f3889c5532e4a45fcdfd75305f53d5f19b8dc4cd28"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/qa/mobile-full.log",
+      "bytes": 484,
+      "sha256": "5ff7f6e89e8a5e71e01051299640b5a1597fbe0f7542a938eeed3cb8437841b7"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/qa/ci/run-42997956985.log",
+      "bytes": 135565,
+      "sha256": "b8579bee8ba0a561af8e7401d3d482fc19d899ef7652f6215ce224df6da76743"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/windows/windows-final-verification-summary.json",
+      "bytes": 8973,
+      "sha256": "a1ada0fc71b04413bd0d845036bd219f9627ca14584986221de30c3dbb68c12b"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/windows/file-verification-summary.json",
+      "bytes": 3011,
+      "sha256": "6f4b4a1a02b7ceb0f596ea93c6c53c10686adc0161b134f0c47dc9115b04fe34"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/windows/installed-native-shell-pty-verification.json",
+      "bytes": 14757,
+      "sha256": "36231aeec65a25754e3190e8a43422a9ec24c5f88a529e49168f3b3463844110"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/android/final-result-after-cleanup.json",
+      "bytes": 2197,
+      "sha256": "9072cd90b1c60dc54fdd4d40139edeaf5c6fef7a6d6a589a25c30289f9ad308b"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/android/native-tests/instrumentation.log",
+      "bytes": 77,
+      "sha256": "1d1887d5c02335744365b1d37fd249bcbf36070ec6cefdfff2beb8ddf68a9ecc"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/android/studio-authoritative-evidence.log",
+      "bytes": 1533,
+      "sha256": "19fc4e6760c7737c433640d6465450008d9e4b31b1a545cf690c914040a50865"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/android/kvm-exact-restoration.json",
+      "bytes": 197,
+      "sha256": "da386991f90a65d97600297e86a911dadf8c2fd641895b858077c4ff1106a0df"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/windows/root-completion-runtime.json",
+      "bytes": 615,
+      "sha256": "d591c6e2dfe3726d07fed3c944068e2d1366ea12a9f8a1852538bea7d46a1b7d"
+    },
+    {
+      "path": "tmp/agentrouter-final-20261111/android/root-completion-runtime.json",
+      "bytes": 709,
+      "sha256": "76db0278510c063629a2507336619a92038d214e7bbcb5b2af72c0054ecd0ede"
+    }
+  ],
+  "completionRuntime": {
+    "windows": {
+      "capturedAtUtc": "2026-11-11T12:21:01.6123245Z",
+      "processId": 22996,
+      "executable": "C:\\Users\\han\\AppData\\Local\\Programs\\Selbstlauf\\Selbstlauf.exe",
+      "processStartUtc": "2026-11-11T11:00:26.3922739Z",
+      "mainWindowHandle": 1050392,
+      "health": {
+        "ok": true,
+        "running": true,
+        "watchdogRunning": true,
+        "dryRun": false,
+        "loopbackOnly": true,
+        "startedAtMs": 1794394842095,
+        "lastPollAtMs": 1794399660406,
+        "nowMs": 1794399661531,
+        "url": "http://127.0.0.1:48920"
+      },
+      "configSha256": "b9423f6297145f859cba41845d80ae20d25208524b286f378a358082af46229c",
+      "okay": true
+    },
+    "android": {
+      "capturedAtUtc": "2026-11-11T12:21:56.874411+00:00",
+      "serial": "emulator-5554",
+      "state": "device",
+      "appPid": "5307",
+      "androidRelease": "16",
+      "api": "36",
+      "adbForward": "emulator-5554 tcp:19327 localabstract:webview_devtools_remote_7354",
+      "adbReverse": "",
+      "accelerometerRotation": "1",
+      "userRotation": "0",
+      "kvm": {
+        "noAccessAcl": true,
+        "mode": "0o660",
+        "uid": 0,
+        "gid": 109
+      },
+      "ownedCdpForwardRemoved": true,
+      "otherApplicationForwardPreserved": true,
+      "studioCheck": {
+        "exitCode": 0,
+        "pid": 7829,
+        "version": "Rabbit 2 | 2026.2.2 Patch 1",
+        "project": "/home/han/project/Selbstlauf/apps/mobile/android",
+        "state": "READY"
+      },
+      "okay": true
+    },
+    "windowsSnapshotToolExitCode": 0,
+    "androidStudioCheckToolExitCode": 0
+  }
+}
