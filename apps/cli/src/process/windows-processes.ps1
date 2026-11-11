@@ -1,6 +1,8 @@
+# Include lists arrive as one JSON string under -File; repeated array parameters
+# cannot bind in Windows PowerShell.
 param(
-    [string[]]$IncludeExecutableName = @(),
-    [int[]]$IncludeProcessId = @(),
+    [string]$IncludeExecutableName = '[]',
+    [string]$IncludeProcessId = '[]',
     # Window-title markers, comma separated in ONE argument.
     #
     # This is `[string]` rather than `[string[]]` on purpose. Under `-File`, arguments arrive as literal
@@ -349,7 +351,7 @@ namespace Selbstlauf.ProcessMetadata {
 '@
 
 $includeNames = @(
-    foreach ($configuredName in $IncludeExecutableName) {
+    foreach ($configuredName in (ConvertFrom-Json -InputObject $IncludeExecutableName)) {
         $normalizedName = ([string]$configuredName).Trim().Trim('"').Replace('/', '\\')
         if ($normalizedName.Length -gt 0) {
             $lastSeparator = $normalizedName.LastIndexOf('\\')
@@ -359,7 +361,7 @@ $includeNames = @(
 )
 
 $includeProcessIds = @(
-    foreach ($configuredId in $IncludeProcessId) {
+    foreach ($configuredId in (ConvertFrom-Json -InputObject $IncludeProcessId)) {
         [int]$configuredId
     }
 )
@@ -374,7 +376,7 @@ $windowTitleMarkers = @(
 # The signature that marks a supported CLI or desktop agent. It is used to keep
 # the record (the node image name alone is far too broad) and to describe why an
 # otherwise unrelated process is being reported.
-$workingDirectoryPattern = '(?i)(?:claude-code|claude\.(?:ps1|cmd|exe)|@openai[\\/]codex|codex\.js|codex\.exe|@deepseek-ai[\\/]dsh|deepseek-harness[\\/]apps[\\/]cli[\\/]lib[\\/]bin\.js|deepseek-harness[\\/]packages[\\/]subprocess|dsh\.(?:cmd|ps1|exe)|@google[\\/]gemini-cli[\\/](?:dist[\\/]index\.js|bundle[\\/]gemini\.js)|gemini\.(?:cmd|ps1|exe)|cursor-agent|cursor\.exe|antigravity\.exe|cursor-agent-host[\\/]dist[\\/]agent-host-daemon[\\/]dist[\\/]bin[\\/]daemon\.(?:js|cjs)|cline[\\/]bin[\\/]\.cline|@kilocode[\\/]cli[\\/]bin[\\/]\.kilo)'
+$workingDirectoryPattern = '(?i)(?:claude-code|claude\.(?:ps1|cmd|exe)|@openai[\\/]codex|codex\.js|codex\.exe|@deepseek-ai[\\/]dsh|deepseek-harness[\\/]apps[\\/]cli[\\/]lib[\\/]bin\.js|deepseek-harness[\\/]packages[\\/]subprocess|dsh\.(?:cmd|ps1|exe)|@google[\\/]gemini-cli[\\/](?:dist[\\/]index\.js|bundle[\\/]gemini\.js)|gemini\.(?:cmd|ps1|exe)|grok\.(?:cmd|ps1|exe)|cursor-agent|cursor\.exe|antigravity\.exe|cursor-agent-host[\\/]dist[\\/]agent-host-daemon[\\/]dist[\\/]bin[\\/]daemon\.(?:js|cjs)|cline[\\/]bin[\\/]\.cline|@kilocode[\\/]cli[\\/]bin[\\/]\.kilo)'
 
 function ConvertTo-NullableString {
     param([AllowNull()][object]$Value)
@@ -531,7 +533,7 @@ $records = @(
             $processName.Trim().ToLowerInvariant()
         }
         $candidate =
-            ($processBaseName -match '^(?:node|bun|python|codex|claude|dsh|gemini|cursor|cursor-agent|antigravity|agent|language_server|opencode|qwen|openclaw|hermes|pi|crush|cline|kilo|kilocode|trae(?: cn)?|zcode|z code|workbuddy|craft-agents|craft agents)(?:[-.]|$)') -or
+            ($processBaseName -match '^(?:node|bun|python|codex|claude|dsh|gemini|grok|cursor|cursor-agent|antigravity|agent|language_server|opencode|qwen|openclaw|hermes|pi|crush|cline|kilo|kilocode|trae(?: cn)?|zcode|z code|workbuddy(?:ai)?|craft-agents|craft agents)(?:[-.]|$)') -or
             ($null -ne $processBaseName -and $includeNames -contains $processBaseName) -or
             ($processCommandLine -match $workingDirectoryPattern) -or
             # The watchdog's own process must always be reported so the caller

@@ -458,7 +458,32 @@ test('WindowsProcessProvider forwards configured executable names to the provide
 
   await provider.listProcesses();
 
-  assert.deepEqual(receivedArgs.slice(-2), ['-IncludeExecutableName', 'team-agent.exe']);
+  assert.deepEqual(receivedArgs.slice(-2), ['-IncludeExecutableName', '["team-agent.exe"]']);
+});
+
+test('WindowsProcessProvider sends each include list once as JSON for PowerShell File binding', async () => {
+  let receivedArgs: readonly string[] = [];
+  const provider = new WindowsProcessProvider({
+    includeExecutableNames: ['team-agent.exe', 'a,b.exe', ' '],
+    includeProcessIds: [123, 456, 0, -1, 1.5],
+    runCommand: async (_executable, args) => { receivedArgs = [...args]; return '[]'; },
+  });
+  await provider.listProcesses();
+  assert.equal(receivedArgs.filter(arg => arg === '-IncludeExecutableName').length, 1);
+  assert.equal(receivedArgs.filter(arg => arg === '-IncludeProcessId').length, 1);
+  assert.deepEqual(JSON.parse(receivedArgs[receivedArgs.indexOf('-IncludeExecutableName') + 1]!), ['team-agent.exe', 'a,b.exe']);
+  assert.deepEqual(JSON.parse(receivedArgs[receivedArgs.indexOf('-IncludeProcessId') + 1]!), [123, 456]);
+});
+
+test('WindowsProcessProvider binds multiple include lists in the native PowerShell script', {
+  skip: process.platform !== 'win32', timeout: 60_000,
+}, async () => {
+  const provider = new WindowsProcessProvider({
+    includeExecutableNames: ['not-an-agent-one.exe', 'not-an-agent-two.exe'],
+    includeProcessIds: [process.pid, 2_147_483_647],
+  });
+  const records = await provider.listProcesses();
+  assert.ok(records.some(record => record.pid === process.pid), 'the live caller must survive native list parameter binding');
 });
 
 test('WindowsProcessProvider forwards the watchdog PID so its owner SID is always reported', async () => {
@@ -474,7 +499,7 @@ test('WindowsProcessProvider forwards the watchdog PID so its owner SID is alway
 
   await provider.listProcesses();
 
-  assert.deepEqual(receivedArgs.slice(-2), ['-IncludeProcessId', '4242']);
+  assert.deepEqual(receivedArgs.slice(-2), ['-IncludeProcessId', '[4242]']);
 });
 
 /**

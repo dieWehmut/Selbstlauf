@@ -17,6 +17,7 @@ function processRecord(commandLine: string, overrides: Partial<RawProcessRecord>
 }
 
 const cliEntries = [
+  ['grok', '/prefix/node_modules/@xai-official/grok/bin/grok'],
   ['opencode', '/prefix/node_modules/opencode-ai/bin/opencode.exe'],
   ['qwen', '/prefix/node_modules/@qwen-code/qwen-code/cli-entry.js'],
   ['openclaw', '/prefix/node_modules/openclaw/openclaw.mjs'],
@@ -26,6 +27,40 @@ const cliEntries = [
   ['cline', '/prefix/node_modules/cline/bin/cline'],
   ['kilo', '/prefix/node_modules/@kilocode/cli/bin/kilo'],
 ] as const;
+
+test('Grok native npm targets and canonical versioned binaries have precise process identities', () => {
+  for (const executablePath of [
+    '/npm/node_modules/@xai-official/grok/bin/grok-native',
+    '/npm/node_modules/@xai-official/grok-linux-x64/bin/grok',
+    '/home/u/.grok/bin/grok-1.0.77',
+    'C:/Users/u/.grok/bin/grok.exe',
+    'C:/Users/u/.grok/bin/grok-1.0.77.exe',
+  ]) {
+    assert.equal(detectProcessTool(processRecord(executablePath, {
+      executablePath, name: executablePath.split('/').at(-1)!,
+    })), 'grok', executablePath);
+  }
+  for (const executablePath of ['/tools/grok-pager', '/tools/grok-native', '/tools/grok-1.0.77-helper',
+    '/npm/node_modules/prefix@xai-official/grok/bin/grok-native']) {
+    assert.equal(detectProcessTool(processRecord(executablePath, { executablePath })), null, executablePath);
+  }
+  assert.equal(detectProcessTool(processRecord('node report.js --prompt "grok grok-native @xai-official/grok/bin/grok"')), null);
+});
+
+test('the observed WorkBuddyAI desktop image identifies the international edition without guessing from argv', () => {
+  const executablePath = 'C:/Users/han/WorkBuddy/WorkBuddyAI/WorkBuddyAI.exe';
+  const native = processRecord(`"${executablePath}"`, { executablePath, name: 'WorkBuddyAI.exe' });
+  assert.equal(detectProcessTool(native), 'workbuddy-intl');
+  const [group] = groupProcesses([native], { sameUserOnly: false });
+  assert.equal(group?.processKind, 'desktop');
+  assert.equal(group?.host?.label, 'WorkBuddy 国际版');
+  assert.equal(detectProcessTool({ ...native, commandLine: `"${executablePath}" --type=utility` }), null);
+  assert.equal(detectProcessTool({ ...native, commandLine: `"${executablePath}" C:/Users/han/WorkBuddy/WorkBuddyAI/resources/app/worker.js` }), null);
+  assert.equal(detectProcessTool(processRecord('node report.js --prompt "WorkBuddyAI.exe"', {
+    executablePath: 'C:/Users/han/WorkBuddy/WorkBuddyAI/node.exe',
+  })), null);
+  assert.equal(detectProcessTool(processRecord('WorkBuddyAI-helper.exe', { executablePath: 'C:/tools/WorkBuddyAI-helper.exe' })), null);
+});
 
 test('AgentRouter CLIs require an executed official entry rather than prompt mentions or lookalike paths', () => {
   for (const [tool, entry] of cliEntries) {
@@ -112,9 +147,15 @@ test('new agents stay process-monitor-only without invented activity or transpor
   let alive = true;
   let probes = 0;
   let scans = 0;
+  const processRecords = [
+    ...cliEntries.map(([, entry], index) => processRecord(`node "${entry}"`, { pid: 10 + index })),
+    processRecord('"C:/Users/u/WorkBuddyAI/WorkBuddyAI.exe"', {
+      pid: 50, name: 'WorkBuddyAI.exe', executablePath: 'C:/Users/u/WorkBuddyAI/WorkBuddyAI.exe',
+    }),
+  ];
   const controller = new WatchdogController({ configStore: config, auditStore: new AuditStore(join(directory, 'audit.jsonl')),
     platform: 'win32', currentProcessId: 99, now: () => clock,
-    provider: { listProcesses: async () => alive ? cliEntries.map(([, entry], index) => processRecord(`node "${entry}"`, { pid: 10 + index })) : [] },
+    provider: { listProcesses: async () => alive ? processRecords : [] },
     transportFactory: () => { probes++; return null; }, monitorScanner: async () => { scans++; return []; },
   });
   t.after(async () => { await controller.stop(); await rm(directory, { recursive: true, force: true }); });
@@ -122,7 +163,7 @@ test('new agents stay process-monitor-only without invented activity or transpor
   clock = 9_000_000;
   await controller.poll();
   const sessions = await controller.list();
-  assert.equal(sessions.length, cliEntries.length);
+  assert.equal(sessions.length, processRecords.length);
   for (const session of sessions) {
     assert.equal(session.transport, 'monitor-only');
     assert.equal(session.lastDecision, 'monitoring');

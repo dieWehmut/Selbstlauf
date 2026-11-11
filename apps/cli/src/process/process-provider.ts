@@ -309,15 +309,15 @@ export class WindowsProcessProvider implements ProcessProvider {
       '-File',
       this.scriptPath,
     ];
-    for (const executableName of this.includeExecutableNames) {
-      if (executableName.trim().length > 0) {
-        args.push('-IncludeExecutableName', executableName);
-      }
+    // -File binds literal strings, so repeating an array parameter fails in
+    // Windows PowerShell. JSON also preserves commas in executable names.
+    const executableNames = this.includeExecutableNames.filter(name => name.trim().length > 0);
+    if (executableNames.length > 0) {
+      args.push('-IncludeExecutableName', JSON.stringify(executableNames));
     }
-    for (const processId of this.includeProcessIds) {
-      if (Number.isSafeInteger(processId) && processId > 0) {
-        args.push('-IncludeProcessId', String(processId));
-      }
+    const processIds = this.includeProcessIds.filter(pid => Number.isSafeInteger(pid) && pid > 0);
+    if (processIds.length > 0) {
+      args.push('-IncludeProcessId', JSON.stringify(processIds));
     }
     // Sent as ONE comma-separated argument, which the script splits.
 //

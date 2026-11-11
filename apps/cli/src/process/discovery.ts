@@ -50,6 +50,8 @@ export interface DiscoveredProcessSession {
   readonly userSid: string | null;
   readonly workingDirectory?: string | null;
   readonly threadId?: string;
+  /** A real App Server subcommand on this process or a folded Codex child. */
+  readonly codexAppServer?: boolean;
   /** Separate a standalone CLI session from the editor/desktop app hosting it. */
   readonly processKind?: 'cli' | 'desktop';
   /**
@@ -175,6 +177,30 @@ function runtimeEntry(record: RawProcessRecord): string | null {
   return runtimeInvocation(record)?.entry ?? null;
 }
 
+function executedAgentArguments(record: RawProcessRecord): readonly string[] {
+  const invocation = runtimeInvocation(record);
+  return invocation === null ? commandArguments(record.commandLine, record.arguments).slice(1) : invocation.args;
+}
+
+/** Codex global options may precede the subcommand; their values never name it. */
+function codexCommandArguments(record: RawProcessRecord): readonly string[] {
+  const args = executedAgentArguments(record);
+  const values = new Set(['-c', '--config', '-C', '--cd', '--cwd', '-m', '--model', '-p', '--profile', '-i', '--image', '-s', '--sandbox', '-a', '--ask-for-approval', '--local-provider', '--enable', '--disable']);
+  const switches = new Set(['--oss', '--search', '--full-auto', '--dangerously-bypass-approvals-and-sandbox', '--no-alt-screen']);
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg === '--') return [];
+    if (!arg.startsWith('-')) return args.slice(index);
+    if (values.has(arg)) { index++; continue; }
+    if (switches.has(arg)) continue;
+    const equals = arg.indexOf('=');
+    if (equals > 0 && values.has(arg.slice(0, equals))) continue;
+    if (/^-[cCmpisa].+/u.test(arg)) continue;
+    return [];
+  }
+  return [];
+}
+
 function pathParts(value: string | null): string[] {
   return lower(value ?? '').split('\\').filter(Boolean);
 }
@@ -204,7 +230,7 @@ function electronScriptEntry(record: RawProcessRecord): string | null {
   const args = commandArguments(record.commandLine, record.arguments);
   const executable = record.executablePath ?? args[0] ?? null;
   const parts = pathParts(executable);
-  if (!/^(?:cursor|antigravity|claude|trae(?: cn)?|zcode|z code|workbuddy|craft[- ]agents)(?:\.exe)?$/u.test(parts.at(-1) ?? '')) return null;
+  if (!/^(?:cursor|antigravity|claude|trae(?: cn)?|zcode|z code|workbuddy(?:ai)?|craft[- ]agents)(?:\.exe)?$/u.test(parts.at(-1) ?? '')) return null;
   const entry = args.slice(1).find((arg) => !arg.startsWith('-')) ?? null;
   if (!entry) return null;
   const directory = parts.slice(0, -1).join('/').replace(/\/contents\/macos$/u, '/contents');
@@ -233,6 +259,9 @@ function isElectronHelper(record: RawProcessRecord): boolean {
 }
 
 const ADDITIONAL_CLI_ENTRIES: readonly { tool: DiscoveredTool; names: readonly string[]; packageEntry?: RegExp }[] = [
+  // npm 1.0.77 runs bin/grok through Node on Windows and installs a
+  // bin/grok-native target on Unix. Canonical native files are versioned.
+  { tool: 'grok', names: ['grok'], packageEntry: /(?:^|\/)@xai-official\/grok(?:-(?:linux|darwin|win32)-(?:arm64|x64))?\/bin\/grok(?:-native)?(?:\.exe)?$|(?:^|\/)grok-\d+\.\d+\.\d+(?:\.exe)?$/u },
   { tool: 'opencode', names: ['opencode'], packageEntry: /(?:^|\/)(?:opencode-ai\/bin\/opencode(?:\.exe)?|opencode-(?:linux|darwin|windows)-[^/]+\/bin\/opencode(?:\.exe)?)$/u },
   { tool: 'qwen', names: ['qwen'], packageEntry: /(?:^|\/)@qwen-code\/qwen-code\/cli-entry\.js$/u },
   { tool: 'openclaw', names: ['openclaw'], packageEntry: /(?:^|\/)openclaw\/(?:openclaw\.mjs|dist\/index\.js)$/u },
@@ -246,9 +275,10 @@ const ADDITIONAL_CLI_ENTRIES: readonly { tool: DiscoveredTool; names: readonly s
 const ADDITIONAL_DESKTOP_NAMES: readonly { tool: DiscoveredTool; names: readonly string[] }[] = [
   { tool: 'trae', names: ['trae', 'trae cn'] },
   { tool: 'zcode', names: ['zcode', 'z code'] },
-  // Both publisher editions are WorkBuddy. Neither URLs nor arbitrary argv
-  // prove the edition, so only the shared product is identified here.
+  // URLs and arbitrary argv cannot prove an edition. The separately observed
+  // WorkBuddyAI executable does; a shared WorkBuddy image stays product-level.
   { tool: 'workbuddy', names: ['workbuddy'] },
+  { tool: 'workbuddy-intl', names: ['workbuddyai'] },
   { tool: 'craft-agents', names: ['craft-agents', 'craft agents'] },
 ];
 
@@ -372,6 +402,10 @@ export function detectProcessTool(
     configuredNameMatches(record, dshNames) ||
     DEFAULT_DSH_EXECUTABLE_NAMES.includes(entryName ?? '') ||
     DSH_ENTRY_TOKENS.some((token) => entryPathEndsWith(entryPath, token));
+  const agentArgs = isCodex ? codexCommandArguments(record) : executedAgentArguments(record);
+  // This observed daemon child only maintains the owner's PID file. The
+  // listening App Server remains discoverable because it hosts real threads.
+  if (isCodex && agentArgs[0] === 'app-server' && agentArgs[1] === 'daemon' && agentArgs[2] === 'pid-update-loop') return null;
   const matched = [
     ...(isClaude ? (['claude'] as const) : []),
     ...(isCodex ? (['codex'] as const) : []),
@@ -585,6 +619,10 @@ export function groupProcesses(
       });
       return {
         tool,
+        ...(tool === 'codex' && [root.pid, ...childPids].some(pid => {
+          const record = byPid.get(pid);
+          return record !== undefined && codexCommandArguments(record)[0] === 'app-server';
+        }) ? { codexAppServer: true } : {}),
         rootPid: root.pid,
         childPids: childPids.sort((left, right) => left - right),
         commandLine: root.commandLine,

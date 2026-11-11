@@ -77,6 +77,18 @@ test('native CLI images and direct PowerShell script files retain their identiti
   }
 });
 
+test('the observed Codex daemon pid maintenance loop is not a conversation or CLI session', () => {
+  const executablePath = '/home/han/.codex/packages/app-server-daemon/releases/0.167.1-x86_64-unknown-linux-musl/bin/codex';
+  const maintenance = record('', { pid: 2159, name: 'codex', executablePath,
+    arguments: [executablePath, 'app-server', 'daemon', 'pid-update-loop'] });
+  assert.equal(detectProcessTool(maintenance), null);
+  assert.deepEqual(groupProcesses([maintenance], { distribution: 'Ubuntu-22.04' }), []);
+  assert.equal(detectProcessTool({ ...maintenance, arguments: [executablePath, 'app-server', '--listen', 'unix:///run/codex.sock'] }), 'codex');
+  assert.equal(detectProcessTool({ ...maintenance, arguments: [executablePath] }), 'codex');
+  assert.equal(detectProcessTool({ ...maintenance, arguments: [executablePath, '--prompt', 'app-server daemon pid-update-loop'] }), 'codex');
+  assert.equal(detectProcessTool(record('node /npm/node_modules/@openai/codex/bin/codex.js app-server daemon pid-update-loop')), null);
+});
+
 test('shell command strings do not establish the identity of the shell process', () => {
   for (const tool of ['claude', 'codex', 'dsh']) {
     const mentions = `/npm/node_modules/@openai/codex/bin/codex.js ${tool}.ps1`;

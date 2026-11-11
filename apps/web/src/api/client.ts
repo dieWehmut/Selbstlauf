@@ -1,10 +1,10 @@
 import { subscribeLiveEvent } from './live-socket';
 
-// WorkBuddy monitoring is product-level; its separate international catalog
-// choice does not establish a distinct process identity or monitoring policy.
+// The WorkBuddyAI image has an international policy; a shared WorkBuddy image
+// keeps its product identity without inferring an edition from its arguments.
 export const MONITORED_TOOL_NAMES = [
   'gemini', 'antigravity', 'cursor', 'opencode', 'qwen', 'openclaw', 'hermes', 'pi',
-  'crush', 'cline', 'roo', 'kilo', 'claude-app', 'trae', 'zcode', 'workbuddy', 'craft-agents',
+  'grok', 'crush', 'cline', 'roo', 'kilo', 'claude-app', 'trae', 'zcode', 'workbuddy', 'workbuddy-intl', 'craft-agents',
 ] as const;
 export const TOOL_NAMES = ['claude', 'codex', 'dsh', ...MONITORED_TOOL_NAMES] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];

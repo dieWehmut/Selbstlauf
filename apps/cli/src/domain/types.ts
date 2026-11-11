@@ -1,11 +1,11 @@
 /**
  * Agents with verified process identity but no transcript/input adapter yet.
- * WorkBuddy is a product-level identity: its CN/international installation
- * choices do not establish the edition of an observed process.
+ * WorkBuddy.exe has a product-level identity. The distinct WorkBuddyAI image
+ * identifies the international edition; argv or an install URL cannot do so.
  */
 export const MONITOR_ONLY_TOOL_NAMES = [
-  'opencode', 'qwen', 'openclaw', 'hermes', 'pi', 'crush', 'cline', 'roo', 'kilo',
-  'claude-app', 'trae', 'zcode', 'workbuddy', 'craft-agents',
+  'grok', 'opencode', 'qwen', 'openclaw', 'hermes', 'pi', 'crush', 'cline', 'roo', 'kilo',
+  'claude-app', 'trae', 'zcode', 'workbuddy', 'workbuddy-intl', 'craft-agents',
 ] as const;
 export type MonitorOnlyToolName = (typeof MONITOR_ONLY_TOOL_NAMES)[number];
 export const TOOL_NAMES = ['claude', 'codex', 'dsh', 'gemini', 'antigravity', 'cursor', ...MONITOR_ONLY_TOOL_NAMES] as const;
