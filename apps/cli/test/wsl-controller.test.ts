@@ -54,7 +54,7 @@ async function fixture(initialDistribution: string | null) {
       pid: 999, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js',
       executablePath: null, creationTimeMs: 1000, userSid: 'fixture',
     }, {
-      pid: 100, parentPid: 1, name: 'node.exe', commandLine: 'node C:\\tools\\codex.js',
+      pid: 100, parentPid: 1, name: 'node.exe', commandLine: 'node C:\\npm\\node_modules\\@openai\\codex\\bin\\codex.js',
       executablePath: null, creationTimeMs: 1000, userSid: 'fixture', workingDirectory: '/native/project',
     }]; } },
     // Read-only probe responses are isolated from the user's installed WSL distributions.

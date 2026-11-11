@@ -306,7 +306,7 @@ test('polls independent Claude processes and records a dry-run quiet-period deci
   const records: RawProcessRecord[] = [
     { pid: 50, parentPid: 1, name: 'node.exe', commandLine: 'node watchdog.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
     { pid: 100, parentPid: 1, name: 'claude.ps1', commandLine: `claude.ps1 --cwd "${cwd}"`, executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
-    { pid: 101, parentPid: 100, name: 'node.exe', commandLine: 'node claude-code', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
+    { pid: 101, parentPid: 100, name: 'node.exe', commandLine: 'node /npm/node_modules/@anthropic-ai/claude-code/cli.js', executablePath: null, creationTimeMs: processCreatedAt, userSid: 'S-1-5-21-test' },
   ];
   const transport = new FixtureTransport();
   let clock = processCreatedAt;

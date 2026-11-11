@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -105,15 +105,54 @@ test('terminates an owned process group including its child', { skip: process.pl
   const pid = Number(/CHILD (\d+)/u.exec(output)?.[1]);
   assert.ok(pid > 0);
   process.kill(pid, 0);
+  const original = process.platform === 'linux' ? await linuxProcessIdentity(pid) : null;
+  if (original !== null) {
+    assert.equal(original.parentPid, session.pid, 'The fixture child must belong to this terminal');
+    assert.equal(original.processGroup, session.pid, 'The fixture child must share the owned process group');
+    assert.ok(!['Z', 'X'].includes(original.state), 'The fixture child must be running before termination');
+  }
+  assert.equal(await ownedChildExited(pid, original), false, 'A live fixture child must not count as exited');
   await service.terminate(session.id);
+  assert.equal(service.output(session.id).session.status, 'exited');
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
-    try { process.kill(pid, 0); } catch { return; }
-    // A reaped child's disappearance can lag the PTY exit callback.
+    if (await ownedChildExited(pid, original)) return;
+    // Linux may retain an exited orphan as a zombie until its new parent reaps it.
     await new Promise((done) => setTimeout(done, 20));
   }
   assert.fail(`Child ${pid} survived terminal termination`);
 });
+
+interface LinuxProcessIdentity {
+  state: string;
+  parentPid: number;
+  processGroup: number;
+  startTicks: string;
+}
+
+async function linuxProcessIdentity(pid: number): Promise<LinuxProcessIdentity> {
+  const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+  // The parenthesized process name can contain spaces and closing parentheses.
+  const fields = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/u);
+  assert.ok(fields.length >= 20, `Invalid process identity for child ${pid}`);
+  return { state: fields[0]!, parentPid: Number(fields[1]), processGroup: Number(fields[2]), startTicks: fields[19]! };
+}
+
+async function ownedChildExited(pid: number, original: LinuxProcessIdentity | null): Promise<boolean> {
+  try {
+    if (original !== null) {
+      const current = await linuxProcessIdentity(pid);
+      // A reused PID is a different process; never signal it or wait for its exit.
+      return current.startTicks !== original.startTicks || ['Z', 'X'].includes(current.state);
+    }
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ESRCH') return true;
+    throw error;
+  }
+}
 
 test('Windows script launch preserves literal arguments without evaluating them', () => {
   const plan = terminalCommand('C:\\tool dir\\claude.ps1', ['say "hi"', "a'b", '$env:SECRET', 'a&b'], 'win32', {});

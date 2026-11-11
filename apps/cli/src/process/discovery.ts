@@ -75,8 +75,8 @@ export interface DiscoveredProcessSession {
 }
 
 const DEFAULT_CLAUDE_EXECUTABLE_NAMES = ['claude', 'claude.ps1', 'claude.cmd', 'claude.exe'];
-const DEFAULT_CODEX_EXECUTABLE_NAMES = ['codex.exe'];
-const DEFAULT_DSH_EXECUTABLE_NAMES = ['dsh.exe', 'dsh.cmd', 'dsh.ps1'];
+const DEFAULT_CODEX_EXECUTABLE_NAMES = ['codex', 'codex.exe', 'codex.cmd', 'codex.ps1'];
+const DEFAULT_DSH_EXECUTABLE_NAMES = ['dsh', 'dsh.exe', 'dsh.cmd', 'dsh.ps1'];
 const DEFAULT_GEMINI_EXECUTABLE_NAMES = ['gemini', 'gemini.exe', 'gemini.cmd', 'gemini.ps1'];
 const DEFAULT_CURSOR_EXECUTABLE_NAMES = ['cursor', 'cursor.exe', 'cursor-agent', 'cursor-agent.exe', 'cursor-agent.cmd', 'cursor-agent.ps1'];
 const DEFAULT_ANTIGRAVITY_EXECUTABLE_NAMES = ['antigravity', 'antigravity.exe', 'antigravity.cmd', 'antigravity.ps1'];
@@ -103,20 +103,76 @@ function commandArguments(commandLine: string | null, arguments_?: readonly stri
   return args;
 }
 
-/** The actual script executed by Node/Bun or a POSIX launcher, not prompt text. */
-function runtimeEntry(record: RawProcessRecord): string | null {
+/** A process title and argv[0] can be renamed; a resolved executable takes precedence. */
+function processImage(record: RawProcessRecord): string {
+  return record.executablePath ?? commandArguments(record.commandLine, record.arguments)[0] ?? record.name;
+}
+
+const RUNTIME_VALUE_OPTIONS = new Set([
+  '--require', '-r', '--import', '--loader', '--experimental-loader', '--title', '--conditions', '-C',
+  '--input-type', '--diagnostic-dir', '--redirect-warnings', '--openssl-config', '--icu-data-dir',
+  '--inspect-port', '--inspect-publish-uid', '--dns-result-order', '--unhandled-rejections', '--disable-proto',
+  '--env-file', '--env-file-if-exists', '--experimental-default-type', '--experimental-policy', '--policy-integrity',
+  '--experimental-config-file', '--experimental-sea-config', '--experimental-package-map',
+  '--cpu-prof-dir', '--cpu-prof-name', '--cpu-prof-interval', '--heap-prof-dir', '--heap-prof-name', '--heap-prof-interval',
+  '--report-directory', '--report-filename', '--report-signal', '--snapshot-blob', '--heapsnapshot-signal',
+  '--trace-event-categories', '--trace-event-file-pattern', '--max-http-header-size', '--security-revert',
+  '--cwd', '--preload', '--config',
+]);
+
+interface RuntimeInvocation {
+  readonly entry: string;
+  readonly args: readonly string[];
+}
+
+/** The executed script and only its own argv, never interpreter options or eval text. */
+function runtimeInvocation(record: RawProcessRecord): RuntimeInvocation | null {
   const args = commandArguments(record.commandLine, record.arguments);
-  if (!/^(?:node|bun|sh|bash|zsh|python(?:\d+(?:\.\d+)?)?)(?:\.exe)?$/u.test(basename(args[0] ?? null) ?? '')) return null;
+  const invocationAt = (index: number): RuntimeInvocation | null => {
+    const entry = args[index];
+    return entry === undefined ? null : { entry, args: args.slice(index + 1) };
+  };
+  const runtime = (basename(processImage(record)) ?? '').replace(/\.exe$/u, '');
+  if (/^(?:powershell|pwsh)$/u.test(runtime)) {
+    // -File proves a script invocation. -Command and encoded shell programs do
+    // not prove the identity of a live CLI; their native/Node children do.
+    for (let index = 1; index < args.length; index += 1) {
+      const arg = args[index]!.toLowerCase();
+      if (arg === '-file' || arg === '-f') return invocationAt(index + 1);
+      if (['-executionpolicy', '-windowstyle', '-inputformat', '-outputformat', '-workingdirectory'].includes(arg)) { index += 1; continue; }
+      if (!['-nologo', '-noprofile', '-noninteractive', '-noexit', '-sta', '-mta'].includes(arg)) return null;
+    }
+    return null;
+  }
+  if (!/^(?:node|bun|sh|bash|zsh|python(?:\d+(?:\.\d+)?)?)$/u.test(runtime)) return null;
+  const python = /^python/u.test(runtime);
+  const shell = /^(?:sh|bash|zsh)$/u.test(runtime);
   for (let index = 1; index < args.length; index += 1) {
     const arg = args[index]!;
-    if (arg === '-m') return /^python/u.test(basename(args[0] ?? null) ?? '') ? args[index + 1] ?? null : null;
+    if (arg === '-m') return python ? invocationAt(index + 1) : null;
     // Evaluation text is never an executable entry point, even if it mentions a package.
-    if (/^(?:--eval|--print|--command)(?:=|$)|^-(?:e|p|c)/u.test(arg)) return null;
-    if (['--require', '-r', '--import', '--loader', '--experimental-loader'].includes(arg)) { index += 1; continue; }
-    if (arg === '--') return args[index + 1] ?? null;
-    if (!arg.startsWith('-')) return arg;
+    if (python ? /^-c/u.test(arg) : shell ? /^-[^-]*c/u.test(arg) : /^(?:--eval|--print)(?:=|$)|^-[ep]/u.test(arg)) return null;
+    if (arg === '--') return invocationAt(index + 1);
+    if (!arg.startsWith('-')) return invocationAt(index);
+    if (python) {
+      if (['-W', '-X', '--check-hash-based-pycs'].includes(arg)) { index += 1; continue; }
+      if (/^-[WX].+/u.test(arg) || ['-b', '-B', '-d', '-E', '-i', '-I', '-O', '-OO', '-P', '-q', '-s', '-S', '-u', '-v', '-x'].includes(arg)) continue;
+    } else if (shell) {
+      if (['--rcfile', '--init-file', '-o', '-O'].includes(arg)) { index += 1; continue; }
+      if (['-l', '--login', '--noprofile', '--norc', '-e', '-u', '-x', '-v', '-f', '-n', '-p', '-r'].includes(arg)) continue;
+    } else {
+      if (RUNTIME_VALUE_OPTIONS.has(arg)) { index += 1; continue; }
+      if (arg.includes('=') || /^--(?:no-[a-z-]+|inspect(?:-brk|-wait)?|trace-(?:warnings|deprecation|uncaught|sync-io|exit|sigint)|enable-source-maps|experimental-(?:sqlite|strip-types|transform-types|require-module|vm-modules|import-meta-resolve|network-inspection|webstorage|global-webcrypto|fetch|test-module-mocks)|preserve-symlinks(?:-main)?|throw-deprecation|pending-deprecation|abort-on-uncaught-exception|use-strict)$/u.test(arg)) continue;
+    }
+    // An unsupported option may consume the next argument. Treating that value
+    // as a script would let --title/conditions/etc. impersonate another agent.
+    return null;
   }
   return null;
+}
+
+function runtimeEntry(record: RawProcessRecord): string | null {
+  return runtimeInvocation(record)?.entry ?? null;
 }
 
 function pathParts(value: string | null): string[] {
@@ -209,7 +265,7 @@ function claudeDesktop(record: RawProcessRecord): boolean {
 }
 
 function additionalProcessTool(record: RawProcessRecord, entry: string | null, electronEntry: string | null): DiscoveredTool | null {
-  const candidates = [record.name, record.executablePath].map(launcherName);
+  const candidates = [launcherName(processImage(record))];
   const scriptName = launcherName(entry);
   const script = pathParts(entry).join('/');
   for (const preset of ADDITIONAL_CLI_ENTRIES) {
@@ -229,8 +285,7 @@ function processKind(record: RawProcessRecord, tool: DiscoveredTool): 'cli' | 'd
   if ((MONITOR_ONLY_TOOL_NAMES as readonly string[]).includes(tool)) return 'cli';
   if (tool === 'gemini') return 'cli';
   if (tool === 'cursor') {
-    return cursorCliPath(record.executablePath) || cursorCliPath(record.name) || cursorCliPath(runtimeEntry(record)) ||
-      cursorCliPath(commandArguments(record.commandLine, record.arguments)[0] ?? null)
+    return cursorCliPath(processImage(record)) || cursorCliPath(runtimeEntry(record))
       ? 'cli' : 'desktop';
   }
   if (tool === 'antigravity') return 'desktop';
@@ -266,22 +321,17 @@ function configuredNameMatches(
   record: RawProcessRecord,
   names: readonly string[],
 ): boolean {
-  const candidates = new Set([
-    lower(record.name),
-    basename(record.name),
-    basename(record.executablePath),
-  ]);
+  const actualName = basename(processImage(record));
   return names.some((name) => {
     const normalized = basename(name);
-    return normalized !== null && candidates.has(normalized);
+    return normalized !== null && normalized === actualName;
   });
 }
 
-function containsPathToken(commandLine: string, token: string): boolean {
-  const command = lower(commandLine).replaceAll('\\', '/');
-  const normalizedToken = lower(token).replaceAll('\\', '/');
-  const escapedToken = normalizedToken.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-  return new RegExp(`(?:^|[\\s"'/])${escapedToken}(?:$|[\\s"'/])`, 'u').test(command);
+function entryPathEndsWith(path: string, token: string): boolean {
+  const source = pathParts(path).join('/');
+  const normalizedToken = pathParts(token).join('/');
+  return source === normalizedToken || source.endsWith(`/${normalizedToken}`);
 }
 
 /** Return a tool only when the process has one unambiguous known signature. */
@@ -289,55 +339,39 @@ export function detectProcessTool(
   record: RawProcessRecord,
   options: ProcessNameOptions = {},
 ): DiscoveredTool | null {
-  const processName = basename(record.name);
-  const executableName = basename(record.executablePath);
   const claudeNames = options.claudeExecutableNames ?? DEFAULT_CLAUDE_EXECUTABLE_NAMES;
   const codexNames = options.codexExecutableNames ?? DEFAULT_CODEX_EXECUTABLE_NAMES;
   const dshNames = options.dshExecutableNames ?? DEFAULT_DSH_EXECUTABLE_NAMES;
   const entry = runtimeEntry(record);
   const electronEntry = electronScriptEntry(record);
-  const firstArgument = commandArguments(record.commandLine, record.arguments)[0] ?? null;
   const additional = additionalProcessTool(record, entry, electronEntry);
   if (additional !== null) return additional;
   // A desktop child using Claude's image is never a Claude Code CLI.
   if (claudeDesktop(record)) return null;
   const isGemini = configuredNameMatches(record, options.geminiExecutableNames ?? DEFAULT_GEMINI_EXECUTABLE_NAMES) ||
     geminiEntry(entry);
-  const cursorCli = cursorCliPath(record.executablePath) || cursorCliPath(record.name) || cursorCliPath(entry) ||
-    cursorCliPath(firstArgument);
+  const cursorCli = cursorCliPath(processImage(record)) || cursorCliPath(entry);
   const isCursor = cursorCli || cursorDesktopEntry(entry ?? electronEntry) || (!isElectronHelper(record) && electronEntry === null &&
     configuredNameMatches(record, options.cursorExecutableNames ?? DEFAULT_CURSOR_EXECUTABLE_NAMES));
   const isAntigravity = antigravityHelper(record) || (!isElectronHelper(record) && electronEntry === null &&
     configuredNameMatches(record, options.antigravityExecutableNames ?? DEFAULT_ANTIGRAVITY_EXECUTABLE_NAMES));
-  // A recognized entry point owns its arguments. A prompt naming another CLI
-  // must not make that Gemini/Cursor/Antigravity process ambiguous.
-  const commandLine = lower(isGemini || isCursor || isAntigravity
-    ? entry ?? firstArgument ?? '' : record.commandLine ?? '');
+  // Only the executed entry contributes package identity. Its trailing prompt,
+  // preload/eval strings and the interpreter's own path never do.
+  const entryPath = entry ?? '';
+  const entryName = basename(entry);
 
   const isClaude =
     configuredNameMatches(record, claudeNames) ||
-    containsPathToken(commandLine, 'claude-code') ||
-    containsPathToken(commandLine, 'claude.ps1') ||
-    // The Linux launcher has no extension: measured inside Ubuntu, `claude` is a script at
-    // `<prefix>/bin/claude`, where the Windows install is `claude.ps1`.
-    containsPathToken(commandLine, 'bin/claude');
+    DEFAULT_CLAUDE_EXECUTABLE_NAMES.includes(entryName ?? '') ||
+    entryPathEndsWith(entryPath, 'claude-code/cli.js');
   const isCodex =
     configuredNameMatches(record, codexNames) ||
-    containsPathToken(commandLine, '@openai/codex') ||
-    containsPathToken(commandLine, 'codex.js') ||
-    // Measured inside Ubuntu: the session's root is `node <prefix>/bin/codex`, an extension-less launcher,
-    // while the child it spawns is `.../@openai/codex-linux-x64/vendor/.../bin/codex` and matched already.
-    // Without this the root was missed and the session was reported as a bare child process.
-    containsPathToken(commandLine, 'bin/codex') ||
-    processName === 'codex.exe' ||
-    executableName === 'codex.exe';
+    DEFAULT_CODEX_EXECUTABLE_NAMES.includes(entryName ?? '') ||
+    entryPathEndsWith(entryPath, '@openai/codex/bin/codex.js');
   const isDsh =
     configuredNameMatches(record, dshNames) ||
-    containsPathToken(commandLine, 'dsh.cmd') ||
-    containsPathToken(commandLine, 'dsh.ps1') ||
-    containsPathToken(commandLine, 'bin/dsh') ||
-    DSH_ENTRY_TOKENS.some((token) => containsPathToken(commandLine, token)) ||
-    (processName === 'dsh.exe' && executableName === 'dsh.exe');
+    DEFAULT_DSH_EXECUTABLE_NAMES.includes(entryName ?? '') ||
+    DSH_ENTRY_TOKENS.some((token) => entryPathEndsWith(entryPath, token));
   const matched = [
     ...(isClaude ? (['claude'] as const) : []),
     ...(isCodex ? (['codex'] as const) : []),
@@ -530,7 +564,7 @@ export function groupProcesses(
     .map(({ tool, root, childPids }) => {
       const kind = kindByPid.get(root.pid);
       const desktopHelper = desktopHelperPids.has(root.pid);
-      const workingDirectory = resolveWorkingDirectory(root.commandLine, root.workingDirectory, desktopHelper ? undefined : kind, root.arguments);
+      const workingDirectory = resolveWorkingDirectory(root, desktopHelper ? undefined : kind);
       const desktopHostName = hostAppFor(root.name) ? root.name : tool;
       const host = classifySessionHost({
         rootPid: root.pid,
@@ -609,13 +643,10 @@ function hostFromWslTerminal(
   };
 }
 
-function extractWorkingDirectory(commandLine: string | null, arguments_?: readonly string[]): string | null {
-  const args = commandArguments(commandLine, arguments_).slice(1);
+function extractWorkingDirectory(args: readonly string[]): string | null {
   for (let index = 0; index < args.length; index += 1) {
-    if (arguments_ !== undefined) {
-      if (args[index] === '--') break;
-      if (['--prompt', '-p', '--system-prompt', '--system-prompt-file'].includes(args[index]!)) { index++; continue; }
-    }
+    if (args[index] === '--') break;
+    if (['--prompt', '-p', '--system-prompt', '--system-prompt-file'].includes(args[index]!)) { index++; continue; }
     const flag = /^(?:--cd|--cwd|--directory|-C)(?:=(.*))?$/u.exec(args[index]!);
     if (!flag) continue;
     const value = flag[1] ?? args[index + 1];
@@ -624,11 +655,11 @@ function extractWorkingDirectory(commandLine: string | null, arguments_?: readon
   return null;
 }
 
-function desktopProjectDirectory(commandLine: string | null, arguments_?: readonly string[]): string | null {
-  const args = commandArguments(commandLine, arguments_).slice(1);
+function desktopProjectDirectory(args: readonly string[]): string | null {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
-    if (arguments_ !== undefined && ['--prompt', '-p', '--system-prompt', '--system-prompt-file'].includes(arg)) { index++; continue; }
+    if (arg === '--') break;
+    if (['--prompt', '-p', '--system-prompt', '--system-prompt-file'].includes(arg)) { index++; continue; }
     const uriFlag = /^(--folder-uri|--file-uri)(?:=(.*))?$/u.exec(arg);
     if (!uriFlag) continue;
     const value = uriFlag[2] ?? args[index + 1];
@@ -647,7 +678,7 @@ function desktopProjectDirectory(commandLine: string | null, arguments_?: readon
     '--remote', '--open-url', '--folder-uri', '--file-uri', '--inspect-extensions',
     '--inspect-brk-extensions', '--logsPath', '--crash-reporter-directory',
   ]);
-  if (arguments_ !== undefined) for (const flag of ['--prompt', '-p', '--system-prompt', '--system-prompt-file']) valueFlags.add(flag);
+  for (const flag of ['--prompt', '-p', '--system-prompt', '--system-prompt-file']) valueFlags.add(flag);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg.startsWith('-')) {
@@ -663,13 +694,13 @@ function desktopProjectDirectory(commandLine: string | null, arguments_?: readon
 }
 
 function resolveWorkingDirectory(
-  commandLine: string | null,
-  processCwd?: string | null,
+  record: RawProcessRecord,
   kind?: 'cli' | 'desktop',
-  arguments_?: readonly string[],
 ): string | null {
-  const explicit = extractWorkingDirectory(commandLine, arguments_) ??
-    (kind === 'desktop' ? desktopProjectDirectory(commandLine, arguments_) : null);
+  const args = runtimeInvocation(record)?.args ?? commandArguments(record.commandLine, record.arguments).slice(1);
+  const processCwd = record.workingDirectory;
+  const explicit = extractWorkingDirectory(args) ??
+    (kind === 'desktop' ? desktopProjectDirectory(args) : null);
   if (explicit === null) return processCwd ?? null;
   const paths = /^[a-z]:[\\/]|^[\\]{2}/iu.test(explicit) || /^[a-z]:[\\/]|^[\\]{2}/iu.test(processCwd ?? '') ? win32 : posix;
   if (paths.isAbsolute(explicit)) return explicit;

@@ -382,14 +382,14 @@ test('detectProcessTool accepts slash-separated package paths and rejects near m
     userSid: currentUserSid,
   };
   const signatures = [
-    ['node C:/tools/@openai/codex/bin/runner.js', 'codex'],
-    ['node "C:\\tools\\@openai\\codex\\bin\\runner.js"', 'codex'],
+    ['node C:/tools/@openai/codex/bin/codex.js', 'codex'],
+    ['node "C:\\tools\\@openai\\codex\\bin\\codex.js"', 'codex'],
     ['node C:/tools/claude-code/cli.js', 'claude'],
     ['node C:/tools/codexXjs', null],
     ['node C:/tools/notclaude-code/cli.js', null],
     ['node C:/tools/claude-code-helper/cli.js', null],
-    ['node C:/tools/@openai/codex-helper/bin/runner.js', null],
-    ['node C:/tools/prefix@openai/codex/bin/runner.js', null],
+    ['node C:/tools/@openai/codex-helper/bin/codex.js', null],
+    ['node C:/tools/prefix@openai/codex/bin/codex.js', null],
     ['node C:/tools/dsh.cmd', 'dsh'],
     ['node C:/tools/dsh.ps1', 'dsh'],
     ['node C:/tools/dshXcmd', null],
