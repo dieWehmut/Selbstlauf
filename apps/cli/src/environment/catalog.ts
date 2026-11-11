@@ -1,5 +1,8 @@
 import { AGENT_REGISTRY, agentInstallCommand } from '../agents/registry.js';
 
+// Pages shares this data without a Node runtime; its commands are manual samples.
+const catalogPlatform = typeof process === 'undefined' ? 'linux' : process.platform;
+
 /** CLI-only view of the shared registry; desktop and extension installers remain publisher links. */
 export interface AgentCatalogEntry {
   readonly id: string;
@@ -19,7 +22,7 @@ export const AGENT_CATALOG: readonly AgentCatalogEntry[] = Object.freeze(
     label: entry.label,
     packageName: entry.packageName ?? '',
     executable: entry.command!,
-    installCommand: agentInstallCommand(entry)!,
+    installCommand: agentInstallCommand(entry, catalogPlatform)!,
     installUrl: entry.installUrl,
     installArgs: entry.installArgs ?? [],
     updateSource: entry.packageName === undefined ? 'none' as const : 'npm' as const,

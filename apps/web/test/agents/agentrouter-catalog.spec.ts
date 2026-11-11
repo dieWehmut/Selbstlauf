@@ -31,3 +31,16 @@ test('the live catalog renders every AgentRouter product with an official icon a
   }
   expect(errors).toEqual([]);
 });
+
+test('a missing CLI opens the actual installation panel', async ({ page }) => {
+  const catalog = await (await page.request.get('/api/agents/catalog')).json() as AgentCatalog;
+  const missing = catalog.tools.find((tool) => tool.kind === 'cli' && !tool.available && tool.installCommand?.startsWith('npm '));
+  test.skip(!missing, 'Every npm CLI is installed on this host.');
+  await page.goto('/');
+  await page.getByRole('button', { name: '启动智能体', exact: true }).click();
+  await page.getByLabel('智能体', { exact: true }).selectOption(missing!.id);
+  await page.getByRole('button', { name: '打开环境设置', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.environment-panel')).toBeVisible();
+  await expect(page.getByRole('button', { name: `安装 ${missing!.label}`, exact: true })).toBeEnabled({ timeout: 20000 });
+});

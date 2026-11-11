@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createStaticDemoApi, STATIC_DEMO_STORAGE_KEY } from '../src/api/static-demo';
+import { AGENT_CATALOG } from '../../cli/src/environment/catalog';
 
 function memoryStorage() {
   const values = new Map<string, string>();
@@ -10,6 +11,40 @@ function memoryStorage() {
 }
 
 describe('static Pages demo API', () => {
+  it('covers the full CLI catalog while preserving sample versions and manual installation policies', async () => {
+    const api = createStaticDemoApi(null);
+    const environment = await api.environment();
+    expect(environment.tools.map(tool => tool.id)).toEqual([
+      'claude', 'codex', 'gemini', 'grok', 'opencode', 'openclaw', 'qwen', 'hermes', 'pi', 'crush', 'dsh', 'cline', 'kilo',
+    ]);
+    for (const entry of AGENT_CATALOG) {
+      expect(environment.tools.find(tool => tool.id === entry.id)).toEqual(expect.objectContaining({
+        label: entry.label, packageName: entry.packageName, installCommand: entry.installCommand,
+        installable: entry.updateSource === 'npm', installUrl: entry.installUrl,
+      }));
+    }
+    expect(environment.tools.find(tool => tool.id === 'claude')).toEqual(expect.objectContaining({ installed: '2.1.274', latest: '2.1.276', state: 'outdated' }));
+    for (const id of ['qwen', 'hermes', 'pi', 'crush', 'dsh', 'cline', 'kilo']) {
+      expect(environment.tools.find(tool => tool.id === id)).toEqual(expect.objectContaining({ installed: null, latest: null, state: 'missing' }));
+    }
+    expect(environment.manualCommands).toHaveLength(12);
+    expect(environment.manualCommands.every(command => command.startsWith('npm i -g '))).toBe(true);
+    expect(environment.manualCommands.join('\n')).not.toContain('hermes');
+    expect(await api.upgradeTool('hermes')).toEqual(expect.objectContaining({ ok: false, error: expect.stringContaining('official installation guide') }));
+    expect((await api.environment()).tools).toEqual(environment.tools);
+  });
+
+  it('persists a simulated install with an unknown version without inventing an upgrade', async () => {
+    const storage = memoryStorage();
+    const api = createStaticDemoApi(storage);
+    expect(await api.upgradeTool('qwen')).toEqual(expect.objectContaining({ ok: true, output: expect.stringContaining('未安装本机软件包') }));
+    const reloaded = createStaticDemoApi(storage);
+    const environment = await reloaded.environment();
+    expect(environment.tools.find(tool => tool.id === 'qwen')).toEqual(expect.objectContaining({ installed: 'unknown', latest: null, state: 'unknown' }));
+    expect(environment.upgrades).not.toContain('qwen');
+    expect(environment.missing).not.toContain('qwen');
+  });
+
   it('returns its existing audit seed without exposing shared mutable events', async () => {
     const api = createStaticDemoApi(null);
     const history = await api.audit!(1_000);

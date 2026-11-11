@@ -996,7 +996,8 @@ describe('watchdog dashboard', () => {
 
     openSettings();
     fireEvent.click(screen.getByRole('tab', { name: '关于' }));
-    expect(screen.queryByRole('heading', { name: '本地环境检查' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '本地环境检查' })).toBeVisible();
+    expect(document.querySelector('.environment-panel .tool-grid')).toBeNull();
     await act(async () => pendingEnvironment.resolve(environment));
     expect(await screen.findByRole('heading', { name: '本地环境检查' })).toBeInTheDocument();
     expect(screen.getByText('2.1.274')).toBeInTheDocument();

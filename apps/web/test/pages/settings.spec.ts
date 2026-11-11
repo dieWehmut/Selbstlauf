@@ -47,6 +47,13 @@ test('production subpath loads all settings at desktop, tablet and mobile widths
     await expect(page.locator('.settings-content')).toContainText('演示');
     for (const entry of SETTINGS_CATEGORIES.flatMap((category) => category.entries)) {
       await section(page, entry.label);
+      if (entry.id === 'about') {
+        await expect(page.locator('.environment-panel .tool-card')).toHaveCount(13);
+        await expect(page.getByTestId('tool-qwen').getByText('未安装').first()).toBeVisible();
+        const hermes = page.getByTestId('tool-hermes');
+        await expect(hermes.getByRole('button')).toHaveCount(0);
+        await expect(hermes.getByRole('link', { name: '官方安装', exact: true })).toHaveAttribute('href', 'https://github.com/NousResearch/hermes-agent#installation');
+      }
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `${entry.label} overflow at ${viewport.width}px`).toBeLessThanOrEqual(1);
       await screenshot(page, `${entry.id}-${viewport.width}`);

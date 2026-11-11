@@ -1230,7 +1230,14 @@ function EnvironmentPanel(props: {
       setCopyState({ status: 'failed', reason: error instanceof Error ? error.message : '未知错误' });
     }
   };
-  if (props.environment === null) return null;
+  if (props.environment === null) return <section className="settings-section settings-section--wide environment-panel" aria-busy={props.refreshing}>
+    <div className="section-title">
+      <h2>{t('本地环境检查')}</h2>
+      <button className="button button--secondary" type="button" disabled={props.refreshing || props.upgrading !== null} onClick={() => void props.onRefresh()} aria-label={t('刷新本地环境')}>
+        <RefreshCw size={16} className={props.refreshing ? 'spin' : undefined} />{t('刷新')}
+      </button>
+    </div>
+  </section>;
   const report = props.environment;
   return (
     <section className="settings-section settings-section--wide environment-panel">
@@ -3351,7 +3358,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
         localStorage.setItem('selbstlauf-selected-agent', session.id);
         setLauncherOpen(false);
         navigate('agents');
-      }} onInstall={() => { setLauncherOpen(false); openSettings('general'); }} />}
+      }} onInstall={() => { setLauncherOpen(false); openSettings('account'); }} />}
 
       {/* The desktop pet, in the shell rather than in the section that configures it, so it is on
           screen on every page — the 宠物 settings page included. */}

@@ -362,7 +362,7 @@ npm --workspace apps/desktop run smoke         # 无界面校验内置服务
 
 目录覆盖 [AgentRouter](https://agentrouter.org/docs/) 的全部 17 篇工具指南：Roo Code 和 Claude App、Trae、ZCode、WorkBuddy、Craft Agents 也可从同一面板打开官方安装和接入指南，另保留 Antigravity、Cursor。CLI 缺少时显示安装命令，环境设置支持安装官方 npm 包；Hermes 使用官方手动安装指南。安装后可点「重新检测」。桌面、浏览器和手机界面使用同一套官方图标，来源与 SHA-256 记录在 `apps/web/public/tool-icons/sources.json`。
 
-进程监控已增加上述新 CLI 和桌面应用的真实入口识别。新工具显示进程与可确认的目录；其会话记录和输入尚未接入时，会明确显示监控能力及限制。托管终端窗口继续提供真实输入输出。共享 VS Code 扩展宿主不会被当作一个已运行的 Roo 会话。完整覆盖表见 [AgentRouter 智能体实施记录](docs/implementation/agentrouter-agents.md)。
+进程监控已增加 AgentRouter 所列 CLI 和桌面应用的真实入口识别。新工具显示进程与可确认的目录；其会话记录和输入尚未接入时，会明确显示监控能力及限制。托管终端窗口继续提供真实输入输出。共享 VS Code 扩展宿主不会被当作一个已运行的 Roo 会话。完整覆盖表见 [AgentRouter 智能体实施记录](docs/implementation/agentrouter-agents.md)。
 
 ```bash
 npm install

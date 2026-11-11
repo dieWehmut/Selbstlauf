@@ -104,7 +104,7 @@ function api(options: {
 
 /** Fields the union does not admit, one family at a time. */
 const HOSTILE_SESSIONS: readonly { readonly label: string; readonly patch: Partial<SessionView> }[] = [
-  { label: 'a tool nothing knows', patch: { tool: 'opencode' as SessionView['tool'], pendingPrompt: null } },
+  { label: 'a tool nothing knows', patch: { tool: 'future-agent' as SessionView['tool'], pendingPrompt: null } },
   { label: 'a transport nothing knows', patch: { transport: 'exec-pty' as SessionView['transport'], pendingPrompt: null } },
   { label: 'a decision nothing knows', patch: { lastDecision: 'brand-new-state', pendingPrompt: null } },
   { label: 'a goal status nothing knows', patch: { goal: { status: 'thinking' }, pendingPrompt: null } },

@@ -167,10 +167,25 @@ test.describe('Selbstlauf watchdog workbench', () => {
     // A tool that is not installed says so instead of claiming it is current.
     await expect(panel.getByTestId('tool-grok').getByText('未安装').first()).toBeVisible();
 
+    const products = ['claude', 'codex', 'gemini', 'grok', 'opencode', 'openclaw', 'qwen', 'hermes', 'pi', 'crush', 'dsh', 'cline', 'kilo'];
+    await expect(panel.locator('.tool-card')).toHaveCount(products.length);
+    for (const id of products) {
+      const card = panel.getByTestId(`tool-${id}`);
+      await card.scrollIntoViewIfNeeded();
+      await expect(card).toBeVisible();
+      await expect(card.getByRole('link', { name: '官方安装', exact: true })).toHaveAttribute('href', /^https:\/\//u);
+      const icon = card.locator('.tool-icon img:visible');
+      await expect.poll(() => icon.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    }
+    await expect(panel.getByTestId('tool-hermes').getByRole('button')).toHaveCount(0);
+    await expect(panel.getByTestId('tool-qwen').getByRole('button', { name: '安装 Qwen Code', exact: true })).toBeEnabled();
+
     // The manual install block opens and carries the real commands.
     await panel.getByRole('button', { name: /手动安装命令/ }).click();
     await expect(panel.getByTestId('manual-commands')).toContainText('npm i -g @openai/codex@latest');
     await expect(panel.getByTestId('manual-commands')).toContainText('npm i -g openclaw@latest');
+    await expect(panel.getByTestId('manual-commands')).toContainText('npm i -g @qwen-code/qwen-code@latest');
+    await expect(panel.getByTestId('manual-commands')).not.toContainText('hermes');
 
     // The Cards stay inside the viewport.
     const panelBox = await panel.boundingBox();

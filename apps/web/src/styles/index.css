@@ -893,6 +893,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   pointer-events: none;
 }
 .sidebar-row:hover .sidebar-row__pin,
+.sidebar-row__pin:focus,
 .sidebar-row__pin:focus-visible,
 .sidebar-row.is-pinned .sidebar-row__pin { opacity: 1; transform: none; pointer-events: auto; }
 .sidebar-row__pin:hover { color: var(--text); background: color-mix(in srgb, var(--panel) 80%, transparent); }
