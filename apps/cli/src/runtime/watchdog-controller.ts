@@ -218,6 +218,9 @@ export class WatchdogController {
   private wslCodexRevision: string | null = null;
   private readonly retiredWslStateDirectories = new Set<string>();
   private readonly verifiedCodexOwners = new Map<string, { group: DiscoveredProcessSession; threadIds: readonly string[] }>();
+  /** A failed or partial process table cannot establish that its omitted processes exited. */
+  private readonly unavailableProcessNamespaces = new Set<string>();
+  private lastWindowsUserSid: string | null = null;
   /** The last WSL discovery failure, so a persistent one is not written to the audit log every poll. */
   private lastWslError: string | null = null;
   /** The distribution owning the cached home, database copy, and CLI launcher. Null means WSL is disabled. */
@@ -324,6 +327,7 @@ export class WatchdogController {
     for (const session of this.sessions.values()) session.codexAdapter?.close();
     this.sessions.clear();
     this.verifiedCodexOwners.clear();
+    this.unavailableProcessNamespaces.clear();
     this.clearWslRuntime();
   }
 
@@ -433,6 +437,14 @@ export class WatchdogController {
 
       for (const session of this.sessions.values()) {
         if (seen.has(session.id)) continue;
+        if (session.alive && this.unavailableProcessNamespaces.has(session.group.distribution ?? '') && this.matchesProcessFilters(session.group)) {
+          session.group = { ...session.group, processDiscoveryPending: true };
+          session.transportKind = 'monitor-only';
+          session.transportError = '进程检测暂不可用，显示上次确认的会话与项目。';
+          session.runningTurn = undefined;
+          await this.clearClaudeLease(session);
+          continue;
+        }
         if (session.alive) {
           session.alive = false;
           session.engine.markExited(session.id);
@@ -442,6 +454,7 @@ export class WatchdogController {
       }
 
       for (const session of this.sessions.values()) {
+        if (session.group.processDiscoveryPending || session.group.codexThreadOwnershipPending || this.unavailableProcessNamespaces.has(session.group.distribution ?? '')) continue;
         if (isMonitoringTool(session.group.tool)) continue;
         const intents = session.engine.tick(timestamp);
         await this.auditDecision(session, timestamp);
@@ -572,6 +585,9 @@ export class WatchdogController {
   ): Promise<RuntimeInjectionResult> {
     const session = this.sessions.get(sessionId);
     if (!session || !session.alive) return { ok: false, error: 'session is not alive' };
+    if (session.group.processDiscoveryPending || session.group.codexThreadOwnershipPending || this.unavailableProcessNamespaces.has(session.group.distribution ?? '')) {
+      return { ok: false, error: '暂时无法确认此会话，检测恢复后再试。' };
+    }
     if (dryRun) {
       await this.record(session, 'skip', { reason: 'dry-run', action: 'manual-inject' }, prompt);
       return { ok: true, dryRun: true, prompt };
@@ -602,7 +618,14 @@ export class WatchdogController {
       records = await this.provider.listProcesses();
     } catch (error) {
       if (this.stopping) return [];
+      this.unavailableProcessNamespaces.add('');
       await this.auditGlobal('transport-error', { reason: `process-discovery: ${errorMessage(error)}` });
+      return [];
+    }
+    const userSid = records.find(record => record.pid === this.currentProcessId)?.userSid?.trim().toLowerCase();
+    if (userSid) this.lastWindowsUserSid = userSid;
+    if (records.length === 0) {
+      this.unavailableProcessNamespaces.delete('');
       return [];
     }
     try {
@@ -613,8 +636,11 @@ export class WatchdogController {
           ? { titleMarkers: DSH_WINDOW_TITLE_MARKERS, label: DSH_WEB_LABEL }
           : null,
       });
-      return groups.filter((group) => this.matchesProcessFilters(group));
+      const filtered = groups.filter((group) => this.matchesProcessFilters(group));
+      this.unavailableProcessNamespaces.delete('');
+      return filtered;
     } catch (error) {
+      this.unavailableProcessNamespaces.add('');
       await this.auditGlobal('skip', { reason: `process-grouping: ${errorMessage(error)}` });
       return [];
     }
@@ -624,8 +650,8 @@ export class WatchdogController {
    * Discover the sessions running inside a WSL distribution.
    *
    * WSL is optional and must never interfere with the Windows sessions, so every failure here is reported as a
-   * stated reason and yields no sessions rather than propagating: a stopped distribution, a missing one, or a
-   * slow one would otherwise take the whole poll down with it.
+   * stated reason without propagating. Unavailable or partial tables cannot confirm that omitted sessions
+   * exited; their last confirmed observations remain visible with input disabled until discovery recovers.
    */
   private async discoverWsl(): Promise<readonly DiscoveredProcessSession[]> {
     const distribution = this.currentConfig.wslDistribution?.trim() ?? '';
@@ -640,7 +666,7 @@ export class WatchdogController {
       ...(this.wslRun === undefined ? {} : { runWsl: this.wslRun }),
       ...(this.wslFilesystem === undefined ? {} : { readFilesystem: this.wslFilesystem }),
     });
-    this.wslShellUnavailable = result.source === 'filesystem';
+    this.wslShellUnavailable = result.source === 'filesystem' || result.error !== undefined;
     if (this.wslShellUnavailable && !preferFilesystem) this.wslCommandRetryAtMs = this.now() + WSL_COMMAND_RETRY_MS;
     if (result.homeDirectory !== undefined) this.wslHomeDirectory = result.homeDirectory;
     const failure = result.error ?? result.warning ?? (this.wslShellUnavailable ? this.lastWslError : null);
@@ -648,6 +674,7 @@ export class WatchdogController {
       this.lastWslError = failure;
       if (failure !== null) await this.auditGlobal('transport-error', { reason: `wsl-discovery: ${failure}` });
     }
+    if (result.error !== undefined || result.complete === false) this.unavailableProcessNamespaces.add(distribution);
     if (result.error !== undefined) {
       return [];
     }
@@ -673,14 +700,19 @@ export class WatchdogController {
         currentProcessId: this.currentProcessId,
         sameUserOnly: this.currentConfig.processFilters.sameUserOnly,
       });
-      return groups.filter((group) => this.matchesProcessFilters(group));
+      const filtered = groups.filter((group) => this.matchesProcessFilters(group));
+      if (result.complete !== false) this.unavailableProcessNamespaces.delete(distribution);
+      return filtered;
     } catch (error) {
+      this.unavailableProcessNamespaces.add(distribution);
       await this.auditGlobal('skip', { reason: `wsl-grouping: ${errorMessage(error)}` });
       return [];
     }
   }
 
   private matchesProcessFilters(group: DiscoveredProcessSession): boolean {
+    if (!group.distribution && this.currentConfig.processFilters.sameUserOnly &&
+        (!this.lastWindowsUserSid || group.userSid?.trim().toLowerCase() !== this.lastWindowsUserSid)) return false;
     const include = this.currentConfig.processFilters.include
       .map(normalizeFilter)
       .filter((value): value is string => value !== null);
@@ -823,6 +855,10 @@ export class WatchdogController {
 
   /** A shared daemon owns threads, not one conversation in its launch directory. */
   private async expandCodexSessions(groups: readonly DiscoveredProcessSession[]): Promise<readonly DiscoveredProcessSession[]> {
+    const liveProcesses = new Set(groups.filter(group => group.tool === 'codex').map(sessionIdFor));
+    for (const [key, previous] of this.verifiedCodexOwners) {
+      if (!liveProcesses.has(key) && !this.unavailableProcessNamespaces.has(previous.group.distribution ?? '')) this.verifiedCodexOwners.delete(key);
+    }
     const result = groups.filter(group => group.tool !== 'codex');
     const namespaces = new Map<string, DiscoveredProcessSession[]>();
     for (const group of groups) {
@@ -1074,6 +1110,9 @@ export class WatchdogController {
 
   /** Release readers before removing the state copy they own; native sessions stay intact. */
   private clearWslRuntime(): void {
+    for (const namespace of this.unavailableProcessNamespaces) {
+      if (namespace !== '') this.unavailableProcessNamespaces.delete(namespace);
+    }
     for (const [key, value] of this.verifiedCodexOwners) {
       if (value.group.distribution !== undefined) this.verifiedCodexOwners.delete(key);
     }
@@ -1529,6 +1568,7 @@ export class WatchdogController {
   }
 
   private async injectAutomatic(session: RuntimeSession, timestamp: number): Promise<void> {
+    if (session.group.processDiscoveryPending || session.group.codexThreadOwnershipPending || this.unavailableProcessNamespaces.has(session.group.distribution ?? '')) return;
     if (isMonitoringTool(session.group.tool)) {
       session.engine.recordTransportError(session.id, timestamp);
       await this.record(session, 'skip', { reason: 'monitor-only-tool' });
@@ -1597,7 +1637,7 @@ export class WatchdogController {
     prompt: string,
     explicitPrompt = false,
   ): Promise<WriteResultLike> {
-    if (session.group.codexThreadOwnershipPending) {
+    if (session.group.processDiscoveryPending || session.group.codexThreadOwnershipPending || this.unavailableProcessNamespaces.has(session.group.distribution ?? '')) {
       return { ok: false, error: '暂时无法确认此会话，检测恢复后再试。' };
     }
     if (session.group.tool === 'codex') {
@@ -1645,6 +1685,12 @@ export class WatchdogController {
 
   private async refreshClaudeHookCapability(session: RuntimeSession): Promise<void> {
     if (session.group.tool !== 'claude' || session.claudeFile === null || session.conversationId === null) return;
+    if (session.group.processDiscoveryPending || this.unavailableProcessNamespaces.has(session.group.distribution ?? '')) {
+      session.transportKind = 'monitor-only';
+      session.transportError = '进程检测暂不可用，显示上次确认的会话与项目。';
+      await this.clearClaudeLease(session);
+      return;
+    }
     if (session.validatedTransportKind !== null && !['cannot-inject', 'monitor-only'].includes(session.transportKind)) {
       return;
     }
@@ -1660,7 +1706,8 @@ export class WatchdogController {
     if (this.claudeLeaseStore === undefined || !this.claudeConfigEnabled() || !(await this.hookIsInstalled())) {
       return { ok: false, error: 'Claude Stop Hook is unavailable' };
     }
-    if (this.stopping || session.userPaused || !session.alive || session.transportKind !== 'claude-stop-hook') {
+    if (this.stopping || session.userPaused || !session.alive || session.group.processDiscoveryPending ||
+        this.unavailableProcessNamespaces.has(session.group.distribution ?? '') || session.transportKind !== 'claude-stop-hook') {
       return { ok: false, error: 'Claude session is not eligible for Hook continuation' };
     }
     if (session.conversationId === null || session.claudeFile === null || session.claudeActivity === null ||
@@ -1668,9 +1715,10 @@ export class WatchdogController {
         session.group.creationTimeMs === null) {
       return { ok: false, error: 'Claude session identity is incomplete' };
     }
+    const leaseSessionId = session.conversationId;
     try {
       await this.claudeLeaseStore.arm({
-        sessionId: session.conversationId,
+        sessionId: leaseSessionId,
         cwd: session.group.workingDirectory,
         prompt,
         rootPid: session.group.rootPid,
@@ -1679,12 +1727,14 @@ export class WatchdogController {
         transcriptPath: session.claudeFile.path,
         ttlMs: this.currentConfig.tools.claude.stopHook.leaseTtlMs,
       });
-      if (this.stopping || session.userPaused || !session.alive || !this.claudeConfigEnabled() ||
-          session.transportKind !== 'claude-stop-hook' || !(await this.hookIsInstalled())) {
-        await this.claudeLeaseStore.clearSession(session.conversationId);
+      const installed = await this.hookIsInstalled();
+      if (this.stopping || session.userPaused || !session.alive || session.group.processDiscoveryPending ||
+          this.unavailableProcessNamespaces.has(session.group.distribution ?? '') || !this.claudeConfigEnabled() ||
+          session.transportKind !== 'claude-stop-hook' || session.conversationId !== leaseSessionId || !installed) {
+        await this.claudeLeaseStore.clearSession(leaseSessionId);
         return { ok: false, error: 'Claude session became ineligible during Hook continuation' };
       }
-      session.claudeLeaseSessionId = session.conversationId;
+      session.claudeLeaseSessionId = leaseSessionId;
       return { ok: true };
     } catch (error) {
       return { ok: false, error: errorMessage(error) };
@@ -1761,7 +1811,7 @@ export class WatchdogController {
       conversationTitle: session.conversationTitle,
       ...(session.runningTurn === undefined ? {} : { runningTurn: session.runningTurn }),
       sessionCwd: session.dshSession?.cwd ?? session.codexCwd ?? session.claudeFile?.projectPath ?? session.group.workingDirectory ?? session.observedSession?.cwds[0] ?? null,
-      ...(session.group.tool === 'dsh' ? {
+      ...(session.group.tool === 'dsh' && !session.group.processDiscoveryPending ? {
         runningTurn: session.dshSession?.turnOpen ?? false,
       } : {}),
       host: session.group.host ?? null,

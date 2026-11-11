@@ -123,11 +123,17 @@ export async function readWslProcFilesystem(distribution: string, options: WslPr
       return Buffer.concat(chunks, size);
     } finally { await handle.close(); }
   };
-  const optionalRead = async (path: string, maximumBytes: number): Promise<Buffer | undefined> => {
+  const optionalRead = async (path: string, maximumBytes: number, reportBridgeFailure = false): Promise<Buffer | undefined> => {
     try {
       return await read(path, maximumBytes);
     } catch (error) {
       if (error instanceof ReadLimitError || error instanceof ByteBudgetError || abort.signal.aborted) throw error;
+      const code = errorCode(error);
+      // A lost command signature can hide an otherwise live tool. Ordinary exit and permission races
+      // remain optional, but bridge failures cannot confirm that the process collection is complete.
+      if (reportBridgeFailure && !['ENOENT', 'ESRCH', 'EACCES', 'EPERM'].includes(code)) {
+        warn(`proc command line unavailable: ${code}`);
+      }
       return undefined;
     }
   };
@@ -140,7 +146,7 @@ export async function readWslProcFilesystem(distribution: string, options: WslPr
     const parent = /^PPid:\s*([0-9]+)\s*$/mu.exec(status);
     const uid = /^Uid:\s*([0-9]+)(?:\s+[0-9]+){3}\s*$/mu.exec(status);
     const parentPid = parent && validPid(Number(parent[1]), true) ? Number(parent[1]) : before.parentPid;
-    const command = await optionalRead(join(folder, 'cmdline'), 256 * 1024);
+    const command = await optionalRead(join(folder, 'cmdline'), 256 * 1024, true);
     const arguments_ = command === undefined ? undefined : procArguments(command);
     const commandLine = arguments_?.join(' ').trim() || null;
     const environment = selectedEnvironment(await optionalRead(join(folder, 'environ'), 64 * 1024));
@@ -210,7 +216,11 @@ export async function readWslProcFilesystem(distribution: string, options: WslPr
           if (observation && !abort.signal.aborted) observations.push(observation);
         } catch (error) {
           if (error instanceof ReadLimitError || error instanceof ByteBudgetError) warn(error.message, error instanceof ByteBudgetError);
-          // Access denied, exited or reused PIDs are ordinary.
+          else if (!abort.signal.aborted && !['ENOENT', 'ESRCH'].includes(errorCode(error))) {
+            // The required before/after stat reads establish a current process. A failed bridge or
+            // denied stat leaves its presence unknown while completed observations remain usable.
+            warn(`proc process ${pid} unavailable: ${errorCode(error)}`);
+          }
         }
       }
     }));

@@ -82,6 +82,8 @@ export interface WslDiscoveryResult {
   readonly records: readonly RawProcessRecord[];
   /** A stated reason when the distribution could not be inspected, rather than throwing. */
   readonly error?: string;
+  /** False when fresh records are usable but an incomplete scan cannot establish which processes exited. */
+  readonly complete?: false;
   readonly source?: 'filesystem';
   readonly homeDirectory?: string;
   /** Command discovery failed, but live filesystem records remain usable. */
@@ -112,18 +114,20 @@ const FIELD_SEPARATOR = '\t';
  */
 const PROBE_SCRIPT = [
   'set -u',
-  'ps -eo pid=,ppid=,comm=,args= --no-headers 2>/dev/null | while IFS= read -r line; do',
-  '  # Split the first three fields off, then keep the remainder whole: the command line must not be',
-  '  # re-split, because it is what carries the CLI signature.',
-  '  pid=$(printf %s "$line" | awk \'{print $1}\')',
-  '  ppid=$(printf %s "$line" | awk \'{print $2}\')',
-  '  comm=$(printf %s "$line" | awk \'{print $3}\')',
-  '  args=$(printf %s "$line" | sed \'s/^[[:space:]]*[^[:space:]]*[[:space:]]*[^[:space:]]*[[:space:]]*[^[:space:]]*[[:space:]]*//\')',
+  // Check ps itself: a failed command on the left of a pipe otherwise inherits the successful reader's exit.
+  'ps_output=$(ps -eo pid=,ppid=,comm=,args= --no-headers) || exit $?',
+  'while read -r pid ppid comm args; do',
+  // read leaves the remaining fields in its final variable without interpreting shell quotes or backslashes.
+  '  [ -n "$pid" ] || continue',
   '  cwd=$(readlink /proc/"$pid"/cwd 2>/dev/null || true)',
-  '  interop=$(tr \'\\0\' \'\\n\' < /proc/"$pid"/environ 2>/dev/null | grep \'^WSL_INTEROP=\' | cut -d= -f2 || true)',
-  '  created=$(stat -c %Y "$interop" 2>/dev/null || echo 0)',
+  '  interop=$(tr \'\\0\' \'\\n\' 2>/dev/null < /proc/"$pid"/environ | grep \'^WSL_INTEROP=\' | cut -d= -f2 || true)',
+  '  created=0',
+  '  if [ -n "$interop" ]; then created=$(stat -c %Y "$interop" 2>/dev/null || printf 0); fi',
   '  printf \'%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n\' "$pid" "$ppid" "$comm" "$args" "$cwd" "$interop" "$created"',
-  'done',
+  'done <<SELBSTLAUF_WSL_PROCESS_TABLE',
+  '$ps_output',
+  'SELBSTLAUF_WSL_PROCESS_TABLE',
+  '',
 ].join('\n');
 
 function defaultRunWsl(wslPath: string) {
@@ -302,7 +306,7 @@ export async function listWslProcesses(options: WslDiscoveryOptions): Promise<Ws
     if (result.error !== undefined && result.records.length === 0) throw new Error(result.error);
     return { records: result.records, source: 'filesystem',
       ...(result.homeDirectory === undefined ? {} : { homeDirectory: result.homeDirectory }),
-      ...(result.error === undefined ? {} : { warning: result.error }),
+      ...(result.error === undefined ? {} : { warning: result.error, complete: false as const }),
     };
   };
   if (options.preferFilesystem && readFilesystem !== undefined) {
@@ -311,7 +315,10 @@ export async function listWslProcesses(options: WslDiscoveryOptions): Promise<Ws
 
   try {
     const stdout = await runWslProbe(options, PROBE_SCRIPT);
-    return { records: parseWslPsOutput(stdout) };
+    const records = parseWslPsOutput(stdout);
+    // A complete ps table contains the probe itself even when no supported agent is running.
+    if (records.length === 0) throw new Error('WSL process probe returned no valid process records');
+    return { records };
   } catch (error) {
     const reason = `${distribution}: ${error instanceof Error ? error.message : String(error)}`;
     if (readFilesystem !== undefined) {

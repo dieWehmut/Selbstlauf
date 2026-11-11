@@ -17,6 +17,23 @@ import {
   registerWslProbeProcess,
 } from '../src/process/wsl-processes.js';
 import { listWslLaunchers } from '../src/process/wsl-launcher.js';
+import { groupProcesses } from '../src/process/discovery.js';
+
+function runLocalProbe(script: string, psBody: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('sh', ['-s'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => { stdout += String(chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr += String(chunk); });
+    child.on('error', reject);
+    child.once('close', code => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`${stderr.trim()} (exit ${code})`));
+    });
+    child.stdin.end(`ps() { ${psBody}; }\n${script}\n`);
+  });
+}
 
 /**
  * Discovering processes inside a WSL distribution.
@@ -193,6 +210,93 @@ test('filesystem recovery failure preserves both discovery errors', async () => 
   assert.deepEqual(result.records, []);
   assert.match(result.error ?? '', /command failed/u);
   assert.match(result.error ?? '', /UNC unavailable/u);
+});
+
+for (const output of ['', '   ', 'shell startup noise\nPID PPID COMMAND\n']) {
+  test(`an empty or invalid process probe is unavailable: ${JSON.stringify(output)}`, async () => {
+    const result = await listWslProcesses({ distribution: 'Ubuntu', runWsl: async () => output });
+    assert.deepEqual(result.records, []);
+    assert.match(result.error ?? '', /process.*(?:empty|valid|record|output)/iu);
+  });
+}
+
+test('invalid process probe output falls back to the live filesystem', async () => {
+  const record = parseWslProcessLine('7\t1\tinit\t/sbin/init\t/');
+  assert.ok(record);
+  const result = await listWslProcesses({
+    distribution: 'Ubuntu',
+    runWsl: async () => 'shell startup noise',
+    readFilesystem: async () => ({ records: [record] }),
+  });
+  assert.deepEqual(result.records, [record]);
+  assert.equal(result.source, 'filesystem');
+  assert.equal(result.error, undefined);
+  assert.match(result.warning ?? '', /process/iu);
+});
+
+test('a complete process table without supported agents produces a normal empty group list', async () => {
+  const result = await listWslProcesses({
+    distribution: 'Ubuntu',
+    runWsl: async () => '7\t1\tinit\t/sbin/init\t/\n9\t7\tsh\tsh\t/\n',
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.complete, undefined);
+  assert.equal(result.records.length, 2);
+  assert.deepEqual(groupProcesses(result.records, { distribution: 'Ubuntu', currentProcessId: 50, sameUserOnly: false }), []);
+});
+
+test('a complete empty filesystem fallback stays complete despite the command warning', async () => {
+  const result = await listWslProcesses({
+    distribution: 'Ubuntu',
+    runWsl: async () => { throw new Error('command unavailable'); },
+    readFilesystem: async () => ({ records: [] }),
+  });
+  assert.deepEqual(result.records, []);
+  assert.equal(result.source, 'filesystem');
+  assert.equal(result.error, undefined);
+  assert.equal(result.complete, undefined);
+  assert.match(result.warning ?? '', /command unavailable/u);
+});
+
+for (const preferFilesystem of [false, true]) {
+  test(`partial filesystem records cannot establish process exits (filesystem first: ${preferFilesystem})`, async () => {
+    const record = parseWslProcessLine('42\t1\tcodex\tcodex\t/work');
+    assert.ok(record);
+    let commandReads = 0;
+    const result = await listWslProcesses({
+      distribution: 'Ubuntu', preferFilesystem,
+      runWsl: async () => { commandReads += 1; throw new Error('command unavailable'); },
+      readFilesystem: async () => ({ records: [record], error: 'filesystem discovery timed out' }),
+    });
+    assert.deepEqual(result.records, [record]);
+    assert.equal(result.error, undefined);
+    assert.equal(result.source, 'filesystem');
+    assert.equal(result.complete, false);
+    assert.match(result.warning ?? '', /filesystem discovery timed out/u);
+    assert.equal(commandReads, preferFilesystem ? 0 : 1);
+  });
+}
+
+test('the process probe propagates ps failure instead of succeeding with an empty table', { skip: process.platform === 'win32' }, async () => {
+  const result = await listWslProcesses({
+    distribution: 'Ubuntu',
+    runWsl: async (_distribution, script) => runLocalProbe(script, "printf '%s\\n' 'ps failed' >&2; return 23"),
+  });
+  assert.deepEqual(result.records, []);
+  assert.match(result.error ?? '', /ps failed/u);
+  assert.match(result.error ?? '', /exit 23/u);
+});
+
+test('the process probe preserves command arguments while reading the captured ps table', { skip: process.platform === 'win32' }, async () => {
+  const result = await listWslProcesses({
+    distribution: 'Ubuntu',
+    runWsl: async (_distribution, script) => runLocalProbe(script,
+      "printf '%s\\n' '2147483600 1 node node /work/codex \"two words\" --flag=literal\\value'"),
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.records.length, 1);
+  assert.equal(result.records[0]?.pid, 2147483600);
+  assert.equal(result.records[0]?.commandLine, 'node /work/codex "two words" --flag=literal\\value');
 });
 
 for (const discovery of ['WSL processes', 'WSL launchers', 'WSL distributions'] as const) {

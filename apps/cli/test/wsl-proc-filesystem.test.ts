@@ -99,6 +99,73 @@ test('PID reuse and exit between stat reads cannot produce mixed process records
   assert.deepEqual(result.records.map(record => record.pid), [44]); assert.equal(result.error, undefined);
 });
 
+test('mandatory proc read failures cannot masquerade as a successful empty collection', async t => {
+  const root = await fixture(t); await processFixture(root, 42);
+  const result = await readWslProcFilesystem('Ubuntu', { rootDirectory: root, readFile: async path => {
+    if (path === join(root, 'proc', '42', 'stat')) throw Object.assign(new Error('proc bridge unavailable'), { code: 'EIO' });
+    return readFile(path);
+  } });
+  assert.deepEqual(result.records, []);
+  assert.match(result.error ?? '', /EIO/u, 'an unavailable process scan must not confirm an empty collection');
+});
+
+test('mandatory proc read failures preserve verified records and report an incomplete scan', async t => {
+  for (const code of ['EIO', 'EACCES', 'ENOTCONN']) {
+    for (const failedRead of [1, 2]) {
+      const root = await fixture(t); for (const pid of [42, 43]) await processFixture(root, pid);
+      let reads = 0;
+      const result = await readWslProcFilesystem('Ubuntu', { rootDirectory: root, readFile: async path => {
+        if (path === join(root, 'proc', '42', 'stat') && ++reads === failedRead) {
+          throw Object.assign(new Error('proc bridge unavailable'), { code });
+        }
+        return readFile(path);
+      } });
+      assert.deepEqual(result.records.map(record => record.pid), [43], `${code} on stat read ${failedRead}`);
+      assert.match(result.error ?? '', new RegExp(code, 'u'), 'completed records must not hide an incomplete scan');
+    }
+  }
+});
+
+test('cmdline bridge failures report an incomplete scan while retaining verified process records', async t => {
+  for (const code of ['EIO', 'ENOTCONN']) {
+    const root = await fixture(t); for (const pid of [42, 43]) await processFixture(root, pid);
+    const result = await readWslProcFilesystem('Ubuntu', { rootDirectory: root, readFile: async path => {
+      if (path === join(root, 'proc', '42', 'cmdline')) throw Object.assign(new Error('proc bridge unavailable'), { code });
+      return readFile(path);
+    } });
+    assert.ok(result.records.some(record => record.pid === 43 && record.commandLine?.includes('/home/han/.local/bin/codex')));
+    assert.match(result.error ?? '', new RegExp(code, 'u'), 'a lost process signature must not confirm a complete collection');
+  }
+});
+
+test('ordinary environment and status access denials do not make the process scan unavailable', async t => {
+  const root = await fixture(t); await processFixture(root, 42, 0, '/root');
+  const result = await readWslProcFilesystem('Ubuntu', { rootDirectory: root, readFile: async path => {
+    if (['environ', 'status'].includes(basename(path))) throw Object.assign(new Error('root process metadata denied'), { code: 'EACCES' });
+    return readFile(path);
+  } });
+  assert.deepEqual(result.records.map(record => record.pid), [42]);
+  assert.ok(result.records[0]!.commandLine?.includes('/home/han/.local/bin/codex'));
+  assert.equal(result.error, undefined);
+});
+
+test('ENOENT and ESRCH during mandatory proc reads remain ordinary exit races', async t => {
+  for (const code of ['ENOENT', 'ESRCH']) {
+    for (const failedRead of [1, 2]) {
+      const root = await fixture(t); for (const pid of [42, 43]) await processFixture(root, pid);
+      let reads = 0;
+      const result = await readWslProcFilesystem('Ubuntu', { rootDirectory: root, readFile: async path => {
+        if (path === join(root, 'proc', '42', 'stat') && ++reads === failedRead) {
+          throw Object.assign(new Error('process exited'), { code });
+        }
+        return readFile(path);
+      } });
+      assert.deepEqual(result.records.map(record => record.pid), [43], `${code} on stat read ${failedRead}`);
+      assert.equal(result.error, undefined, 'a process exiting during a healthy scan must not become a distribution outage');
+    }
+  }
+});
+
 test('home comes from a trustworthy UID and passwd instead of Windows names or unverified HOME', async t => {
   const root = await fixture(t); await processFixture(root, 42);
   assert.equal((await readWslProcFilesystem('Ubuntu-22.04', { rootDirectory: root })).homeDirectory, '/home/han');
