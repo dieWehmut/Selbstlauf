@@ -1,5 +1,7 @@
 # AgentRouter 集成与本机实测（2026-11-11）
 
+本页保留 `f85ce74` 阶段的历史证据。后续项目目录、应用安装检测、手机显示及最新本机安装验收见[2026-11-12 记录](2026-11-12-project-and-application-detection.md)。
+
 产品代码为 [`f85ce74`](https://github.com/dieWehmut/Selbstlauf/commit/f85ce747ac68c960c2fdbe9e5e7f2b7e9ab00057)。本机 Windows Selbstlauf 已安装此代码的 x64 包，Android Studio 已打开工程并通过 IDE Run 安装、启动最新 APK；两端实际目录、官方图标和原生交互验证通过。
 
 ## 覆盖与行为

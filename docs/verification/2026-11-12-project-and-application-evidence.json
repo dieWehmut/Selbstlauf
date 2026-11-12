@@ -1,0 +1,609 @@
+{
+  "productHead": "ca06072efd69cd6787f4b77675fc9ee05f8ca426",
+  "coverage": {
+    "agentRouterGuides": 17,
+    "launchCatalog": 24,
+    "cliCatalog": 13,
+    "brandedAgents": 22,
+    "publisherIconFiles": 21,
+    "sources": "../../apps/web/public/tool-icons/sources.json",
+    "implementation": "../implementation/agentrouter-agents.md"
+  },
+  "tests": {
+    "productHead": "ca06072efd69cd6787f4b77675fc9ee05f8ca426",
+    "workspaceBuild": {
+      "exitCode": 0,
+      "command": "npm run build",
+      "sessionId": 78012
+    },
+    "cli": {
+      "exitCode": 0,
+      "total": 540,
+      "passed": 525,
+      "skipped": 15,
+      "failed": 0,
+      "command": "node --test --test-concurrency=1 apps/cli/dist/test/*.test.js",
+      "sessionId": 67130
+    },
+    "web": {
+      "exitCode": 0,
+      "passed": 385,
+      "failed": 0,
+      "command": "npm --workspace @ai-cli-bypass/web run test -- --maxWorkers=1 --minWorkers=1",
+      "sessionId": 11785
+    },
+    "provenance": "Live exec_command and terminal write_stdin results in this goal turn",
+    "logs": {
+      "workspace-build.log": {
+        "bytes": 2322,
+        "sha256": "21b1552f8805f2cc7eb565c4efb55fe13f083a072425e5bc78b83c119641e34c"
+      },
+      "cli-full.log": {
+        "bytes": 48949,
+        "sha256": "626abbddefd5a6834f32ed3f1d6f49ea22414cb1dc342f4fbb9aff9bfd6841d7"
+      },
+      "web-full.log": {
+        "bytes": 2197,
+        "sha256": "6f240f2c72451cacb2888016e7a884b2edf615cdeb515469855ea61cf2150b27"
+      }
+    }
+  },
+  "desktopPriorTests": {
+    "passed": 171,
+    "sourceUnchanged": true,
+    "independentCurrentCompilationMatches": true
+  },
+  "mobileTests": {
+    "total": 35,
+    "passed": 35,
+    "typecheck": "exit 0"
+  },
+  "remoteCi": {
+    "url": "https://github.com/dieWehmut/Selbstlauf/actions/runs/43164906791",
+    "headSha": "ca06072efd69cd6787f4b77675fc9ee05f8ca426",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "browser",
+        "conclusion": "success"
+      },
+      {
+        "name": "build",
+        "conclusion": "success"
+      },
+      {
+        "name": "deploy",
+        "conclusion": "success"
+      }
+    ],
+    "browserPassed": 107,
+    "pagesPassed": 4
+  },
+  "windows": {
+    "capturedAtUtc": "2026-11-12T06:17:59.032Z",
+    "version": "0.9.5",
+    "architecture": "x64",
+    "installer": {
+      "bytes": 172613587,
+      "sha256": "4cb371e6da4cf8c29c95da489b627a601cc7d8c292a2c68ffedaddc2109137b0"
+    },
+    "frozenInputs": 211,
+    "manifestSha256": "13b09447e203af9da310cea8a4fd15c900d40c9a0f0d22fd42bc8ddd540ea546",
+    "packagedResources": 187,
+    "installedFiles": 439,
+    "installedResourceFiles": 368,
+    "filesMatch": true,
+    "configurationUnchanged": true,
+    "configSha256": "b9423f6297145f859cba41845d80ae20d25208524b286f378a358082af46229c",
+    "installationCounts": {
+      "installed": 19,
+      "missing": 3,
+      "unknown": 0
+    },
+    "inventoryChecks": [
+      {
+        "id": "claude",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "codex",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "gemini",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "grok",
+        "apiStatus": "not-found",
+        "domBadge": "未找到",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "opencode",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "openclaw",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "qwen",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "hermes",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "pi",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "crush",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "dsh",
+        "apiStatus": "not-found",
+        "domBadge": "未找到",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "cline",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "kilo",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "roo",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "claude-app",
+        "apiStatus": "not-found",
+        "domBadge": "未找到",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "trae",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "zcode",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "workbuddy",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "workbuddy-intl",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "craft-agents",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "antigravity",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      },
+      {
+        "id": "cursor",
+        "apiStatus": "installed",
+        "domBadge": "已安装",
+        "pathShown": true,
+        "extensionsShown": true,
+        "okay": true
+      }
+    ],
+    "polls": [
+      {
+        "lastPollAtMs": 1794464253949,
+        "root": {
+          "id": "wsl:Ubuntu-22.04:codex:3801:thread:01a1ce3c-bae4-7311-9935-64c689381e53",
+          "tool": "codex",
+          "rootPid": 3801,
+          "alive": true,
+          "transport": "codex-app-server",
+          "platform": "linux",
+          "distribution": "Ubuntu-22.04",
+          "sessionCwd": "/home/han/project/Selbstlauf",
+          "conversationId": "01a1ce3c-bae4-7311-9935-64c689381e53",
+          "transportError": null,
+          "runningTurn": true
+        },
+        "checks": {
+          "rootProject": true,
+          "Orchester": true,
+          "miceye": true,
+          "helperExcluded": true
+        }
+      },
+      {
+        "lastPollAtMs": 1794464257257,
+        "root": {
+          "id": "wsl:Ubuntu-22.04:codex:3801:thread:01a1ce3c-bae4-7311-9935-64c689381e53",
+          "tool": "codex",
+          "rootPid": 3801,
+          "alive": true,
+          "transport": "codex-app-server",
+          "platform": "linux",
+          "distribution": "Ubuntu-22.04",
+          "sessionCwd": "/home/han/project/Selbstlauf",
+          "conversationId": "01a1ce3c-bae4-7311-9935-64c689381e53",
+          "transportError": null,
+          "runningTurn": true
+        },
+        "checks": {
+          "rootProject": true,
+          "Orchester": true,
+          "miceye": true,
+          "helperExcluded": true
+        }
+      },
+      {
+        "lastPollAtMs": 1794464260585,
+        "root": {
+          "id": "wsl:Ubuntu-22.04:codex:3801:thread:01a1ce3c-bae4-7311-9935-64c689381e53",
+          "tool": "codex",
+          "rootPid": 3801,
+          "alive": true,
+          "transport": "codex-app-server",
+          "platform": "linux",
+          "distribution": "Ubuntu-22.04",
+          "sessionCwd": "/home/han/project/Selbstlauf",
+          "conversationId": "01a1ce3c-bae4-7311-9935-64c689381e53",
+          "transportError": null,
+          "runningTurn": true
+        },
+        "checks": {
+          "rootProject": true,
+          "Orchester": true,
+          "miceye": true,
+          "helperExcluded": true
+        }
+      }
+    ],
+    "finalProjects": {
+      "rootProject": true,
+      "Orchester": true,
+      "miceye": true,
+      "helperExcluded": true
+    },
+    "writerValidation": {
+      "capturedAtUtc": "2026-11-12T06:19:34.514Z",
+      "apiSessionCount": 26,
+      "verifiedSharedDaemonThreads": 21,
+      "projectGroups": [
+        "/home/han/project/Selbstlauf",
+        "/home/han/project/Entwurf",
+        "/mnt/c/users/han/project/miceye",
+        "/home/han/project/Orchester"
+      ],
+      "lifetimeStable": true,
+      "helperExcluded": true,
+      "okay": true
+    },
+    "actualElectronRenderer": true,
+    "nativeCaptures": {
+      "overview": {
+        "capturedAtUtc": "2026-11-12T06:17:55.3130683Z",
+        "processId": 27100,
+        "windowHandle": 1770990,
+        "visible": true,
+        "minimized": false,
+        "ownershipVerifiedAfterCapture": true,
+        "boundsVerifiedAfterCapture": true,
+        "screenshotSha256": "3A9E86548783C566E21BDE2191C8A86A39192AF3511A944159033739CC10710B",
+        "screenshotBytes": 374941,
+        "captureMethod": "PrintWindow PW_RENDERFULLCONTENT, physical pixels"
+      },
+      "rootSidebar": {
+        "capturedAtUtc": "2026-11-12T06:17:56.5386806Z",
+        "processId": 27100,
+        "windowHandle": 1770990,
+        "visible": true,
+        "minimized": false,
+        "ownershipVerifiedAfterCapture": true,
+        "boundsVerifiedAfterCapture": true,
+        "screenshotSha256": "E4AEFCA4A9F519C105FFA4A584212BA1D326956536279BA7551A908B209AD187",
+        "screenshotBytes": 388259,
+        "captureMethod": "PrintWindow PW_RENDERFULLCONTENT, physical pixels"
+      },
+      "workbuddyInventory": {
+        "capturedAtUtc": "2026-11-12T06:17:58.4054183Z",
+        "processId": 27100,
+        "windowHandle": 1770990,
+        "visible": true,
+        "minimized": false,
+        "ownershipVerifiedAfterCapture": true,
+        "boundsVerifiedAfterCapture": true,
+        "screenshotSha256": "99E66725CED69F8F5E5770A763C0161CA81F3317DD4D7B3637155F7219619E7A",
+        "screenshotBytes": 319204,
+        "captureMethod": "PrintWindow PW_RENDERFULLCONTENT, physical pixels"
+      }
+    },
+    "table": {
+      "maxRowHeightCssPx": 90,
+      "allIdsSingleLine": true
+    },
+    "iconsDecodedAndHashed": 22,
+    "pageErrors": [],
+    "failedResources": [],
+    "modelRequestsIssued": false,
+    "agentProcessesMutated": false,
+    "finalOrdinaryLaunch": {
+      "pid": 4936,
+      "processStartUtc": "2026-11-12T06:33:14.8955670Z",
+      "hwnd": 1967600,
+      "executable": "C:\\Users\\han\\AppData\\Local\\Programs\\Selbstlauf\\Selbstlauf.exe",
+      "commandLine": "\"C:\\Users\\han\\AppData\\Local\\Programs\\Selbstlauf\\Selbstlauf.exe\"",
+      "oldDebugPort": 60311,
+      "oldDebugPortClosed": true,
+      "testFlagsAbsent": true,
+      "completedPolls": [
+        1794465688527,
+        1794465691924
+      ],
+      "watchdogPidRecord": {
+        "pid": 4936,
+        "port": "48920",
+        "startedAtMs": 1794465210267,
+        "processStartedAtMs": 1794465194925,
+        "executablePath": "C:\\Users\\han\\AppData\\Local\\Programs\\Selbstlauf\\Selbstlauf.exe",
+        "entryPath": "C:\\Users\\han\\AppData\\Local\\Programs\\Selbstlauf\\resources\\service-dist\\src\\index.js",
+        "entry": "watchdog"
+      },
+      "rootSession": {
+        "id": "wsl:Ubuntu-22.04:codex:3801:thread:01a1ce3c-bae4-7311-9935-64c689381e53",
+        "rootPid": 3801,
+        "conversationId": "01a1ce3c-bae4-7311-9935-64c689381e53",
+        "cwd": "/home/han/project/Selbstlauf",
+        "alive": true,
+        "transport": "codex-app-server"
+      },
+      "sessionCount": 25
+    },
+    "processPreservation": {
+      "wsl": [
+        {
+          "pid": 911,
+          "originalStartTicks": "2329",
+          "currentStartTicks": "2329",
+          "sameProcess": true
+        },
+        {
+          "pid": 2521,
+          "originalStartTicks": "29360",
+          "currentStartTicks": "29360",
+          "sameProcess": true
+        },
+        {
+          "pid": 3801,
+          "originalStartTicks": "67144",
+          "currentStartTicks": "67144",
+          "sameProcess": true
+        },
+        {
+          "pid": 10539,
+          "originalStartTicks": "334327",
+          "currentStartTicks": "334327",
+          "sameProcess": true
+        }
+      ],
+      "allWslPreserved": true,
+      "windowsNode": [
+        {
+          "pid": 20284,
+          "originalStartUtc": "2026-11-12T04:36:24.1677881Z",
+          "currentStartUtc": "2026-11-12T04:36:24.1677881Z",
+          "sameProcess": true
+        },
+        {
+          "pid": 22532,
+          "originalStartUtc": "2026-11-12T04:37:05.7936994Z",
+          "currentStartUtc": "2026-11-12T04:37:05.7936994Z",
+          "sameProcess": true
+        }
+      ],
+      "allWindowsNodePreserved": true
+    },
+    "cleanupNote": "Debug startup instance was closed and ordinary installed app remains open. Taskkill reported unsupported WSL probe descendants, but app and debug listener were authoritatively gone; no kill retry. WSL and Windows user process identities were rechecked unchanged.",
+    "rootFinalConfirmation": {
+      "provenance": "Root live PowerShell read of installed process and actual /api/health and /api/sessions after ordinary startup",
+      "pid": 4936,
+      "running": true,
+      "watchdogRunning": true,
+      "lastPollAtMs": 1794467190063,
+      "observedSessionCount": 35,
+      "rootCount": 1,
+      "rootCwd": "/home/han/project/Selbstlauf",
+      "rootAlive": true
+    }
+  },
+  "android": {
+    "mobileCommit": "9486415",
+    "framework": "Vue 3 + Capacitor 8.6.0",
+    "studio": {
+      "pid": 63469,
+      "alive": true,
+      "project": "/home/han/project/Selbstlauf/apps/mobile/android",
+      "initialCliState": "READY",
+      "finalCliDiscovery": "android studio check lost instance metadata; process, X11 window, live TCP43543 and IDE Run evidence remain authoritative",
+      "ideRun": true,
+      "evidence": "studio-run-evidence.log"
+    },
+    "device": {
+      "serial": "emulator-5554",
+      "avd": "orchester-qa",
+      "api": 36,
+      "release": "16",
+      "appPid": "4506"
+    },
+    "apkSha256": "19c6135b73b7a151f393fea1d9e726aae2ba30a3f5b8435137d1f97865b4bc16",
+    "installedApkSha256": "19c6135b73b7a151f393fea1d9e726aae2ba30a3f5b8435137d1f97865b4bc16",
+    "apkMatches": true,
+    "ui": {
+      "all22MatchedNativeHttpWindowsSnapshot": true,
+      "counts": {
+        "installed": 19,
+        "not-found": 3,
+        "unknown": 0
+      },
+      "uniqueIds": true,
+      "pathsAndExtensionsAllMatch": true,
+      "officialIconsDecoded": 22,
+      "publisherLinksMatch": 22,
+      "scope": "Native installed WebView rendering via isolated gateway serving actual Windows 3397aa4 read-only snapshot; not a live Windows remote gateway or physical Wi-Fi connection."
+    },
+    "unknownScenario": {
+      "fixture": true,
+      "status": "unknown"
+    },
+    "allPublisherIconsInApk": true,
+    "sourceAndApkCounts": {
+      "tools": 24,
+      "cli": 13,
+      "brands": 22,
+      "originalIconFiles": 21,
+      "exactOriginalApkFiles": 13,
+      "base64OriginalApkFiles": 3,
+      "viteSvgDataUrls": 5
+    },
+    "cleanup": {
+      "ownedGatewaysStopped": true,
+      "fixtureDirsRemoved": true,
+      "qaDevicesRemoved": true,
+      "keystoreTokensRemoved": true,
+      "otherDeviceRecordsPreserved": true,
+      "adbForward": "",
+      "adbReverse": "",
+      "rotation": {
+        "accelerometer_rotation": "1",
+        "user_rotation": "0"
+      },
+      "kvmExactPermissionsRestored": true,
+      "kvmAclAttributePresent": false
+    },
+    "leftOpen": {
+      "studio": 63469,
+      "emulator": 95271,
+      "app": "4506",
+      "unpaired": true
+    },
+    "scope": "Native installed Android WebView fetched an isolated gateway backed by a frozen read-only snapshot from installed Windows 3397aa4. This verifies mobile rendering/native HTTP/catalog integrity, not live Windows remote gateway, physical-phone Wi-Fi, or model authentication. No new four-test instrumentation claim."
+  },
+  "independentAudit": {
+    "file": "tmp/project-discovery-fix-20261111/final-qa-20261112/independent-audit.json",
+    "bytes": 9296,
+    "sha256": "9decd93fcf2439eaa33e7eca8903ccd66254499a926fca68fb103e43eb913bd9"
+  },
+  "screenshots": {
+    "2026-11-12-projects-windows.png": {
+      "bytes": 388259,
+      "sha256": "e4aefca4a9f519c105ffa4a584212ba1d326956536279ba7551a908b209ad187"
+    },
+    "2026-11-12-applications-windows.png": {
+      "bytes": 319204,
+      "sha256": "99e66725ced69f8f5e5770a763c0161ca81f3317dd4d7b3637155f7219619e7a"
+    },
+    "2026-11-12-applications-android.png": {
+      "bytes": 203408,
+      "sha256": "5e2681354412e6c3e1886c30660a6b45b5641c0f8917cc91684edd9a0ab27270"
+    },
+    "2026-11-12-studio-run.png": {
+      "bytes": 99748,
+      "sha256": "02089671963d3667d0ef38ed4f5758a5528ffb636bbc8bc5297cd9ae448864a0"
+    }
+  },
+  "limitations": [
+    "Native Linux/macOS external process providers are not implemented; this Windows installation verifies selected WSL discovery.",
+    "Shared editor extension hosts do not establish individual extension activity; installation is reported separately.",
+    "Newly supported agents without transcript/input adapters remain monitor-only.",
+    "Grok Build, DeepSeek Harness and Claude App were not found locally and are not claimed installed.",
+    "Android validation used a local emulator and a separate gateway serving an actual Windows API snapshot; not physical-phone Wi-Fi or a live Windows remote gateway."
+  ]
+}
