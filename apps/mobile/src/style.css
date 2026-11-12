@@ -106,6 +106,14 @@ textarea { min-height: 140px; resize: vertical; line-height: 1.65; }
 
 .session-summary h2 { margin: 18px 0 8px; font-size: 22px; overflow-wrap: anywhere; }
 .agent-label { display: flex; align-items: center; gap: 10px; color: var(--secondary); font-size: 14px; }
+.agent-installation { display: grid; gap: 12px; min-width: 0; margin: 16px 0 24px; padding: 16px; border-radius: 18px; background: var(--raised); }
+.agent-installation-status { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.agent-installation-badge { padding: 4px 9px; border-radius: 999px; background: var(--surface); font-weight: 500; }
+.agent-installation[data-status="installed"] .agent-installation-badge { color: var(--secondary); }
+.agent-installation-paths { display: grid; gap: 12px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.agent-installation-paths dt { margin-bottom: 4px; }
+.agent-installation-paths dd { margin: 0; overflow-wrap: anywhere; }
+.agent-installation code { overflow-wrap: anywhere; }
 .path-copy { color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .chip-row span { padding: 6px 10px; border-radius: 999px; color: var(--muted); background: var(--raised); font-size: 11px; }

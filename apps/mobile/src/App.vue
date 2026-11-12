@@ -3,12 +3,14 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { AgentSession, AgentTool, Session } from "./client";
 import AppIcon from "./components/AppIcon.vue";
 import SessionToolIcon from "./components/SessionToolIcon.vue";
+import AgentInstallationDetails from "./components/AgentInstallationDetails.vue";
 import AppearancePage from "./components/AppearancePage.vue";
 import TerminalView from "./components/TerminalView.vue";
 import { useAppearance } from "./composables/use-appearance";
 import { useRemoteControl, type SavedDevice } from "./composables/use-remote-control";
 import { canWriteMonitoredSession, monitoredSessionState, monitoredSessionWriteHint, sessionToolName } from "./session-presentation";
 import { sessionOutputReason } from "../../web/src/process/session-output-reasons";
+import { guidedInstallationHint, missingCommandHint, toolOptionLabel } from "./agent-installation";
 
 const remote = useRemoteControl();
 const {
@@ -365,17 +367,18 @@ onUnmounted(() => {
           <h2>打开智能体窗口</h2>
           <label>智能体
             <select v-model="launchTool" :disabled="!controlsAvailable">
-              <option v-for="tool in availableTools" :key="tool.id" :value="tool.id">{{ tool.label }}{{ tool.kind === 'desktop' ? '（桌面应用）' : tool.kind === 'extension' ? '（编辑器扩展）' : tool.available ? '' : '（未安装）' }}</option>
+              <option v-for="tool in availableTools" :key="tool.id" :value="tool.id">{{ toolOptionLabel(tool) }}</option>
             </select>
           </label>
           <span v-if="selectedLaunchTool" class="agent-label"><SessionToolIcon :tool="selectedLaunchTool.id" />{{ selectedLaunchTool.label }}</span>
+          <AgentInstallationDetails v-if="selectedLaunchTool && selectedLaunchTool.id !== 'shell'" :tool="selectedLaunchTool" />
           <template v-if="!guidedLaunch">
             <label>电脑工作目录<input v-model="launchCwd" placeholder="C:\project 或 /home/user/project" /></label>
             <label>窗口名称（可选）<input v-model="launchTitle" placeholder="新任务" /></label>
-            <p v-if="selectedLaunchTool && !selectedLaunchTool.available" class="hint">尚未在电脑上找到此工具，请先在电脑安装。<code v-if="selectedLaunchTool.installCommand">{{ selectedLaunchTool.installCommand }}</code></p>
+            <p v-if="selectedLaunchTool && !selectedLaunchTool.available" class="hint">{{ missingCommandHint(selectedLaunchTool) }}<code v-if="selectedLaunchTool.installCommand">{{ selectedLaunchTool.installCommand }}</code></p>
             <button class="primary-button full-width" type="submit" :disabled="busy || !controlsAvailable || !canLaunch"><AppIcon name="play" />启动</button>
           </template>
-          <p v-else class="hint">请在电脑安装并打开此应用或编辑器扩展，然后按接入指南配置模型。</p>
+          <p v-else-if="selectedLaunchTool" class="hint">{{ guidedInstallationHint(selectedLaunchTool) }}</p>
           <div v-if="selectedLaunchTool" class="chip-row">
             <a v-if="selectedLaunchTool.installUrl" :href="selectedLaunchTool.installUrl" target="_blank" rel="noreferrer">官方安装</a>
             <a v-for="url in selectedLaunchTool.guideUrls" :key="url" :href="url" target="_blank" rel="noreferrer">AgentRouter 接入指南</a>
