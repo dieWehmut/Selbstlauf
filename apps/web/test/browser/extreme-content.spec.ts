@@ -35,11 +35,10 @@ const LONG = {
 /** How much wider than the baseline the table may become: one capped cell's worth of slack. */
 const MAXIMUM_GROWTH = 200;
 
-/** Serve the demo API over real HTTP, with the first session replaced when one is given. */
-async function serve(page: Page, extreme: SessionView | null): Promise<void> {
+/** Serve supplied sessions over the real HTTP client, retaining demo settings and service metadata. */
+async function serve(page: Page, sessions: readonly SessionView[] | null): Promise<void> {
   const demo = createStaticDemoApi();
-  const sessions = await demo.sessions();
-  const body = extreme === null ? sessions : [extreme, ...sessions.slice(1)];
+  const body = sessions ?? await demo.sessions();
 
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -117,7 +116,8 @@ test('a session with absurd values does not break the shell', async ({ page }, t
 
   await page.unrouteAll();
   const demo = createStaticDemoApi();
-  await serve(page, extremeSession((await demo.sessions())[0]!));
+  const sessions = await demo.sessions();
+  await serve(page, [extremeSession(sessions[0]!), ...sessions.slice(1)]);
   await page.goto('/');
   await expect(page.locator('.sidebar-row__open').first()).toBeVisible();
 
@@ -193,4 +193,61 @@ test('a session with absurd values does not break the shell', async ({ page }, t
   await page.screenshot({ path: testInfo.outputPath('extreme-narrow.png'), fullPage: true });
 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
+});
+
+test('real thread IDs keep shared-daemon project rows compact and remain readable in details', async ({ page }, testInfo) => {
+  const demo = createStaticDemoApi();
+  const template = (await demo.sessions()).find((session) => session.tool === 'codex')!;
+  const sessions: SessionView[] = Array.from({ length: 8 }, (_, index) => {
+    const conversationId = `01a1c977-e596-7c43-8848-6308b65eeb4${index}`;
+    return {
+      ...template,
+      id: `wsl:Ubuntu-22.04:codex:3801:thread:${conversationId}`,
+      rootPid: 3801,
+      conversationId,
+      sessionCwd: `/home/han/project/${index % 2 === 0 ? 'Selbstlauf' : 'Orchester'}`,
+      platform: 'linux',
+      distribution: 'Ubuntu-22.04',
+      goal: index % 2 === 0 ? null : { status: 'active', updatedAtMs: 1 },
+    };
+  });
+  await serve(page, sessions);
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+
+  for (const width of [1280, 1680]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await expect(page).toHaveTitle(/Selbstlauf/u);
+    await expect(page.getByRole('heading', { name: '进程监控' })).toBeVisible();
+    await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+    const rows = page.locator('.process-table tbody tr');
+    await expect(rows).toHaveCount(sessions.length);
+    const layout = await rows.evaluateAll((elements) => elements.map((row) => ({
+      height: row.getBoundingClientRect().height,
+      conversationWidth: row.querySelector('td:nth-child(4)')!.getBoundingClientRect().width,
+      idHeight: row.querySelector('.conversation-id')!.getBoundingClientRect().height,
+    })));
+    console.log(`thread rows at ${width}px: max height ${Math.max(...layout.map((row) => row.height))}px, conversation column ${layout[0]!.conversationWidth}px, ID ${layout[0]!.idHeight}px`);
+    expect(Math.max(...layout.map((row) => row.height)), `long thread IDs stretched rows at ${width}px`).toBeLessThan(140);
+    expect(Math.min(...layout.map((row) => row.conversationWidth)), 'the conversation column is squeezed to a few characters').toBeGreaterThanOrEqual(120);
+    expect(Math.max(...layout.map((row) => row.idHeight)), 'thread IDs wrap into many lines').toBeLessThan(20);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    await expect(rows.first().getByRole('button', { name: '立即续写 PID 3801' })).toBeEnabled();
+    await expect(rows.first().locator('.conversation-id')).toHaveAttribute('title', sessions[0]!.conversationId!);
+    await page.screenshot({ path: testInfo.outputPath(`thread-rows-${width}.png`), fullPage: false });
+  }
+
+  await page.locator(`[data-session-id="${sessions[0]!.id}"] .sidebar-row__open`).click();
+  await expect(page.getByRole('heading', { name: '进程详情' })).toBeVisible();
+  await expect(page.locator('.process-detail__grid')).toContainText(sessions[0]!.conversationId!);
+  await expect(page.locator('.process-detail__grid')).toContainText('/home/han/project/Selbstlauf');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect(page.locator('.session-card')).toHaveCount(sessions.length);
+  await expect(page.locator('.session-card').first()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: testInfo.outputPath('thread-cards-390.png'), fullPage: false });
+  expect(pageErrors).toEqual([]);
 });

@@ -935,7 +935,7 @@ function ProcessTable(props: {
                 </td>
                 <td><HostCell session={session} /></td>
                 <td><CapabilityBadge session={session} /></td>
-                <td><strong className="conversation">{conversationLabel(session)}</strong><span className="subtle conversation-id">{session.conversationId ?? t("未关联")}</span></td>
+                <td className="conversation-cell"><strong className="conversation" title={conversationLabel(session)}>{conversationLabel(session)}</strong><span className="subtle conversation-id" title={session.conversationId ?? undefined}>{session.conversationId ?? t("未关联")}</span></td>
                 <td><strong>{formatDuration(quietMs(session))}</strong><DecisionChip decision={session.lastDecision} tool={session.tool} /></td>
                 <td><code className="prompt-code">{nextPrompt(session, props.config)}</code></td>
                 <td><SessionActions session={session} busy={props.busy} onPause={props.onPause} onInject={props.onInject} onFocus={props.onFocus} allowReveal={props.allowReveal} onOpenTerminal={props.onOpenTerminal} /></td>
@@ -1028,7 +1028,7 @@ function ProcessDetail(props: {
       <dl className="process-detail__grid">
         <div><dt>{t("运行位置")}</dt><dd><HostCell session={session} /></dd></div>
         <div><dt>{t("能力")}</dt><dd><CapabilityBadge session={session} /></dd></div>
-        <div><dt>{t("对话")}</dt><dd>{conversationLabel(session)}</dd></div>
+        <div><dt>{t("对话")}</dt><dd>{conversationLabel(session)}{session.conversationId && <code className="process-detail__conversation-id">{session.conversationId}</code>}</dd></div>
         <div><dt>{t("静默")}</dt><dd>{formatDuration(quiet)}</dd></div>
         <div><dt>{t("状态")}</dt><dd><DecisionChip decision={session.lastDecision} tool={session.tool} /></dd></div>
         <div><dt>{t("启动于")}</dt><dd>{time(session.startedAtMs)}</dd></div>

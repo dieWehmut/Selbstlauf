@@ -406,7 +406,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .capability--ready { color: var(--green); border-color: color-mix(in srgb, var(--green) 32%, transparent); background: color-mix(in srgb, var(--green) 9%, transparent); }
 .capability--ready .capability__dot { background: var(--green); }
 .capability--limited { color: var(--muted); }
-.conversation { display: block; font-size: 12px; font-weight: 600; }
+.conversation-cell { min-width: 120px; }
+.conversation { display: block; max-width: 180px; overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .prompt-code, .session-card code { display: inline-block; max-width: 180px; padding: 5px 9px; overflow: hidden; border-radius: var(--radius-xs); color: var(--accent-strong); background: var(--panel-soft); font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .state-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 22px; margin-top: 5px; padding: 2px 9px; border: 1px solid var(--line-soft); border-radius: var(--radius-pill); color: var(--muted); background: var(--panel-soft); font: 10px var(--mono); white-space: nowrap; }
 .state-chip__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -414,11 +415,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .state-chip--waiting { color: var(--accent-strong); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 .state-chip--limited { color: var(--muted); }
 .state-chip--error { color: var(--red); border-color: color-mix(in srgb, var(--red) 30%, transparent); }
-/* The conversation id is a raw identifier: a session id or a thread id can be any length, and this
-   cell is what made the table 2525px wide with one long one. It wraps anywhere, like the workspace
-   path above, rather than being ellipsised — a cap with `nowrap` would widen the cell for the demo's
-   own ids too. */
-.conversation-id { overflow-wrap: anywhere; }
+/* A thread ID must not dictate row height: anywhere wrapping let the automatic table squeeze
+   this column to a few characters and turn an ordinary UUID into ten lines. The column retains
+   a readable minimum; the ID truncates in one line, with its full value in the title and details. */
+.conversation-id { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.process-detail__conversation-id { display: block; margin-top: 5px; color: var(--muted); font: 10px var(--mono); }
 .host-cell { display: grid; gap: 5px; min-width: 120px; }
 .host-cell .subtle { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A pill, capped and ellipsised: the label comes from the host, so it can be any length, and an
