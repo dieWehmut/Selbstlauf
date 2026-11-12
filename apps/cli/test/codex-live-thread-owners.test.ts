@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
-import { link, lstat, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, mkdtemp, readFile, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -212,6 +212,91 @@ test('equal inode numbers need matching devices and a current descriptor lock an
   const processStat = await readFile(join(proc, String(pid), 'stat'), 'utf8');
   const nameEnd = processStat.lastIndexOf(')');
   await writeFile(join(proc, String(pid), 'stat'), `${processStat.slice(0, nameEnd + 1)} Z${processStat.slice(nameEnd + 3)}`);
+  await assertOwners(home, options, []);
+  await rm(join(proc, String(pid)), { recursive: true });
+  await assertOwners(home, options, []);
+});
+
+test('a known live writer with unreadable required process metadata fails instead of reporting no owners', { skip: !HAS_LINUX_LOCKS }, async t => {
+  for (const field of ['stat', 'fd', 'fdinfo/7']) {
+    await t.test(field, async child => {
+      const { home, options, pid, proc } = await kernelFixture(child);
+      const path = join(proc, String(pid), field);
+      await rm(path, { recursive: true });
+      // Real filesystem errors work under both privileged and ordinary test users.
+      if (field === 'fd') await writeFile(path, 'not a descriptor directory');
+      else await mkdir(path);
+      await assert.rejects(readCodexThreadOwners(home, options), /EISDIR|ENOTDIR/u);
+      assert.throws(() => probeOwners(home, options), failure => {
+        const error = failure as Error & { status: number; stderr: string };
+        return error.status !== 0 && /Is a directory|Not a directory/u.test(error.stderr);
+      });
+    });
+  }
+});
+
+test('unreadable valid lock candidates fail while unrelated filenames are ignored', {
+  skip: !HAS_LINUX_LOCKS || process.getuid?.() === 0,
+}, async t => {
+  const { home, options, pid } = await kernelFixture(t);
+  const directory = join(home, '.codex', 'thread-writer-locks');
+  try {
+    // Directory entries remain enumerable; candidate lstat requires the absent search permission.
+    await chmod(directory, 0o444);
+    await assert.rejects(readCodexThreadOwners(home, options), { code: 'EACCES' });
+    assert.throws(() => probeOwners(home, options), failure => {
+      const error = failure as Error & { status: number; stderr: string };
+      return error.status !== 0 && /Permission denied/u.test(error.stderr);
+    });
+    await chmod(directory, 0o700);
+    await assertOwners(home, options, [{ pid, threadId: THREAD }]);
+    await rename(join(directory, `${THREAD}.lock`), join(directory, 'unrelated.lock'));
+    await chmod(directory, 0o444);
+    await assertOwners(home, options, []);
+  } finally { await chmod(directory, 0o700); }
+});
+
+test('malformed metadata for a known writer cannot establish process exit', { skip: !HAS_LINUX_LOCKS }, async t => {
+  const { home, options, pid, proc } = await kernelFixture(t);
+  const path = join(proc, String(pid), 'stat');
+  const original = await readFile(path, 'utf8');
+  const nameEnd = original.lastIndexOf(')');
+  const prefix = original.slice(0, nameEnd + 1);
+  const fields = original.slice(nameEnd + 1).trim().split(/\s+/u);
+  for (const malformed of ['', 'truncated data', `${prefix} S 1 2`, original.replace(/^\d+/u, String(pid + 1)),
+    `${prefix} ${fields.map((value, index) => index === 19 ? 'invalid-start' : value).join(' ')}`]) {
+    await writeFile(path, malformed);
+    await assert.rejects(readCodexThreadOwners(home, options), /Invalid process stat/u);
+    assert.throws(() => probeOwners(home, options), failure => {
+      const error = failure as Error & { status: number; stderr: string };
+      return error.status !== 0 && /Invalid process stat/u.test(error.stderr);
+    });
+  }
+  for (const state of ['Z', 'X', 'x']) {
+    await writeFile(path, `${prefix} ${state}${original.slice(nameEnd + 3)}`);
+    await assertOwners(home, options, []);
+  }
+  await writeFile(path, original);
+  await assertOwners(home, options, [{ pid, threadId: THREAD }]);
+});
+
+test('unrelated inaccessible descriptors cannot invalidate an independently verified writer', { skip: !HAS_LINUX_LOCKS }, async t => {
+  const { home, options, pid, proc } = await kernelFixture(t);
+  // The looping descriptor raises ELOOP on stat; it does not identify the writer's inode.
+  await symlink('1', join(proc, String(pid), 'fd', '1'));
+  await assertOwners(home, options, [{ pid, threadId: THREAD }]);
+  await rm(join(proc, String(pid), 'fd', '7'));
+  // Without a verified descriptor the known writer cannot be disproved by that unreadable FD.
+  await assert.rejects(readCodexThreadOwners(home, options), /ELOOP/u);
+  assert.throws(() => probeOwners(home, options), failure => {
+    const error = failure as Error & { status: number; stderr: string };
+    return error.status !== 0 && /Too many levels of symbolic links/u.test(error.stderr);
+  });
+});
+
+test('a descriptor or process disappearing during verification remains a successful absence', { skip: !HAS_LINUX_LOCKS }, async t => {
+  const { home, options, pid, proc } = await kernelFixture(t);
+  await rm(join(proc, String(pid), 'fdinfo', '7'));
   await assertOwners(home, options, []);
   await rm(join(proc, String(pid)), { recursive: true });
   await assertOwners(home, options, []);

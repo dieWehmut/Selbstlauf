@@ -59,16 +59,28 @@ function kernelLocks(text: string, fdInfo = false): KernelLock[] {
 
 function lockSignature(lock: KernelLock): string { return `${lock.pid}/${lock.key}`; }
 
+function disappeared(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  return code === 'ENOENT' || code === 'ESRCH';
+}
+
 async function processStartTime(proc: string, pid: number): Promise<string | null> {
   try {
     const text = await readFile(join(proc, String(pid), 'stat'), 'utf8');
+    const nameStart = text.indexOf('(');
     const nameEnd = text.lastIndexOf(')');
-    if (nameEnd < 0 || Number(text.slice(0, text.indexOf(' '))) !== pid) return null;
+    const invalid = () => new Error(`Invalid process stat for Codex writer PID ${pid}`);
+    if (nameStart <= 0 || nameEnd <= nameStart || text.slice(0, nameStart).trim() !== String(pid)) throw invalid();
     const fields = text.slice(nameEnd + 1).trim().split(/\s+/u);
+    if (!/^[A-Za-z]$/u.test(fields[0] ?? '')) throw invalid();
     if (['Z', 'X', 'x'].includes(fields[0] ?? '')) return null;
     const start = fields[19]; // /proc/PID/stat field 22, after the parenthesized comm.
-    return start !== undefined && /^\d+$/u.test(start) && BigInt(start) > 0n ? start : null;
-  } catch { return null; }
+    if (start === undefined || !/^\d+$/u.test(start) || BigInt(start) <= 0n) throw invalid();
+    return start;
+  } catch (error) {
+    if (!disappeared(error)) throw error;
+    return null;
+  }
 }
 
 async function descriptorOwns(proc: string, pid: number, descriptor: string, key: string): Promise<boolean> {
@@ -77,7 +89,10 @@ async function descriptorOwns(proc: string, pid: number, descriptor: string, key
     if (!metadata.isFile() || fileKey(metadata) !== key) return false;
     const info = await readFile(join(proc, String(pid), 'fdinfo', descriptor), 'utf8');
     return kernelLocks(info, true).some(lock => lock.pid === pid && lock.key === key);
-  } catch { return false; }
+  } catch (error) {
+    if (!disappeared(error)) throw error;
+    return false;
+  }
 }
 
 /**
@@ -115,7 +130,10 @@ export async function readCodexThreadOwners(
       const candidates = files.get(key) ?? [];
       candidates.push({ path, threadId: canonicalId, key });
       files.set(key, candidates);
-    } catch { /* A removed lock file is not an owner. */ }
+    } catch (error) {
+      if (!disappeared(error)) throw error;
+      // A removed lock file is not an owner.
+    }
   }
   const before = kernelLocks(await readFile(join(proc, 'locks'), 'utf8'));
   const byPid = new Map<number, ThreadFile[]>();
@@ -133,19 +151,27 @@ export async function readCodexThreadOwners(
     if (startTime === null) continue;
     let descriptors: string[];
     try { descriptors = await readdir(join(proc, String(pid), 'fd')); }
-    catch { continue; }
+    catch (error) { if (!disappeared(error)) throw error; continue; }
     const remaining = new Map(candidates.map(file => [file.key, file]));
+    let descriptorError: unknown;
     for (const descriptor of descriptors) {
       if (!/^\d+$/u.test(descriptor)) continue;
+      let metadata: BigIntStats;
       try {
-        const metadata = await stat(join(proc, String(pid), 'fd', descriptor), { bigint: true });
-        const file = remaining.get(fileKey(metadata));
-        if (file === undefined || !await descriptorOwns(proc, pid, descriptor, file.key)) continue;
-        verified.push({ pid, threadId: file.threadId, file, descriptor, startTime });
-        remaining.delete(file.key);
-        if (remaining.size === 0) break;
-      } catch { /* Descriptors may close while scanning. */ }
+        metadata = await stat(join(proc, String(pid), 'fd', descriptor), { bigint: true });
+      } catch (error) {
+        // An unreadable unrelated descriptor is harmless once every candidate
+        // lock has independently been verified through another descriptor.
+        if (!disappeared(error)) descriptorError ??= error;
+        continue;
+      }
+      const file = remaining.get(fileKey(metadata));
+      if (file === undefined || !await descriptorOwns(proc, pid, descriptor, file.key)) continue;
+      verified.push({ pid, threadId: file.threadId, file, descriptor, startTime });
+      remaining.delete(file.key);
+      if (remaining.size === 0) break;
     }
+    if (remaining.size > 0 && descriptorError !== undefined) throw descriptorError;
   }
   const after = new Set(kernelLocks(await readFile(join(proc, 'locks'), 'utf8')).map(lockSignature));
   const owners: CodexThreadOwner[] = [];
@@ -157,7 +183,10 @@ export async function readCodexThreadOwners(
       if (!metadata.isFile() || fileKey(metadata) !== owner.file.key) continue;
       if (!await descriptorOwns(proc, owner.pid, owner.descriptor, owner.file.key)) continue;
       owners.push({ pid: owner.pid, threadId: owner.threadId });
-    } catch { /* Exit, rename, unlink, or inode replacement invalidates this observation. */ }
+    } catch (error) {
+      if (!disappeared(error)) throw error;
+      // Exit, rename, or unlink invalidates this observation.
+    }
   }
   return owners.sort((a, b) => a.pid - b.pid || a.threadId.localeCompare(b.threadId));
 }
@@ -165,7 +194,7 @@ export async function readCodexThreadOwners(
 function shellQuote(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
 
 // Keep program text fixed: neither home paths nor environment values are interpolated into Python.
-const OWNER_PROBE = `import json, os, re, stat, sys
+const OWNER_PROBE = `import errno, json, os, re, stat, sys
 
 uuid = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.I | re.ASCII)
 lock_row = re.compile(r'\\d+:[ \\t]+FLOCK[ \\t]+ADVISORY[ \\t]+WRITE[ \\t]+([1-9]\\d*)[ \\t]+([0-9a-f]+):([0-9a-f]+):(\\d+)[ \\t]+0[ \\t]+EOF', re.I | re.ASCII)
@@ -202,25 +231,40 @@ def text(path):
     with open(path, 'r', encoding='utf-8', errors='replace') as handle:
         return handle.read()
 
+def disappeared(error):
+    return error.errno in (errno.ENOENT, errno.ESRCH)
+
 def start_time(pid):
     try:
         value = text(os.path.join(proc, str(pid), 'stat'))
+        begin = value.find('(')
         end = value.rfind(')')
-        if end < 0 or value.split(' ', 1)[0] != str(pid):
-            return None
+        invalid = 'Invalid process stat for Codex writer PID ' + str(pid)
+        if begin <= 0 or end <= begin or value[:begin].strip() != str(pid):
+            raise ValueError(invalid)
         fields = value[end + 1:].split()
-        if fields[0] in ('Z', 'X', 'x') or not re.fullmatch(r'[0-9]+', fields[19]) or int(fields[19]) <= 0:
+        if not fields or not re.fullmatch(r'[a-z]', fields[0], re.I | re.ASCII):
+            raise ValueError(invalid)
+        if fields[0] in ('Z', 'X', 'x'):
             return None
+        if len(fields) < 20 or not re.fullmatch(r'[0-9]+', fields[19]) or int(fields[19]) <= 0:
+            raise ValueError(invalid)
         return fields[19]
-    except (OSError, ValueError, IndexError):
+    except OSError as error:
+        if not disappeared(error):
+            raise
         return None
 
 def descriptor_owns(pid, descriptor, inode):
     try:
         metadata = os.stat(os.path.join(proc, str(pid), 'fd', descriptor))
+        if not stat.S_ISREG(metadata.st_mode) or key(metadata) != inode:
+            return False
         info = text(os.path.join(proc, str(pid), 'fdinfo', descriptor))
-        return stat.S_ISREG(metadata.st_mode) and key(metadata) == inode and (pid, inode) in locks(info, True)
-    except OSError:
+        return (pid, inode) in locks(info, True)
+    except OSError as error:
+        if not disappeared(error):
+            raise
         return False
 
 try:
@@ -234,13 +278,16 @@ for entry in entries:
     if not entry.name.endswith('.lock') or not uuid.fullmatch(entry.name[:-5]):
         continue
     try:
+        if not entry.is_file(follow_symlinks=False):
+            continue
         metadata = entry.stat(follow_symlinks=False)
         if stat.S_ISREG(metadata.st_mode):
             thread_id = entry.name[:-5].lower()
             thread_counts[thread_id] = thread_counts.get(thread_id, 0) + 1
             files.setdefault(key(metadata), []).append((entry.path, thread_id))
-    except OSError:
-        pass
+    except OSError as error:
+        if not disappeared(error):
+            raise
 
 before = locks(text(os.path.join(proc, 'locks')))
 by_pid = {}
@@ -255,21 +302,28 @@ for pid, candidates in by_pid.items():
         continue
     try:
         descriptors = os.listdir(os.path.join(proc, str(pid), 'fd'))
-    except OSError:
+    except OSError as error:
+        if not disappeared(error):
+            raise
         continue
+    descriptor_error = None
     for descriptor in descriptors:
         if not re.fullmatch(r'[0-9]+', descriptor):
             continue
         try:
             inode = key(os.stat(os.path.join(proc, str(pid), 'fd', descriptor)))
-            candidate = candidates.get(inode)
-            if candidate and descriptor_owns(pid, descriptor, inode):
-                verified.append((pid, inode, candidate, descriptor, start))
-                del candidates[inode]
-                if not candidates:
-                    break
-        except OSError:
-            pass
+        except OSError as error:
+            if not disappeared(error) and descriptor_error is None:
+                descriptor_error = error
+            continue
+        candidate = candidates.get(inode)
+        if candidate and descriptor_owns(pid, descriptor, inode):
+            verified.append((pid, inode, candidate, descriptor, start))
+            del candidates[inode]
+            if not candidates:
+                break
+    if candidates and descriptor_error is not None:
+        raise descriptor_error
 after = locks(text(os.path.join(proc, 'locks')))
 owners = []
 for pid, inode, (path, thread_id), descriptor, start in verified:
@@ -279,8 +333,9 @@ for pid, inode, (path, thread_id), descriptor, start in verified:
         metadata = os.stat(path, follow_symlinks=False)
         if stat.S_ISREG(metadata.st_mode) and key(metadata) == inode and descriptor_owns(pid, descriptor, inode):
             owners.append({'pid': pid, 'threadId': thread_id})
-    except OSError:
-        pass
+    except OSError as error:
+        if not disappeared(error):
+            raise
 print(json.dumps(sorted(owners, key=lambda owner: (owner['pid'], owner['threadId']))))`;
 
 /** A read-only bash script accepted directly by runWslProbe; missing python3 fails explicitly. */
