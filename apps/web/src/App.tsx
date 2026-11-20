@@ -2444,6 +2444,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
     const settings = bridge?.settings;
     if (typeof settings?.get !== 'function' || typeof settings.set !== 'function') return undefined;
     let active = true;
+    let receivedChange = false;
     const apply = (current: { closeToTray?: boolean; preferredTerminal?: string | null }) => {
       if (!active) return;
       if (typeof current.closeToTray !== 'boolean') {
@@ -2455,13 +2456,16 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
       setDesktopSettingsReady(true);
       setDesktopSettingsError(null);
     };
-    const unsubscribe = settings.onChange?.(apply);
+    const unsubscribe = settings.onChange?.((current) => {
+      receivedChange = true;
+      apply(current);
+    });
     void (async () => {
       try {
         const current = await settings.get();
-        apply(current);
+        if (!receivedChange) apply(current);
       } catch (error) {
-        if (active) setDesktopSettingsError(message('读取桌面设置失败：{detail}', { detail: error instanceof Error ? error.message : String(error) }));
+        if (active && !receivedChange) setDesktopSettingsError(message('读取桌面设置失败：{detail}', { detail: error instanceof Error ? error.message : String(error) }));
       }
     })();
     return () => { active = false; unsubscribe?.(); };

@@ -2118,6 +2118,33 @@ describe('working settings integration', () => {
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
+  it('does not let an older initial desktop settings read overwrite a newer broadcast', async () => {
+    const reading = deferred<{ closeToTray: boolean; preferredTerminal: string | null }>();
+    let receive: ((value: { closeToTray: boolean; preferredTerminal: string | null }) => void) | undefined;
+    const set = vi.fn(async () => undefined);
+    Object.assign(window, { selbstlaufDesktop: { platform: 'linux', settings: {
+      get: () => reading.promise,
+      set,
+      onChange: (listener: typeof receive) => { receive = listener; return () => undefined; },
+    } } });
+    render(<App api={api()} />);
+    await waitFor(() => expect(receive).toBeTypeOf('function'));
+    openSettings();
+    fireEvent.click(await screen.findByRole('tab', { name: '启动与托盘' }));
+
+    act(() => receive?.({ closeToTray: false, preferredTerminal: 'konsole' }));
+    const toggle = screen.getByRole('checkbox', { name: '关闭时最小化到托盘' });
+    const terminal = screen.getByRole('combobox', { name: '首选终端' });
+    expect(toggle).not.toBeChecked();
+    expect(terminal).toHaveValue('konsole');
+
+    await act(async () => { reading.resolve({ closeToTray: true, preferredTerminal: 'system' }); await reading.promise; });
+    expect(toggle).not.toBeChecked();
+    expect(terminal).toHaveValue('konsole');
+    fireEvent.click(toggle);
+    await waitFor(() => expect(set).toHaveBeenCalledWith({ closeToTray: true }));
+  });
+
   it('opens the selected session through the desktop terminal action and reports a real refusal', async () => {
     const openTerminal = vi.fn().mockResolvedValueOnce({ ok: true, terminal: 'konsole' }).mockResolvedValueOnce({ ok: false, reason: '终端应用未安装' });
     Object.assign(window, { selbstlaufDesktop: { shell: { openTerminal } } });
