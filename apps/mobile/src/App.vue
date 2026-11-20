@@ -362,6 +362,12 @@ onUnmounted(() => {
         </form>
       </template>
 
+      <section v-else-if="screen === 'session'" class="panel empty-state" role="status">
+        <AppIcon name="sessions" /><h2>会话已不可用</h2>
+        <p class="hint">该会话可能已结束或当前连接已变化，请返回列表重新选择。</p>
+        <button class="primary-button" type="button" @click="returnToTab('sessions')">返回会话列表</button>
+      </section>
+
       <template v-else-if="screen === 'agents'">
         <form class="panel form-panel" @submit.prevent="launch">
           <h2>打开智能体窗口</h2>
@@ -423,6 +429,13 @@ onUnmounted(() => {
           <button class="tonal-button" type="button" :disabled="busy || !controlsAvailable || selectedAgent.status !== 'exited'" @click="removeSelectedAgent"><AppIcon name="trash" />删除</button>
         </section>
       </template>
+
+      <section v-else-if="screen === 'terminal'" class="panel empty-state" role="status">
+        <AppIcon name="terminal" /><h2>终端已不可用</h2>
+        <p class="hint">窗口可能已被删除或当前连接已变化，请返回列表重新选择。</p>
+        <p v-if="pollError" class="error-note">{{ pollError }}</p>
+        <button class="primary-button" type="button" @click="returnToTab('agents')">返回智能体列表</button>
+      </section>
 
       <template v-else-if="screen === 'settings'">
         <p class="page-intro">按你的方式使用 Selbstlauf</p>
