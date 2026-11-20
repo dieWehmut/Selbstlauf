@@ -223,12 +223,20 @@ export class ManagedAgentSessions {
   }
 
   private kill(session: ManagedSession, signal = 'SIGHUP'): void {
+    let groupFailure: unknown;
     if (this.platform !== 'win32' && (this.options.backend === undefined || this.options.backend.native === true)) {
       try { process.kill(-session.pty.pid, signal as NodeJS.Signals); } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') groupFailure = error;
       }
     }
-    session.pty.kill(this.platform === 'win32' ? undefined : signal);
+    try {
+      session.pty.kill(this.platform === 'win32' ? undefined : signal);
+    } catch (error) {
+      if (groupFailure !== undefined) {
+        throw new AggregateError([groupFailure, error], 'Process group and direct PTY termination both failed.');
+      }
+      throw error;
+    }
   }
 
   private async loadBackend(): Promise<AgentPtyBackend> {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { ManagedAgentSessions } from '../src/agents/managed-sessions.js';
-import { AgentSessionError } from '../src/agents/types.js';
+import { AgentSessionError, type AgentPtyBackend } from '../src/agents/types.js';
 import { terminalCommand } from '../src/agents/catalog.js';
 
 export const terminalFixture = fileURLToPath(new URL('./fixtures/agent-terminal.js', import.meta.url));
@@ -93,6 +93,39 @@ test('validates launch, input, dimensions and ownership before affecting any pro
   assert.equal(service.output(session.id).session.status, 'exited');
   await service.stop();
   await assert.rejects(service.launch({ tool: 'shell' }), { status: 503 });
+});
+
+test('falls back to the direct PTY kill when process-group signaling is denied', async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'agent-kill-fallback-'));
+  let exitListener: ((event: { exitCode: number; signal?: number }) => void) | undefined;
+  let directKills = 0;
+  const pty = {
+    pid: 43210,
+    write: () => undefined,
+    resize: () => undefined,
+    kill: () => { directKills += 1; exitListener?.({ exitCode: 0, signal: 1 }); },
+    onData: () => ({ dispose: () => undefined }),
+    onExit: (listener: typeof exitListener) => { exitListener = listener; return { dispose: () => undefined }; },
+  };
+  const backend: AgentPtyBackend = { native: true, spawn: () => pty };
+  const service = new ManagedAgentSessions({ backend, platform: 'linux', defaultCwd: cwd });
+  t.after(async () => {
+    exitListener?.({ exitCode: 0, signal: 1 });
+    await service.stop();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const session = await service.launch({ tool: 'custom', command: process.execPath });
+  const denied = Object.assign(new Error('not every process in the group can be signaled'), { code: 'EPERM' });
+  const groupSignal = t.mock.method(process, 'kill', (pid: number, _signal?: NodeJS.Signals | 0) => {
+    if (pid === -pty.pid) throw denied;
+    return true;
+  });
+
+  const stopped = await service.terminate(session.id);
+
+  assert.equal(groupSignal.mock.callCount(), 1);
+  assert.equal(directKills, 1, 'the PTY handle is still usable as a fallback');
+  assert.equal(stopped.status, 'exited');
 });
 
 test('terminates an owned process group including its child', { skip: process.platform === 'win32' }, async (t) => {
