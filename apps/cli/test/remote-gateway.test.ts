@@ -66,6 +66,22 @@ function codeSequence(...codes: string[]) {
   return () => codes[Math.min(index++, codes.length - 1)]!;
 }
 
+test('stop requested during remote gateway startup closes the listener before resolving', async (t) => {
+  const received: ReceivedRequest[] = [];
+  const local = await makeLocalServer(received);
+  const directory = await mkdtemp(join(tmpdir(), 'selbstlauf-remote-start-stop-'));
+  const gateway = new RemoteGateway({ localBaseUrl: local.url, statePath: join(directory, 'devices.json'), port: 0 });
+  t.after(async () => { await gateway.stop(); await local.close(); await rm(directory, { recursive: true, force: true }); });
+
+  const starting = gateway.start();
+  const stopping = gateway.stop();
+  await Promise.all([starting, stopping]);
+
+  assert.throws(() => gateway.url(), /remote gateway is not started/u);
+  await gateway.start();
+  assert.match(gateway.url(), /^http:\/\/127\.0\.0\.1:\d+$/u);
+});
+
 test('pairs one device, persists only its token hash, and restores it after restart', async (t) => {
   const received: ReceivedRequest[] = [];
   const local = await makeLocalServer(received);

@@ -77,6 +77,7 @@ export class RemoteGateway {
   private readonly attempts = new Map<string, PairingAttemptWindow>();
   private devices: StoredDevice[] = [];
   private pairing: RemotePairingView;
+  private lifecycleQueue: Promise<void> = Promise.resolve();
   private server: Server | null = null;
   private activePort: number | null = null;
   private persistQueue: Promise<void> = Promise.resolve();
@@ -118,7 +119,11 @@ export class RemoteGateway {
     this.pairing = this.newPairing();
   }
 
-  public async start(): Promise<void> {
+  public start(): Promise<void> {
+    return this.enqueueLifecycle(() => this.startServer());
+  }
+
+  private async startServer(): Promise<void> {
     if (this.server !== null) return;
     this.devices = await loadDevices(this.statePath, this.now());
     const server = createServer((request, response) => {
@@ -136,13 +141,23 @@ export class RemoteGateway {
     }
   }
 
-  public async stop(): Promise<void> {
+  public stop(): Promise<void> {
+    return this.enqueueLifecycle(() => this.stopServer());
+  }
+
+  private async stopServer(): Promise<void> {
     const server = this.server;
     if (server === null) return;
     this.server = null;
     this.activePort = null;
     await closeServer(server);
     await this.persistQueue;
+  }
+
+  private enqueueLifecycle(operation: () => Promise<void>): Promise<void> {
+    const result = this.lifecycleQueue.then(operation);
+    this.lifecycleQueue = result.catch(() => undefined);
+    return result;
   }
 
   public url(): string {
