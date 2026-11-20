@@ -33,4 +33,27 @@ describe("terminal submission", () => {
     expect(writes).toEqual(["first command", "\r", "\r", "second command", "\r"]);
     expect(paste.mock.calls.map(([text]) => text)).toEqual(["first command", "second command"]);
   });
+
+  it("resumes after an accepted prefix when a later payload chunk fails", async () => {
+    const writes: string[] = [];
+    const paste = vi.fn(async (text: string, offset: number, onAccepted: (count: number) => void) => {
+      if (paste.mock.calls.length === 1) {
+        const prefix = text.slice(offset, offset + 4);
+        writes.push(prefix);
+        onAccepted(prefix.length);
+        throw new Error("connection lost after an accepted chunk");
+      }
+      const suffix = text.slice(offset);
+      writes.push(suffix);
+      onAccepted(suffix.length);
+    });
+    const enter = vi.fn(async () => { writes.push("\r"); });
+    const submit = createTerminalSubmitter(paste, enter);
+
+    await expect(submit("echo ok")).resolves.toBe(false);
+    await expect(submit("echo ok")).resolves.toBe(true);
+
+    expect(writes).toEqual(["echo", " ok", "\r"]);
+    expect(paste.mock.calls.map(([, offset]) => offset)).toEqual([0, 4]);
+  });
 });

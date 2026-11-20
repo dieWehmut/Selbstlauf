@@ -21,7 +21,8 @@ let active = true;
 let cursor = 0;
 let inputFailure: unknown = null;
 let inputTail: Promise<void> = Promise.resolve();
-let pasteCapture: Promise<void>[] | null = null;
+let pasteCapture: { readonly writes: Promise<void>[]; readonly onAccepted: (count: number) => void; payload: string | null } | null = null;
+let pendingPastePayload: { readonly text: string; readonly payload: string } | null = null;
 let outputTail: Promise<void> = Promise.resolve();
 let resizeTail: Promise<void> = Promise.resolve();
 let cleanup: (() => void) | undefined;
@@ -34,7 +35,7 @@ function canInput() {
   return active && props.enabled && props.session.status === "running";
 }
 
-function queueInput(data: string): Promise<void> {
+function queueInput(data: string, onAccepted?: (count: number) => void): Promise<void> {
   const operation = inputTail.then(async () => {
     if (!canInput()) throw new Error("终端尚未连接或已结束");
     if (inputFailure !== null) throw inputFailure;
@@ -44,6 +45,7 @@ function queueInput(data: string): Promise<void> {
         let end = Math.min(start + 8192, data.length);
         if (end < data.length && /[\uD800-\uDBFF]/u.test(data[end - 1]!)) end -= 1;
         if (!await props.write(data.slice(start, end))) throw new Error("输入未能发送，请检查连接后重试");
+        onAccepted?.(end - start);
         start = end;
       }
     } catch (cause) {
@@ -55,14 +57,23 @@ function queueInput(data: string): Promise<void> {
   return operation;
 }
 
-const submitInput = createTerminalSubmitter(async (data) => {
+const submitInput = createTerminalSubmitter(async (data, offset, onAccepted) => {
   if (!canInput() || !terminal) throw new Error("终端尚未连接或已结束");
+  if (offset > 0) {
+    if (pendingPastePayload?.text !== data) throw new Error("无法恢复未完成的终端输入");
+    await queueInput(pendingPastePayload.payload.slice(offset), onAccepted);
+    pendingPastePayload = null;
+    return;
+  }
   const writes: Promise<void>[] = [];
-  pasteCapture = writes;
+  const capture = { writes, onAccepted, payload: null as string | null };
+  pasteCapture = capture;
   try { terminal.paste(data); }
   finally { pasteCapture = null; }
-  if (writes.length === 0) throw new Error("终端未接受输入，请重试");
+  if (capture.payload === null || writes.length === 0) throw new Error("终端未接受输入，请重试");
+  pendingPastePayload = { text: data, payload: capture.payload };
   await Promise.all(writes);
+  pendingPastePayload = null;
 }, async () => { await queueInput("\r"); });
 
 function terminalTheme(): ITheme {
@@ -127,9 +138,11 @@ onMounted(async () => {
     element.querySelector("textarea")?.setAttribute("aria-label", "终端键盘输入");
     const input = term.onData((data) => {
       if (!canInput()) return;
-      const operation = queueInput(data);
-      if (pasteCapture !== null) pasteCapture.push(operation);
-      else void operation.catch(report);
+      const capture = pasteCapture;
+      if (capture !== null) {
+        capture.payload = data;
+        capture.writes.push(queueInput(data, capture.onAccepted));
+      } else void queueInput(data).catch(report);
     });
     term.attachCustomKeyEventHandler((event) => !(event.ctrlKey && event.key.toLowerCase() === "c" && term.hasSelection()));
     const resized = term.onResize(({ cols, rows }) => {
