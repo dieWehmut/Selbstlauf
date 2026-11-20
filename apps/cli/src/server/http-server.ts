@@ -114,6 +114,7 @@ export class WatchdogHttpServer {
   private readonly startedAtMs: number;
   private readonly clients = new Map<number, SseClient>();
   private readonly terminalStreams = new Set<ServerResponse>();
+  private lifecycleQueue: Promise<void> = Promise.resolve();
   private server: Server | null = null;
   private activePort: number | null = null;
   private nextClientId = 1;
@@ -160,7 +161,11 @@ export class WatchdogHttpServer {
     this.remoteControl = control;
   }
 
-  public async start(): Promise<void> {
+  public start(): Promise<void> {
+    return this.enqueueLifecycle(() => this.startServer());
+  }
+
+  private async startServer(): Promise<void> {
     if (this.server !== null) return;
     let lastError: unknown;
     const attempts = this.requestedPort === 0 ? 1 : this.portAttempts;
@@ -193,7 +198,11 @@ export class WatchdogHttpServer {
     throw lastError ?? new Error('no loopback port was available');
   }
 
-  public async stop(): Promise<void> {
+  public stop(): Promise<void> {
+    return this.enqueueLifecycle(() => this.stopServer());
+  }
+
+  private async stopServer(): Promise<void> {
     const server = this.server;
     if (server === null) return;
     this.server = null;
@@ -204,6 +213,12 @@ export class WatchdogHttpServer {
     this.terminalStreams.clear();
     this.sockets.stop();
     await closeServer(server);
+  }
+
+  private enqueueLifecycle(operation: () => Promise<void>): Promise<void> {
+    const result = this.lifecycleQueue.then(operation);
+    this.lifecycleQueue = result.catch(() => undefined);
+    return result;
   }
 
   public url(): string {

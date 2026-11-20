@@ -93,6 +93,25 @@ test('serves controller-bound session output and refuses an unknown session id',
   assert.deepEqual(calls, ['claude:1200', 'other']);
 });
 
+test('stop requested during server startup closes the listener before resolving', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchdog-http-start-stop-race-'));
+  const service = new WatchdogHttpServer({
+    configStore: new ConfigStore(join(directory, 'config.json')),
+    auditStore: new AuditStore(join(directory, 'audit.jsonl')),
+    sessions: { list: () => [], pause: () => false, resume: () => false, inject: () => ({ ok: false }) },
+    port: 0,
+  });
+  t.after(async () => { await service.stop(); await rm(directory, { recursive: true, force: true }); });
+
+  const starting = service.start();
+  const stopping = service.stop();
+  await Promise.all([starting, stopping]);
+
+  assert.throws(() => service.url(), /HTTP server is not started/u);
+  await service.start();
+  assert.match(service.url(), /^http:\/\/127\.0\.0\.1:\d+$/u);
+});
+
 test('serves the local environment report and refreshes it on demand', async (t) => {
   let scans = 0;
   const check = new EnvironmentCheck({
