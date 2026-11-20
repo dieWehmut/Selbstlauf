@@ -46,7 +46,7 @@ interface ShellStub extends StubWindow {
 }
 
 /** Minimal Electron stand-in that records what the app asks the window layer to do. */
-function buildShell(options: { isPackaged?: boolean } = {}): ShellStub {
+function buildShell(options: { isPackaged?: boolean; loadURL?: (url: string) => Promise<void> } = {}): ShellStub {
   const loaded: string[] = [];
   const navigations: Array<{ url: string; prevented: number }> = [];
   const opened: string[] = [];
@@ -93,6 +93,7 @@ function buildShell(options: { isPackaged?: boolean } = {}): ShellStub {
       }
       public async loadURL(url: string): Promise<void> {
         loaded.push(url);
+        await options.loadURL?.(url);
       }
       public on(event: string, listener: () => void): void {
         if (event === 'close') windowHandle.close.push(listener as (event: { preventDefault(): void }) => void);
@@ -421,6 +422,37 @@ test('opens the window on a freshly started bundled service', async () => {
     assert.equal(prefs?.sandbox, true);
     await hosted.host?.stop();
     assert.equal(stopped, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('retains the bundled service handle when the first window load fails', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-hosted-load-failure-'));
+  await mkdir(join(root, 'service-dist', 'src'), { recursive: true });
+  await mkdir(join(root, 'web-dist'), { recursive: true });
+  await writeFile(join(root, 'service-dist', 'src', 'index.js'), '', 'utf8');
+
+  const stub = buildShell({ loadURL: async () => { throw new Error('renderer load failed'); } });
+  let stopped = 0;
+  const hostHandle: { stop?: () => Promise<void> } = {};
+  try {
+    await assert.rejects(hostAndLaunch(stub.shell, {
+      appRoot: root,
+      resourcesPath: root,
+      environment: { LOCALAPPDATA: root } as NodeJS.ProcessEnv,
+      startService: async () => ({
+        origin: 'http://127.0.0.1:48500',
+        pid: 4242,
+        reused: false,
+        stop: async () => { stopped += 1; },
+      }),
+      onHost: (host) => { hostHandle.stop = host.stop; },
+    }), /renderer load failed/u);
+
+    assert.equal(typeof hostHandle.stop, 'function', 'the started service handle must survive the failed window load');
+    await hostHandle.stop?.();
+    assert.equal(stopped, 1, 'shutdown must still be able to stop the service that was started');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

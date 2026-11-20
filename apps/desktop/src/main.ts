@@ -307,6 +307,8 @@ export interface DesktopHostOptions {
   readonly preloadPath?: string;
   /** Test seam: replace the bundled service launcher. */
   readonly startService?: (options: StartBundledServiceOptions) => Promise<BundledServiceHost>;
+  /** Retain the service handle before loading the window can fail. */
+  readonly onHost?: (host: BundledServiceHost) => void;
   /** Called with the window as soon as it exists, before it is loaded. */
   readonly attach?: (window: ManagedWindow) => void;
 }
@@ -332,6 +334,7 @@ export async function hostAndLaunch(
   await shell.app.whenReady();
   const startService = options.startService ?? startBundledService;
   const host = await startService({ appRoot: options.appRoot, resourcesPath: options.resourcesPath, environment });
+  options.onHost?.(host);
   const target: ResolvedTarget = { kind: 'service', url: host.origin, pid: host.pid };
   const window = openWindow(shell, {
     serviceOrigin: target.url,
@@ -786,6 +789,7 @@ export async function main(): Promise<void> {
       appRoot,
       preloadPath,
       ...(app.isPackaged === true && typeof resourcesPath === 'string' ? { resourcesPath } : {}),
+      onHost: (host) => { serviceHost = host; },
       attach: (opened) => {
         window = opened;
         opened.on('close', (event) => lifecycle.handleWindowClose(event));
@@ -801,14 +805,24 @@ export async function main(): Promise<void> {
     // Packaged installs must stay usable when the service is already running or the
     // bundled artifacts are missing; the recorded service is the fallback target.
     const fallback = await resolveDesktopTarget().catch(() => null);
-    if (fallback === null || fallback.kind !== 'service') throw error;
+    if (fallback === null || fallback.kind !== 'service') {
+      await (serviceHost as BundledServiceHost | null)?.stop().catch(() => undefined);
+      serviceHost = null;
+      throw error;
+    }
     process.stderr.write(`${message}\nfalling back to the recorded watchdog service\n`);
     const opened = openWindow(shell, { serviceOrigin: fallback.url, preloadPath, ...windowIcon(appRoot, resourcesPath) });
     opened.on('close', (event) => lifecycle.handleWindowClose(event));
     window = opened;
-    await opened.loadURL(fallback.url);
+    try {
+      await opened.loadURL(fallback.url);
+    } catch (fallbackError) {
+      await (serviceHost as BundledServiceHost | null)?.stop().catch(() => undefined);
+      serviceHost = null;
+      throw fallbackError;
+    }
     opened.on('closed', () => undefined);
-    hosted = { target: fallback, host: null, window: opened };
+    hosted = { target: fallback, host: serviceHost, window: opened };
   }
   serviceHost = hosted.host;
 
