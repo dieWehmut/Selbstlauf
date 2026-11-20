@@ -48,6 +48,11 @@ async function settings(f: ReturnType<typeof fixture>) {
 function section(name: string) {
   fireEvent.click(within(screen.getByRole('tablist', { name: '设置分区' })).getByRole('tab', { name }));
 }
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((accept) => { resolve = accept; });
+  return { promise, resolve };
+}
 async function refresh(f: ReturnType<typeof fixture>) {
   const before = vi.mocked(f.api.config).mock.calls.length;
   f.notify();
@@ -94,6 +99,25 @@ it('replaces dirty editor fields after importing a full configuration', async ()
   fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
   await waitFor(() => expect(vi.mocked(f.api.updateConfig).mock.lastCall?.[0].tools.claude.normalPrompt)
     .toBe('prompt from imported configuration'));
+});
+
+it('preserves edits made after a full configuration import starts', async () => {
+  const f = fixture(); await settings(f);
+  const imported = structuredClone(f.saved());
+  imported.tools.claude.normalPrompt = 'prompt from pending import';
+  const write = deferred<WatchdogConfig>();
+  vi.mocked(f.api.updateConfig).mockReturnValueOnce(write.promise);
+
+  section('导入');
+  fireEvent.change(screen.getByLabelText('JSON 文本'), { target: { value: JSON.stringify(imported) } });
+  fireEvent.click(screen.getByRole('button', { name: '导入文本' }));
+  await waitFor(() => expect(f.api.updateConfig).toHaveBeenCalledTimes(1));
+
+  section('常规');
+  fireEvent.change(screen.getByLabelText('Claude', { exact: true }), { target: { value: 'edit made during import' } });
+  await act(async () => { write.resolve(imported); await write.promise; });
+
+  expect(screen.getByLabelText('Claude', { exact: true })).toHaveValue('edit made during import');
 });
 
 it('merges external changes into untouched fields while retaining local nested and filter drafts', async () => {

@@ -1795,7 +1795,7 @@ function SettingsPanel(props: {
   origin: string;
 }) {
   const { t, locale } = useI18n();
-  const { draft, setDraft, includeFilters, setIncludeFilters, excludeFilters, setExcludeFilters, acknowledge, replace } = useConfigDraft(props.config);
+  const { draft, setDraft, includeFilters, setIncludeFilters, excludeFilters, setExcludeFilters, acknowledge, replaceSince } = useConfigDraft(props.config);
   // The rail is the navigation; the app owns which section is in view so a tray
   // command can open the settings page directly on a named section.
   const activeSection = props.activeSection;
@@ -1813,8 +1813,11 @@ function SettingsPanel(props: {
   };
 
   const importConfigText = async (text: string) => {
+    const previousDraft = structuredClone(draft);
+    const previousIncludeFilters = includeFilters;
+    const previousExcludeFilters = excludeFilters;
     const confirmed = await props.onImportConfigText(text);
-    replace(confirmed);
+    replaceSince(confirmed, previousDraft, previousIncludeFilters, previousExcludeFilters);
   };
 
   /** The config save bar, shared by the sections that edit the service config. */
