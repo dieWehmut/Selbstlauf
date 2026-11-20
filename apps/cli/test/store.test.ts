@@ -63,6 +63,35 @@ test('audit store redacts secrets and absolute credential paths', async () => {
   assert.equal(redactAuditEvent({ ...events[0], details: { secret: 'Bearer abcdefghijkl' } }).details?.secret, '[redacted]');
 });
 
+test('concurrent cold audit reads share the same persisted history load', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchdog-audit-concurrent-load-'));
+  const path = join(directory, 'audit.jsonl');
+  const event = { id: 'persisted-event', timestampMs: 1, type: 'skip' as const };
+  await writeFile(path, `${JSON.stringify(event)}\n`, 'utf8');
+  const store = new AuditStore(path);
+
+  const [first, second] = await Promise.all([store.list(), store.list()]);
+
+  assert.deepEqual(first.map(({ id }) => id), ['persisted-event']);
+  assert.deepEqual(second.map(({ id }) => id), ['persisted-event']);
+});
+
+test('an audit append waits for persisted history before adding a new event', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchdog-audit-concurrent-append-'));
+  const path = join(directory, 'audit.jsonl');
+  const previous = { id: 'previous-event', timestampMs: 1, type: 'skip' as const };
+  await writeFile(path, `${JSON.stringify(previous)}\n`, 'utf8');
+  const store = new AuditStore(path, { maxEntries: 1 });
+
+  await Promise.all([
+    store.list(),
+    store.append({ id: 'new-event', timestampMs: 2, type: 'skip' }),
+  ]);
+
+  assert.deepEqual((await store.list()).map(({ id }) => id), ['new-event']);
+  assert.deepEqual((await new AuditStore(path, { maxEntries: 1 }).list()).map(({ id }) => id), ['new-event']);
+});
+
 test('watchdog installation owns startup task creation and removal', async () => {
   const root = await mkdtemp(join(tmpdir(), 'watchdog-startup-owner-'));
   const stateDirectory = join(root, 'ai-cli-bypass', 'continuation');

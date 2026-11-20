@@ -18,6 +18,7 @@ export class AuditStore {
   private readonly maxEntries: number;
   private readonly events: AuditEvent[] = [];
   private loaded = false;
+  private loadOperation: Promise<void> | null = null;
 
   public constructor(path: string, options: { readonly maxEntries?: number } = {}) {
     if (typeof path !== 'string' || path.trim().length === 0) {
@@ -46,9 +47,21 @@ export class AuditStore {
     return Object.freeze(this.events.slice(-limit));
   }
 
-  private async ensureLoaded(): Promise<void> {
-    if (this.loaded) return;
-    this.loaded = true;
+  private ensureLoaded(): Promise<void> {
+    if (this.loaded) return Promise.resolve();
+    if (this.loadOperation !== null) return this.loadOperation;
+
+    let operation!: Promise<void>;
+    operation = this.readPersisted().then(() => {
+      this.loaded = true;
+    }).finally(() => {
+      if (this.loadOperation === operation) this.loadOperation = null;
+    });
+    this.loadOperation = operation;
+    return operation;
+  }
+
+  private async readPersisted(): Promise<void> {
     try {
       const lines = (await readFile(this.path, 'utf8')).split(/\r?\n/).filter(Boolean);
       for (const line of lines.slice(-this.maxEntries)) {
