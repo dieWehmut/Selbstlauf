@@ -15,7 +15,7 @@ const processRecord: ClaudeProcessRecord = {
   pid: 1200,
   cwd: 'C:\\work\\demo',
   creationTimeMs: 10_000,
-  commandLine: 'claude --resume demo',
+  commandLine: 'claude',
 };
 
 test('associates the newest unique Claude JSONL for the process project', () => {
@@ -42,6 +42,29 @@ test('fails closed when project/session association is ambiguous', () => {
   assert.equal(result.conversationId, null);
   assert.equal(result.transport, 'monitor-only');
   assert.match(result.reason ?? '', /ambiguous/i);
+});
+
+test('matches an explicit resume ID instead of a different recent file', () => {
+  const files: ClaudeSessionFile[] = [
+    { path: 'recent.jsonl', projectPath: 'C:\\work\\demo', sessionId: 'recent-other-session', size: 1, mtimeMs: 10_100 },
+    { path: 'target.jsonl', projectPath: 'C:\\work\\demo', sessionId: 'target-session', size: 2, mtimeMs: 1_000 },
+  ];
+  for (const commandLine of ['claude --resume target-session', 'claude -r target-session']) {
+    const result = associateClaudeSession({ ...processRecord, commandLine }, files);
+    assert.equal(result.conversationId, 'target-session');
+    assert.equal(result.sessionPath, 'target.jsonl');
+  }
+});
+
+test('does not substitute a recent session when an explicit resume ID is unavailable', () => {
+  const result = associateClaudeSession(
+    { ...processRecord, commandLine: 'claude --resume unavailable-session' },
+    [{ path: 'recent.jsonl', projectPath: 'C:\\work\\demo', sessionId: 'recent-other-session', size: 1, mtimeMs: 10_100 }],
+  );
+  assert.equal(result.conversationId, null);
+  assert.equal(result.sessionPath, null);
+  assert.equal(result.transport, 'monitor-only');
+  assert.match(result.reason ?? '', /resume session was not found/i);
 });
 
 test('can expose an explicitly supplied writable transport only for a unique match', () => {

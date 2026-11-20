@@ -105,6 +105,7 @@ export function associateClaudeSession(
     const explicitMatches = projectMatches.filter((file) => file.sessionId?.toLocaleLowerCase() === resumedSessionId);
     if (explicitMatches.length === 1) return association(explicitMatches[0], options.transport);
     if (explicitMatches.length > 1) return monitorOnly('ambiguous Claude resume session association');
+    return monitorOnly('explicit Claude resume session was not found');
   }
 
   const matches = projectMatches.filter((file) => {
@@ -159,7 +160,7 @@ function normalizePath(value: string | null | undefined): string | null {
 
 function extractResumeSessionId(commandLine: string | undefined): string | null {
   if (typeof commandLine !== 'string') return null;
-  const match = /(?:^|\s)--resume(?:\s+|=)(?:"([^"]+)"|'([^']+)'|([^\s]+))/i.exec(commandLine);
+  const match = /(?:^|\s)(?:--resume|-r)(?:\s+|=)(?:"([^"]+)"|'([^']+)'|([^\s]+))/i.exec(commandLine);
   const value = match?.[1] ?? match?.[2] ?? match?.[3];
   return value === undefined ? null : value.toLocaleLowerCase();
 }
