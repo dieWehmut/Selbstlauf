@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copy-runtime-dependencies.mjs",
-    "test": "npm run build --silent && node --test --test-concurrency=1 dist/test/*.test.js",
+    "test": "npm run build --silent && node --test --test-concurrency=1 dist/test/*.test.js && node --test scripts/runtime-dependency-copy.test.mjs",
     "start": "node dist/src/index.js",
     "claude-stop-hook": "node dist/src/claude/stop-hook-cli.js"
   },
@@ -13,6 +13,7 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.2"
+    "@types/ws": "^8.18.2",
+    "proper-lockfile": "^4.1.2"
   }
 }
