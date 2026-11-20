@@ -1,5 +1,6 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type ChildProcessByStdio } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import type { Readable } from 'node:stream';
 
 import type { RawProcessRecord } from './process-provider.js';
 import { readWslProcFilesystem, type WslProcFilesystemResult } from './wsl-proc-filesystem.js';
@@ -339,7 +340,16 @@ export async function listWslDistributions(wslPath = 'wsl.exe', options: { reado
     ? options.timeoutMs : DEFAULT_WSL_PROBE_TIMEOUT_MS;
   return await new Promise<string[]>((resolve) => {
     const createdAfterMs = Date.now();
-    const child = spawn(wslPath, ['-l', '-q'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let child: ChildProcessByStdio<null, Readable, Readable>;
+    try {
+      child = spawn(wslPath, ['-l', '-q'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    } catch {
+      // `spawn` can reject synchronously for malformed paths or a missing
+      // bridge. WSL is optional, so report the same empty result as its
+      // asynchronous error event.
+      resolve([]);
+      return;
+    }
     registerWslProbeProcess(child, createdAfterMs, Date.now());
     let stdout = '';
     let outputBytes = 0;

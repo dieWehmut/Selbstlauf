@@ -134,6 +134,10 @@ test('lists distributions, treating an absent WSL as none', async () => {
   }
 });
 
+test('treats a synchronously rejected WSL spawn as unavailable', async () => {
+  assert.deepEqual(await listWslDistributions('\u0000'), []);
+});
+
 test('a hung injected WSL runner times out and receives cancellation', async () => {
   let receivedSignal: AbortSignal | undefined;
   const started = Date.now();
