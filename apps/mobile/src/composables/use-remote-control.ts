@@ -110,6 +110,7 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
   let connection = 0;
   let operation = 0;
   let pendingActions = 0;
+  let actionGeneration = 0;
   let snapshotRequest = 0;
   let refreshPending: { version: number; work: Promise<void> } | null = null;
   let sessionRequest = 0;
@@ -183,6 +184,9 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
     if (cause instanceof RemoteError && cause.status === 401) {
       connectionStatus.value = "needs_pairing";
       clearPolling();
+      actionGeneration += 1;
+      pendingActions = 0;
+      busy.value = false;
       // Invalidate in-flight reads and stop the app heartbeat until re-pairing.
       client = null;
     }
@@ -206,6 +210,7 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
   async function action(work: () => Promise<void>): Promise<boolean> {
     if (disposed || !client) return false;
     const version = connection;
+    const actionVersion = actionGeneration;
     const id = ++operation;
     pendingActions += 1;
     busy.value = true;
@@ -214,10 +219,11 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
       await work();
       return !disposed && version === connection && client !== null;
     } catch (cause) {
-      if (!disposed && version === connection && (id === operation || (cause instanceof RemoteError && cause.status === 401))) recordError(cause);
+      if (!disposed && version === connection && actionVersion === actionGeneration &&
+          (id === operation || (cause instanceof RemoteError && cause.status === 401))) recordError(cause);
       return false;
     } finally {
-      if (!disposed && version === connection) {
+      if (!disposed && version === connection && actionVersion === actionGeneration) {
         pendingActions -= 1;
         busy.value = pendingActions > 0;
       }

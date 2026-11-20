@@ -440,6 +440,30 @@ describe("useRemoteControl", () => {
     control.dispose();
   });
 
+  it("releases busy state when a heartbeat 401 invalidates an in-flight control action", async () => {
+    const { control, first } = setup();
+    await control.connect();
+    await control.openAgent(first.agent as never);
+    const input = deferred<unknown>();
+    const original = first.request.getMockImplementation()!;
+    first.request.mockImplementation((path, method, data) =>
+      path === "/agents/agent-1/input" ? input.promise : original(path, method, data));
+
+    const sending = control.sendAgentInput("answer\r");
+    await vi.waitFor(() => expect(first.request).toHaveBeenCalledWith(
+      "/agents/agent-1/input", "POST", { data: "answer\r" },
+    ));
+    first.request.mockRejectedValue(new RemoteError(401, "请重新配对"));
+    await control.refresh();
+
+    expect(control.connectionStatus.value).toBe("needs_pairing");
+    expect(control.busy.value).toBe(false);
+    input.resolve({ ok: true });
+    expect(await sending).toBe(false);
+    expect(control.busy.value).toBe(false);
+    control.dispose();
+  });
+
   it("preserves terminal cursors across a network interruption and replaces truncated output", async () => {
     const { control, first, scheduled } = setup();
     await control.connect();
