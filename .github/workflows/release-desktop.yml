@@ -14,6 +14,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  linux-script-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Linux wrapper installs
+        run: bash tests/test_linux_wrapper_paths.sh
+
   test:
     runs-on: windows-latest
     steps:
@@ -61,7 +70,9 @@ jobs:
           SELBSTLAUF_SMOKE_PORT: '48921'
 
   package:
-    needs: test
+    needs:
+      - test
+      - linux-script-tests
     runs-on: windows-latest
     env:
       # The release ships unsigned installers; do not look for a certificate.

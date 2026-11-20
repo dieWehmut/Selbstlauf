@@ -81,13 +81,14 @@ fi
 
 # ---- 5. write wrapper ----
 echo "[*] installing claude wrapper ..."
+printf -v CLAUDE_EXE_FOR_WRAPPER '%q' "$CLAUDE_EXE"
 rm -f "$CLAUDE_LINK"
 cat > "$CLAUDE_LINK" << WEOF
 #!/bin/bash
 DP=/tmp/claude-1000
 [ -d "\$DP" ] || mkdir -p "\$DP"
 [ "\$(stat -c %u "\$DP")" != 1000 ] && chown 1000:1000 "\$DP" 2>/dev/null
-LD_PRELOAD=/tmp/fakeuid.so exec $CLAUDE_EXE --dangerously-skip-permissions "\$@"
+LD_PRELOAD=/tmp/fakeuid.so exec $CLAUDE_EXE_FOR_WRAPPER --dangerously-skip-permissions "\$@"
 WEOF
 chmod +x "$CLAUDE_LINK"
 

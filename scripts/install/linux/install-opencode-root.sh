@@ -25,10 +25,11 @@ if head -1 "$LINK" 2>/dev/null | grep -q "^#!/bin/bash"; then
   [[ "$ans" == [yY] ]] || exit 0
 fi
 
+printf -v REAL_FOR_WRAPPER '%q' "$REAL"
 rm -f "$LINK"
 cat > "$LINK" << WEOF
 #!/bin/bash
-exec $REAL --auto "\$@"
+exec $REAL_FOR_WRAPPER --auto "\$@"
 WEOF
 chmod +x "$LINK"
 

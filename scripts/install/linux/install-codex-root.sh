@@ -29,10 +29,11 @@ if head -1 "$LINK" 2>/dev/null | grep -q "^#!/bin/bash"; then
 fi
 
 # 4. write wrapper
+printf -v REAL_FOR_WRAPPER '%q' "$REAL"
 rm -f "$LINK"
 cat > "$LINK" << WEOF
 #!/bin/bash
-exec $REAL --dangerously-bypass-approvals-and-sandbox "\$@"
+exec $REAL_FOR_WRAPPER --dangerously-bypass-approvals-and-sandbox "\$@"
 WEOF
 chmod +x "$LINK"
 
