@@ -728,7 +728,7 @@ export async function main(): Promise<void> {
           // A minimized window is not enumerated at all, so it is shown briefly to let it render, then
           // minimized again. Both calls use the non-activating variants, so a preview never takes focus.
           showWithoutActivating: (handle) => showWindowWithoutActivating(handle, restoreOptions),
-          minimizeAgain: (handle, wasMinimized) => minimizeWindowAgain(handle, wasMinimized, restoreOptions),
+          minimizeAgain: (handle, restore) => minimizeWindowAgain(handle, restore, restoreOptions),
           locale,
           sessions: async () => {
             const record = await readWatchdogRecord(stateDirectory);

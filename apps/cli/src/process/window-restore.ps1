@@ -9,12 +9,17 @@ param(
     # arrive as literal strings and PowerShell refuses to convert one to a Boolean — measured, `-Flag $true`,
     # `-Flag 1` and `-Flag true` are all rejected with "Boolean parameters accept only Boolean values and
     # numbers". A string compared in the script is the form that works.
-    [string]$WasMinimized = 'false'
+    [string]$WasMinimized = 'false',
+    # The non-activating show operation records the foreground window. If it changes before cleanup,
+    # the user interacted with the desktop and the preview must leave the target window alone.
+    [string]$ExpectedForegroundWindow = ''
 )
 
 # Anything other than an explicit true is read as false, so a missing or malformed flag can never cause the
 # undo to act on a window the caller did not restore.
 $undoRestore = $WasMinimized.Trim().ToLowerInvariant() -in @('true', '1', 'yes', '$true')
+$expectedForeground = 0L
+$hasExpectedForeground = [long]::TryParse($ExpectedForegroundWindow, [ref]$expectedForeground)
 
 # Window state for capturing a MINIMIZED window's contents.
 #
@@ -133,7 +138,9 @@ switch ($Mode) {
         # ordinary open window whose first capture happened to fail would minimize the window the user was
         # looking at. Asking the caller removes the guess entirely.
         $changed = $false
-        if ($undoRestore) {
+        $foregroundNow = [PreviewWindow]::GetForegroundWindow().ToInt64()
+        if ($undoRestore -and $hasExpectedForeground -and
+            $foregroundNow -eq $expectedForeground -and -not [PreviewWindow]::IsIconic($window)) {
             [void][PreviewWindow]::ShowWindow($window, [PreviewWindow]::SW_SHOWMINNOACTIVE)
             Start-Sleep -Milliseconds 300
             $changed = $true
@@ -143,7 +150,7 @@ switch ($Mode) {
             changed          = $changed
             nowMinimized     = [PreviewWindow]::IsIconic($window)
             visible          = [PreviewWindow]::IsWindowVisible($window)
-            foregroundBefore = $foregroundBefore
+            foregroundBefore = $foregroundNow
             foregroundAfter  = [PreviewWindow]::GetForegroundWindow().ToInt64()
         }
     }

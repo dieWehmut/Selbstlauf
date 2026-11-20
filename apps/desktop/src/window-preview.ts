@@ -42,6 +42,13 @@ export interface PreviewSession {
   readonly host: PreviewSessionHost | null;
 }
 
+export interface PreviewRestoreToken {
+  /** Whether this preview call actually found the target minimized. */
+  readonly wasMinimized: boolean;
+  /** Foreground window immediately after the non-activating show operation. */
+  readonly foregroundWindow: number | null;
+}
+
 export type PreviewOutcome =
   | {
     readonly state: 'captured';
@@ -92,9 +99,9 @@ export interface CaptureDependencies {
    *
    * Absent when the shell cannot do it; the preview then reports `minimized` as before.
    */
-  readonly showWithoutActivating?: (handle: number) => Promise<boolean>;
-  /** Put the window back the way it was found. Reports whether it is minimized again. */
-  readonly minimizeAgain?: (handle: number, wasMinimized: boolean) => Promise<boolean>;
+  readonly showWithoutActivating?: (handle: number) => Promise<PreviewRestoreToken | null>;
+  /** Minimize only if the foreground window still matches the pre-preview state. */
+  readonly minimizeAgain?: (handle: number, restore: PreviewRestoreToken) => Promise<boolean>;
 }
 
 /** How long the restored window is left rendering before the capture is taken. */
@@ -160,22 +167,24 @@ export async function captureSessionWindow(
   let restored = false;
   let captureError: string | null = null;
   if ((source === null || source.thumbnail.isEmpty()) && dependencies.showWithoutActivating !== undefined) {
+    let restore: PreviewRestoreToken | null = null;
     try {
-      restored = await dependencies.showWithoutActivating(handle);
+      restore = await dependencies.showWithoutActivating(handle);
     } catch {
       // A window that cannot be shown is reported as minimized below, which is what it is.
-      restored = false;
+      restore = null;
     }
-    if (restored) {
+    if (restore !== null) {
+      restored = restore.wasMinimized;
       try {
         await delay(RESTORE_SETTLE_MS);
         source = await capture();
       } catch (error) {
         captureError = error instanceof Error ? error.message : String(error);
       } finally {
-        if (dependencies.minimizeAgain !== undefined) {
+        if (restore.wasMinimized && dependencies.minimizeAgain !== undefined) {
           try {
-            await dependencies.minimizeAgain(handle, restored);
+            await dependencies.minimizeAgain(handle, restore);
           } catch {
             // Nothing further to do; the next measurement reports the real state rather than assuming it.
           }

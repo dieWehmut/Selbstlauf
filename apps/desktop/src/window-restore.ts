@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import type { PreviewRestoreToken } from './window-preview.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -50,6 +51,7 @@ export function resolveRestoreScriptPath(resourcesPath?: string): string {
 interface RestoreState {
   readonly ok: boolean;
   readonly changed: boolean;
+  readonly wasMinimized: boolean;
   readonly nowMinimized: boolean;
   readonly foregroundBefore: number | null;
   readonly foregroundAfter: number | null;
@@ -72,6 +74,7 @@ function parseState(stdout: string): RestoreState | null {
   return {
     ok: record.ok === true,
     changed: record.changed === true,
+    wasMinimized: record.wasMinimized === true,
     nowMinimized: record.nowMinimized === true,
     foregroundBefore: numberOrNull(record.foregroundBefore),
     foregroundAfter: numberOrNull(record.foregroundAfter),
@@ -93,6 +96,7 @@ async function invokeRestore(
   mode: 'show' | 'minimize',
   options: WindowRestoreOptions,
   wasMinimized = false,
+  expectedForegroundWindow: number | null = null,
 ): Promise<RestoreState | null> {
   if (!Number.isSafeInteger(handle) || handle <= 0) return null;
   const runCommand = options.runCommand ?? runPowerShell;
@@ -112,7 +116,10 @@ async function invokeRestore(
       mode,
       // Sent only for the undo, and as a plain single string: a `[bool]` parameter cannot be bound through
       // `-File` at all, which is the same binding rule that broke the window-title markers.
-      ...(mode === 'minimize' ? ['-WasMinimized', wasMinimized ? 'true' : 'false'] : []),
+      ...(mode === 'minimize' ? [
+        '-WasMinimized', wasMinimized ? 'true' : 'false',
+        '-ExpectedForegroundWindow', String(expectedForegroundWindow ?? ''),
+      ] : []),
     ]);
     return parseState(stdout);
   } catch {
@@ -122,35 +129,37 @@ async function invokeRestore(
 
 /**
  * Show a minimized window without activating it.
- * @returns whether the window was actually shown, so the caller knows a capture is now possible.
+ * @returns the pre-preview state needed to capture and safely restore the window, or null if it could not be shown.
  */
 export async function showWindowWithoutActivating(
   handle: number,
   options: WindowRestoreOptions = {},
-): Promise<boolean> {
+): Promise<PreviewRestoreToken | null> {
   const state = await invokeRestore(handle, 'show', options);
-  if (state === null || !state.ok) return false;
+  if (state === null || !state.ok) return null;
   // `nowMinimized` is the answer that matters: it says whether the window is rendering and can therefore be
   // captured. It is false for a window that was already visible, which needs no showing at all.
-  return !state.nowMinimized;
+  if (state.nowMinimized) return null;
+  return { wasMinimized: state.wasMinimized, foregroundWindow: state.foregroundAfter };
 }
 
 /**
  * Put the window back the way it was found.
  *
- * `wasMinimized` must be the caller's own record of whether it restored this window, and nothing is done
- * unless it is true. That flag exists because inferring it from the window is wrong: the first version
+ * `restore` must be the caller's own record of this preview's window state, and nothing is done unless it
+ * was minimized. The foreground snapshot prevents undoing a manual restore while the preview was open.
+ * That flag exists because inferring it from the window is wrong: the first version
  * minimized any window that was not minimized, so previewing an ordinary open window whose first capture
  * happened to fail would minimize the window the user was looking at.
  *
- * @returns whether the window is minimized now.
+ * @returns whether the window is minimized now, or was already left alone.
  */
 export async function minimizeWindowAgain(
   handle: number,
-  wasMinimized: boolean,
+  restore: PreviewRestoreToken,
   options: WindowRestoreOptions = {},
 ): Promise<boolean> {
-  if (!wasMinimized) return true;
-  const state = await invokeRestore(handle, 'minimize', options, true);
+  if (!restore.wasMinimized || restore.foregroundWindow === null) return true;
+  const state = await invokeRestore(handle, 'minimize', options, true, restore.foregroundWindow);
   return state !== null && state.ok && state.nowMinimized;
 }

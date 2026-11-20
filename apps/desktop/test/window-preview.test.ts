@@ -195,8 +195,8 @@ test('shows a minimized window to capture it, and minimizes it again afterwards'
       enumerated += 1;
       return enumerated === 1 ? [] : [source(11)];
     },
-    showWithoutActivating: async () => { shown += 1; return true; },
-    minimizeAgain: async () => { minimized += 1; return true; },
+    showWithoutActivating: async () => { shown += 1; return { wasMinimized: true, foregroundWindow: 99 }; },
+    minimizeAgain: async (_handle, restore) => { minimized += 1; assert.equal(restore.foregroundWindow, 99); return true; },
   };
 
   const result = await captureSessionWindow(deps, 'a');
@@ -209,13 +209,49 @@ test('shows a minimized window to capture it, and minimizes it again afterwards'
   assert.equal(result.restoredFromMinimized, true, 'the capture should say it came from a restore');
 });
 
+test('passes the restore snapshot through cleanup so user interaction can preserve the restored window', async () => {
+  let enumerated = 0;
+  let restoredByUser = false;
+  let restoreSnapshot: { readonly wasMinimized: boolean; readonly foregroundWindow: number | null } | null = null;
+  let minimizeCalls = 0;
+  let minimized = false;
+  const deps: CaptureDependencies = {
+    sessions: async () => [session('a', 11)],
+    getSources: async () => {
+      enumerated += 1;
+      if (enumerated === 1) return [];
+      restoredByUser = true;
+      return [source(11)];
+    },
+    showWithoutActivating: async () => {
+      restoreSnapshot = { wasMinimized: true, foregroundWindow: 99 };
+      return restoreSnapshot;
+    },
+    minimizeAgain: async (_handle, restore) => {
+      minimizeCalls += 1;
+      assert.deepEqual(restore, restoreSnapshot);
+      // The PowerShell adapter skips minimizing when the foreground changed while the preview was open.
+      const foregroundNow = restoredByUser ? 11 : 99;
+      minimized = foregroundNow === restore.foregroundWindow;
+      return minimized;
+    },
+  };
+
+  const result = await captureSessionWindow(deps, 'a');
+
+  assert.equal(result.state, 'captured');
+  assert.equal(minimizeCalls, 1, 'cleanup must receive the snapshot needed to detect user interaction');
+  assert.equal(minimized, false, 'user interaction must leave the window restored');
+  if (result.state === 'captured') assert.equal(result.restoredFromMinimized, true);
+});
+
 test('does not touch a window that is already capturable', async () => {
   // The common case, and the one that must stay cheap: no restore, no extra enumeration.
   let shown = 0;
   const deps: CaptureDependencies = {
     sessions: async () => [session('a', 11)],
     getSources: async () => [source(11)],
-    showWithoutActivating: async () => { shown += 1; return true; },
+    showWithoutActivating: async () => { shown += 1; return { wasMinimized: false, foregroundWindow: 99 }; },
     minimizeAgain: async () => true,
   };
 
@@ -238,8 +274,8 @@ test('puts the window back even when the capture after showing fails', async () 
       if (enumerated === 1) return [];
       throw new Error('capture is unavailable');
     },
-    showWithoutActivating: async () => true,
-    minimizeAgain: async () => { minimized += 1; return true; },
+    showWithoutActivating: async () => ({ wasMinimized: true, foregroundWindow: 99 }),
+    minimizeAgain: async (_handle, restore) => { minimized += 1; assert.equal(restore.wasMinimized, true); return true; },
   };
 
   const result = await captureSessionWindow(deps, 'a');
@@ -260,7 +296,7 @@ test('a window that refuses to appear is still reported as minimized, not as cap
   const deps: CaptureDependencies = {
     sessions: async () => [session('a', 11)],
     getSources: async () => [],
-    showWithoutActivating: async () => false,
+    showWithoutActivating: async () => null,
     minimizeAgain: async () => true,
   };
   const result = await captureSessionWindow(deps, 'a');
