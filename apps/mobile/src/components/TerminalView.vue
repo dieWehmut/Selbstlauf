@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import type { Terminal, ITheme } from "@xterm/xterm";
 import type { AgentOutput, AgentSession } from "../client";
+import { createTerminalSubmitter } from "./terminal-submit";
 import "@xterm/xterm/css/xterm.css";
 
 const props = defineProps<{
@@ -20,6 +21,7 @@ let active = true;
 let cursor = 0;
 let inputFailure: unknown = null;
 let inputTail: Promise<void> = Promise.resolve();
+let pasteCapture: Promise<void>[] | null = null;
 let outputTail: Promise<void> = Promise.resolve();
 let resizeTail: Promise<void> = Promise.resolve();
 let cleanup: (() => void) | undefined;
@@ -52,6 +54,16 @@ function queueInput(data: string): Promise<void> {
   inputTail = operation.catch(() => undefined);
   return operation;
 }
+
+const submitInput = createTerminalSubmitter(async (data) => {
+  if (!canInput() || !terminal) throw new Error("终端尚未连接或已结束");
+  const writes: Promise<void>[] = [];
+  pasteCapture = writes;
+  try { terminal.paste(data); }
+  finally { pasteCapture = null; }
+  if (writes.length === 0) throw new Error("终端未接受输入，请重试");
+  await Promise.all(writes);
+}, async () => { await queueInput("\r"); });
 
 function terminalTheme(): ITheme {
   const style = getComputedStyle(document.documentElement);
@@ -114,7 +126,10 @@ onMounted(async () => {
     term.open(element);
     element.querySelector("textarea")?.setAttribute("aria-label", "终端键盘输入");
     const input = term.onData((data) => {
-      if (canInput()) void queueInput(data).catch(report);
+      if (!canInput()) return;
+      const operation = queueInput(data);
+      if (pasteCapture !== null) pasteCapture.push(operation);
+      else void operation.catch(report);
     });
     term.attachCustomKeyEventHandler((event) => !(event.ctrlKey && event.key.toLowerCase() === "c" && term.hasSelection()));
     const resized = term.onResize(({ cols, rows }) => {
@@ -155,10 +170,9 @@ async function send(data: string): Promise<boolean> {
   error.value = "";
   inputFailure = null;
   try {
-    // paste() follows the process's bracketed paste mode for multiline prompts.
-    terminal.paste(data);
-    await queueInput("\r");
-    return true;
+    // Observe xterm's bracketed paste payload before queueing Enter. If Enter
+    // fails, a retry can submit that already accepted payload without pasting it twice.
+    return await submitInput(data);
   } catch (cause) { report(cause); return false; }
 }
 
