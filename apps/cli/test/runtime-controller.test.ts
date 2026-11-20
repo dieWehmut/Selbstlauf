@@ -288,6 +288,35 @@ test('quiesce does not wait for a slow read-only process discovery poll', async 
   }
 });
 
+test('stop wins over a concurrently starting watchdog and prevents future polls', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-start-stop-race-'));
+  let processReads = 0;
+  const provider: ProcessProvider = {
+    async listProcesses() { processReads += 1; return []; },
+  };
+  const configStore = new ConfigStore(join(root, 'config.json'));
+  await configStore.save({ ...defaultConfig, pollIntervalMs: 250 });
+  const controller = new WatchdogController({
+    configStore,
+    auditStore: new AuditStore(join(root, 'audit.jsonl')),
+    provider,
+    platform: 'win32',
+    currentProcessId: 50,
+  });
+  t.after(async () => { await controller.stop(); await rm(root, { recursive: true, force: true }); });
+
+  const starting = controller.start();
+  const stopping = controller.stop();
+  await Promise.all([starting, stopping]);
+  const readsWhenStopped = processReads;
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 350));
+
+  assert.equal(processReads, readsWhenStopped, 'a poll ran after stop had resolved');
+  await controller.start();
+  assert.equal(processReads, readsWhenStopped + 1, 'a later start did not restart polling');
+  await controller.stop();
+});
+
 test('polls independent Claude processes and records a dry-run quiet-period decision', async () => {
   const root = await mkdtemp(join(tmpdir(), 'watchdog-runtime-'));
   const projects = join(root, 'projects');

@@ -265,6 +265,9 @@ export class WatchdogController {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private stopping = false;
+  private lifecycleRevision = 0;
+  private quiesceOperation: Promise<void> | null = null;
+  private stopOperation: Promise<void> | null = null;
   private currentPoll: Promise<void> | null = null;
   private completedPollAtMs: number | null = null;
 
@@ -312,34 +315,70 @@ export class WatchdogController {
 
   public async start(): Promise<void> {
     if (this.running) return;
+    const revision = ++this.lifecycleRevision;
+    const pendingStop = this.stopOperation;
+    if (pendingStop !== null) await pendingStop;
+    if (revision !== this.lifecycleRevision) return;
+    const pendingQuiesce = this.quiesceOperation;
+    if (pendingQuiesce !== null) await pendingQuiesce;
+    if (revision !== this.lifecycleRevision) return;
     await this.currentPoll;
+    if (revision !== this.lifecycleRevision) return;
     this.stopping = false;
     this.running = true;
     await this.poll();
+    if (revision !== this.lifecycleRevision || !this.running) return;
     this.schedule(this.currentConfig.pollIntervalMs);
   }
 
-  public async stop(): Promise<void> {
-    await this.quiesce();
-    await this.currentPoll;
-    await this.waitForClaudeLeaseWrites();
-    await this.claudeLeaseStore?.clearAll();
-    for (const session of this.sessions.values()) session.codexAdapter?.close();
-    this.sessions.clear();
-    this.verifiedCodexOwners.clear();
-    this.unavailableProcessNamespaces.clear();
-    this.clearWslRuntime();
+  public stop(): Promise<void> {
+    if (this.stopOperation !== null) {
+      this.invalidateLifecycle();
+      return this.stopOperation;
+    }
+    const quiescing = this.quiesce();
+    const operation = (async () => {
+      await quiescing;
+      await this.currentPoll;
+      await this.waitForClaudeLeaseWrites();
+      await this.claudeLeaseStore?.clearAll();
+      for (const session of this.sessions.values()) session.codexAdapter?.close();
+      this.sessions.clear();
+      this.verifiedCodexOwners.clear();
+      this.unavailableProcessNamespaces.clear();
+      this.clearWslRuntime();
+    })();
+    this.stopOperation = operation;
+    void operation.then(
+      () => { if (this.stopOperation === operation) this.stopOperation = null; },
+      () => { if (this.stopOperation === operation) this.stopOperation = null; },
+    );
+    return operation;
   }
 
   /** Stops new work and clears pending Claude actions without waiting for a slow read-only discovery poll. */
-  public async quiesce(): Promise<void> {
+  public quiesce(): Promise<void> {
+    this.invalidateLifecycle();
+    if (this.quiesceOperation !== null) return this.quiesceOperation;
+    const operation = (async () => {
+      await this.waitForClaudeLeaseWrites();
+      await this.claudeLeaseStore?.clearAll();
+    })();
+    this.quiesceOperation = operation;
+    void operation.then(
+      () => { if (this.quiesceOperation === operation) this.quiesceOperation = null; },
+      () => { if (this.quiesceOperation === operation) this.quiesceOperation = null; },
+    );
+    return operation;
+  }
+
+  private invalidateLifecycle(): void {
+    this.lifecycleRevision += 1;
     this.running = false;
     this.stopping = true;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     this.provider.cancelPending?.();
-    await this.waitForClaudeLeaseWrites();
-    await this.claudeLeaseStore?.clearAll();
   }
 
   public poll(): Promise<void> {
@@ -1568,6 +1607,7 @@ export class WatchdogController {
   }
 
   private async injectAutomatic(session: RuntimeSession, timestamp: number): Promise<void> {
+    if (this.stopping) return;
     if (session.group.processDiscoveryPending || session.group.codexThreadOwnershipPending || this.unavailableProcessNamespaces.has(session.group.distribution ?? '')) return;
     if (isMonitoringTool(session.group.tool)) {
       session.engine.recordTransportError(session.id, timestamp);
@@ -1618,6 +1658,7 @@ export class WatchdogController {
         return;
       }
 
+      if (this.stopping) return;
       const result = await this.writeSession(session, prompt);
       if (result.ok) {
         session.engine.recordInjectionSuccess(session.id, timestamp);
