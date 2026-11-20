@@ -47,6 +47,12 @@ export function useConfigDraft(saved: WatchdogConfig) {
     setDraft: (draft: WatchdogConfig) => setEditor((current) => ({ ...current, draft })),
     setIncludeFilters: (includeFilters: string) => setEditor((current) => ({ ...current, includeFilters })),
     setExcludeFilters: (excludeFilters: string) => setEditor((current) => ({ ...current, excludeFilters })),
+    replace: (confirmed: WatchdogConfig) => setEditor({
+      baseline: structuredClone(confirmed),
+      draft: structuredClone(confirmed),
+      includeFilters: confirmed.processFilters.include.join(', '),
+      excludeFilters: confirmed.processFilters.exclude.join(', '),
+    }),
     acknowledge: (confirmed: WatchdogConfig) => {
       // The closure captures the submitted editor. A later edit made while its
       // request was pending still wins over the confirmed response.

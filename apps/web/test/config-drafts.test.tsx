@@ -78,6 +78,24 @@ it('retains edited timing, prompts, and filters during routine polling and repea
   expect(screen.getByLabelText('Claude', { exact: true })).toHaveValue('unfinished local prompt');
 });
 
+it('replaces dirty editor fields after importing a full configuration', async () => {
+  const f = fixture(); await settings(f);
+  fireEvent.change(screen.getByLabelText('Claude', { exact: true }), { target: { value: 'unfinished local prompt' } });
+  const imported = structuredClone(f.saved());
+  imported.tools.claude.normalPrompt = 'prompt from imported configuration';
+
+  section('导入');
+  fireEvent.change(screen.getByLabelText('JSON 文本'), { target: { value: JSON.stringify(imported) } });
+  fireEvent.click(screen.getByRole('button', { name: '导入文本' }));
+  expect(await screen.findByText('已导入配置')).toBeInTheDocument();
+
+  section('常规');
+  expect(screen.getByLabelText('Claude', { exact: true })).toHaveValue('prompt from imported configuration');
+  fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+  await waitFor(() => expect(vi.mocked(f.api.updateConfig).mock.lastCall?.[0].tools.claude.normalPrompt)
+    .toBe('prompt from imported configuration'));
+});
+
 it('merges external changes into untouched fields while retaining local nested and filter drafts', async () => {
   const f = fixture(); await settings(f);
   fireEvent.change(screen.getByLabelText('Claude', { exact: true }), { target: { value: 'local Claude' } });

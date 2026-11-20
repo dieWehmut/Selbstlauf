@@ -1779,7 +1779,7 @@ function SettingsPanel(props: {
   onBack: () => void;
   /** Apply a theme/config blob read from the clipboard by the import section. */
   onImportThemeText: (text: string) => Promise<void>;
-  onImportConfigText: (text: string) => Promise<void>;
+  onImportConfigText: (text: string) => Promise<WatchdogConfig>;
   allowReveal: boolean;
   onAllowRevealChange: (allowed: boolean) => void;
   closeToTray: boolean | null;
@@ -1795,7 +1795,7 @@ function SettingsPanel(props: {
   origin: string;
 }) {
   const { t, locale } = useI18n();
-  const { draft, setDraft, includeFilters, setIncludeFilters, excludeFilters, setExcludeFilters, acknowledge } = useConfigDraft(props.config);
+  const { draft, setDraft, includeFilters, setIncludeFilters, excludeFilters, setExcludeFilters, acknowledge, replace } = useConfigDraft(props.config);
   // The rail is the navigation; the app owns which section is in view so a tray
   // command can open the settings page directly on a named section.
   const activeSection = props.activeSection;
@@ -1810,6 +1810,11 @@ function SettingsPanel(props: {
         exclude: parseFilterList(excludeFilters),
       },
     }).then((confirmed) => { if (confirmed !== null) acknowledge(confirmed); });
+  };
+
+  const importConfigText = async (text: string) => {
+    const confirmed = await props.onImportConfigText(text);
+    replace(confirmed);
   };
 
   /** The config save bar, shared by the sections that edit the service config. */
@@ -1951,7 +1956,7 @@ function SettingsPanel(props: {
       )}
       {activeSection === 'notifications' && <NotificationsSection onChange={props.onNotificationsChange} />}
       {activeSection === 'import' && (
-        <ImportSection onImportTheme={props.onImportThemeText} onImportConfig={props.onImportConfigText} config={props.config} />
+        <ImportSection onImportTheme={props.onImportThemeText} onImportConfig={importConfigText} config={props.config} />
       )}
       {activeSection === 'profile' && (
         <ProfileSection />
@@ -3022,7 +3027,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
 
   /** Apply a config blob from the clipboard through the normal save path. */
   const importConfigText = async (text: string) => {
-    await applyConfig(JSON.parse(text) as WatchdogConfig);
+    return applyConfig(JSON.parse(text) as WatchdogConfig);
   };
 
   /**
