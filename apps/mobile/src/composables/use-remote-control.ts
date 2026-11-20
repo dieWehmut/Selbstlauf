@@ -365,28 +365,45 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
     if (disposed) return;
     const version = connection;
     const current = client;
+    const wasConnected = device.address === connected.value && current !== null;
+    const key = credentialKey(device.address);
+    let credentialBefore: string | null | undefined;
+    let credentialReadable = false;
     try {
-      if (device.address === connected.value && current) {
+      credentialBefore = (await credentialStore.get({ key })).value;
+      credentialReadable = true;
+    } catch { /* Do not block remote revocation. */ }
+    try {
+      if (wasConnected && current) {
         try {
           await current.request<void>("/device", "DELETE");
         } catch (cause) {
           if (!(cause instanceof RemoteError && cause.status === 401)) throw cause;
         }
       }
-      if (version !== connection || disposed) return;
-      await credentialStore.remove({ key: credentialKey(device.address) });
-      if (version !== connection || disposed) return;
-      persistDevices(devices.value.filter((entry) => entry.address !== device.address));
-      if (address.value === device.address) {
-        address.value = devices.value[0]?.address ?? "";
-        try {
-          if (address.value) store?.setItem(ACTIVE_DEVICE_KEY, address.value);
-          else store?.removeItem(ACTIVE_DEVICE_KEY);
-        } catch {
-          // Preference cleanup does not affect credential removal.
+      // A successful revocation still needs local cleanup after a computer
+      // switch, unless a new pairing replaced the credential in the meantime.
+      let forgetLocalDevice = version === connection;
+      if (version !== connection && credentialReadable) {
+        const credentialAfter = await credentialStore.get({ key });
+        // A re-pair may have saved a replacement token while revocation was
+        // in flight. Forget only the credential that existed when requested.
+        forgetLocalDevice = credentialAfter.value === credentialBefore;
+      }
+      if (forgetLocalDevice) {
+        await credentialStore.remove({ key });
+        persistDevices(devices.value.filter((entry) => entry.address !== device.address));
+        if (address.value === device.address) {
+          address.value = devices.value[0]?.address ?? "";
+          try {
+            if (address.value) store?.setItem(ACTIVE_DEVICE_KEY, address.value);
+            else store?.removeItem(ACTIVE_DEVICE_KEY);
+          } catch {
+            // Preference cleanup does not affect credential removal.
+          }
         }
       }
-      if (device.address === connected.value) {
+      if (forgetLocalDevice && device.address === connected.value) {
         resetRemoteState();
         busy.value = false;
         connectionStatus.value = "disconnected";

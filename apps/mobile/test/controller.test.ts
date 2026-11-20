@@ -193,6 +193,79 @@ describe("useRemoteControl", () => {
     expect(control.connectionStatus.value).toBe("disconnected");
   });
 
+  it("finishes forgetting a computer after switching to a different computer", async () => {
+    const { control, first, second, credentialStore } = setup();
+    await control.connect();
+    const pendingRevoke = deferred<unknown>();
+    const original = first.request.getMockImplementation()!;
+    const originalSecond = second.request.getMockImplementation()!;
+    first.request.mockImplementation((path, method, data) => path === "/device" && method === "DELETE"
+      ? pendingRevoke.promise
+      : original(path, method, data));
+    second.request.mockImplementation((path, method, data) => path === "/info"
+      ? Promise.resolve({ name: "Second computer" })
+      : originalSecond(path, method, data));
+    const oldDevice = { address: "http://host:48921", name: "Workstation" };
+    const forgetting = control.forget(oldDevice);
+
+    await vi.waitFor(() => expect(first.request).toHaveBeenCalledWith("/device", "DELETE"));
+    expect(await control.connect({ address: "http://other:48921", name: "Other" })).toBe(true);
+    pendingRevoke.resolve({ ok: true });
+
+    await forgetting;
+    expect(control.devices.value).toEqual([{ address: "http://other:48921", name: "Second computer" }]);
+    expect(credentialStore.data.has("selbstlauf.token:http://host:48921")).toBe(false);
+    expect(control.connected.value).toBe("http://other:48921");
+    expect(control.hostName.value).toBe("Second computer");
+    control.dispose();
+  });
+
+  it("preserves a replacement credential when the same computer is re-paired during forgetting", async () => {
+    const { control, first, credentialStore } = setup();
+    await control.connect();
+    const pendingRevoke = deferred<unknown>();
+    const original = first.request.getMockImplementation()!;
+    first.request.mockImplementation((path, method, data) => path === "/device" && method === "DELETE"
+      ? pendingRevoke.promise
+      : original(path, method, data));
+    const device = { address: "http://host:48921", name: "Workstation" };
+    const forgetting = control.forget(device);
+
+    await vi.waitFor(() => expect(first.request).toHaveBeenCalledWith("/device", "DELETE"));
+    credentialStore.data.set("selbstlauf.token:http://host:48921", "replacement-token");
+    expect(await control.connect(device)).toBe(true);
+    pendingRevoke.resolve({ ok: true });
+
+    await forgetting;
+    expect(credentialStore.data.get("selbstlauf.token:http://host:48921")).toBe("replacement-token");
+    expect(control.devices.value).toContainEqual(device);
+    expect(control.connected.value).toBe(device.address);
+    control.dispose();
+  });
+
+  it("disconnects a same-token reconnection after that token is revoked", async () => {
+    const { control, first, credentialStore } = setup();
+    await control.connect();
+    const pendingRevoke = deferred<unknown>();
+    const original = first.request.getMockImplementation()!;
+    first.request.mockImplementation((path, method, data) => path === "/device" && method === "DELETE"
+      ? pendingRevoke.promise
+      : original(path, method, data));
+    const device = { address: "http://host:48921", name: "Workstation" };
+    const forgetting = control.forget(device);
+
+    await vi.waitFor(() => expect(first.request).toHaveBeenCalledWith("/device", "DELETE"));
+    expect(await control.connect(device)).toBe(true);
+    pendingRevoke.resolve({ ok: true });
+
+    await forgetting;
+    expect(control.connected.value).toBe("");
+    expect(control.connectionStatus.value).toBe("disconnected");
+    expect(control.devices.value).toEqual([]);
+    expect(credentialStore.data.has("selbstlauf.token:http://host:48921")).toBe(false);
+    control.dispose();
+  });
+
   it("keeps unreadable credentials recoverable by explicitly pairing with a new code", async () => {
     const { control, credentialStore, first } = setup();
     const get = vi.spyOn(credentialStore, "get").mockRejectedValue(new Error("Keystore decryption failed"));
