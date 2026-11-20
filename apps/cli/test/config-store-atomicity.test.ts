@@ -13,7 +13,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -73,6 +73,32 @@ test('concurrent saves never produce a corrupt or partial document', async () =>
   // The store must also still read back what it last wrote.
   const loaded = await store.load();
   assert.equal(loaded.tools.claude.normalPrompt, parsed.tools.claude.normalPrompt);
+});
+
+test('concurrent partial updates preserve changes to independent config fields', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'watchdog-config-updates-'));
+  t.after(async () => { await rm(directory, { recursive: true, force: true }); });
+  const store = new ConfigStore(join(directory, 'config.json'));
+
+  for (let iteration = 0; iteration < 20; iteration += 1) {
+    await store.save({
+      ...defaultConfig,
+      dryRun: true,
+      tools: { ...defaultConfig.tools, claude: { ...defaultConfig.tools.claude, normalPrompt: 'original' } },
+    });
+    const prompt = `updated-${iteration}`;
+    await Promise.all([
+      store.update((current) => ({ ...current, dryRun: false })),
+      store.update((current) => ({
+        ...current,
+        tools: { ...current.tools, claude: { ...current.tools.claude, normalPrompt: prompt } },
+      })),
+    ]);
+
+    const updated = await store.load();
+    assert.equal(updated.dryRun, false, `iteration ${iteration} lost the dry-run update`);
+    assert.equal(updated.tools.claude.normalPrompt, prompt, `iteration ${iteration} lost the prompt update`);
+  }
 });
 
 test('a save that is rejected mid-sequence does not damage the accepted document', async () => {

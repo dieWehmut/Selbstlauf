@@ -14,7 +14,7 @@ export class ConfigStore {
   private readonly createIfMissing: boolean;
   private cached: WatchdogConfig | null = null;
   /**
-   * Serializes saves.
+   * Serializes config reads and writes, including full read-modify-write updates.
    *
    * Two concurrent saves used to race in `replaceAtomically`'s Windows backup branch:
    * the first moved `config.json` aside, and the second then failed with ENOENT
@@ -23,7 +23,7 @@ export class ConfigStore {
    * own lifecycle routes — so this is reachable in normal use, and a lost save is a
    * setting the user watched change back.
    */
-  private queue: Promise<unknown> = Promise.resolve();
+  private queue: Promise<void> = Promise.resolve();
 
   public constructor(path: string, options: ConfigStoreOptions = {}) {
     if (typeof path !== 'string' || path.trim().length === 0) {
@@ -33,7 +33,11 @@ export class ConfigStore {
     this.createIfMissing = options.createIfMissing ?? true;
   }
 
-  public async load(): Promise<WatchdogConfig> {
+  public load(): Promise<WatchdogConfig> {
+    return this.enqueue(() => this.readOrCreate());
+  }
+
+  private async readOrCreate(): Promise<WatchdogConfig> {
     try {
       const raw = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
       const config = parseConfig(raw);
@@ -42,7 +46,7 @@ export class ConfigStore {
     } catch (error) {
       if (this.cached !== null) return this.cached;
       if (!isMissingFile(error) || !this.createIfMissing) throw error;
-      await this.save(defaultConfig);
+      await this.write(defaultConfig);
       return defaultConfig;
     }
   }
@@ -51,11 +55,7 @@ export class ConfigStore {
     const config = parseConfig(value);
     // Validate before queueing, so a rejected value fails immediately and cannot
     // disturb the documents queued ahead of it.
-    const run = this.queue.then(() => this.write(config));
-    // Keep the chain alive even when this save rejects, or every later save would
-    // inherit the rejection and fail for an unrelated reason.
-    this.queue = run.catch(() => undefined);
-    return run;
+    return this.enqueue(() => this.write(config));
   }
 
   private async write(config: WatchdogConfig): Promise<WatchdogConfig> {
@@ -75,8 +75,18 @@ export class ConfigStore {
   }
 
   public async update(mutator: (current: WatchdogConfig) => unknown): Promise<WatchdogConfig> {
-    const current = await this.load();
-    return this.save(mutator(current));
+    return this.enqueue(async () => {
+      const current = await this.readOrCreate();
+      return this.write(parseConfig(mutator(current)));
+    });
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(operation);
+    // Keep the chain alive after a rejected read, mutator or write so unrelated
+    // operations queued behind it can still run.
+    this.queue = run.then(() => undefined, () => undefined);
+    return run;
   }
 }
 
