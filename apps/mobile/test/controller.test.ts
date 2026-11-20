@@ -32,9 +32,14 @@ function fixture() {
     if (path.includes("/agents/") && path.includes("/output")) return { data: "hello", fromOffset: 0, offset: 5, reset: false, session: agent };
     return { ok: true };
   });
-  const pair = vi.fn(async () => ({ token: "paired-token", device_id: "phone", expires_at: 10 }));
-  const client = { address: "http://host:48921", request, pair } as unknown as RemoteClient;
-  return { calls, session, agent, request, pair, client };
+  const setToken = vi.fn();
+  const pair = vi.fn(async () => {
+    const result = { token: "paired-token", device_id: "phone", expires_at: 10 };
+    setToken(result.token);
+    return result;
+  });
+  const client = { address: "http://host:48921", request, pair, setToken } as unknown as RemoteClient;
+  return { calls, session, agent, request, pair, setToken, client };
 }
 
 function deferred<T>() {
@@ -231,6 +236,55 @@ describe("useRemoteControl", () => {
     expect(control.connected.value).toBe("http://other:48921");
     expect(control.hostName.value).toBe("Second computer");
     expect(control.health.value?.running).toBe(true);
+    control.dispose();
+  });
+
+  it("revokes a pairing that completes after switching to another computer", async () => {
+    const { control, credentialStore, first, second } = setup();
+    credentialStore.data.delete("selbstlauf.token:http://host:48921");
+    const paired = deferred<{ token: string; device_id: string; expires_at: number }>();
+    first.pair.mockImplementation(async () => {
+      const result = await paired.promise;
+      first.setToken(result.token);
+      return result;
+    });
+    control.code.value = "123456";
+
+    const connecting = control.connect();
+    await vi.waitFor(() => expect(first.pair).toHaveBeenCalledWith("123456", "我的手机"));
+    expect(await control.connect({ address: "http://other:48921", name: "Other" })).toBe(true);
+    paired.resolve({ token: "stale-paired-token", device_id: "stale-device", expires_at: 10 });
+
+    expect(await connecting).toBe(false);
+    expect(first.setToken).toHaveBeenCalledWith("stale-paired-token");
+    expect(first.calls).toContainEqual({ path: "/device", method: "DELETE", data: undefined });
+    expect(credentialStore.data.has("selbstlauf.token:http://host:48921")).toBe(false);
+    expect(control.connected.value).toBe("http://other:48921");
+    control.dispose();
+  });
+
+  it("removes a newly paired credential if switching computers while it is being saved", async () => {
+    const { control, credentialStore, first } = setup();
+    credentialStore.data.delete("selbstlauf.token:http://host:48921");
+    const save = deferred<void>();
+    vi.spyOn(credentialStore, "set").mockImplementation(async ({ key, value }) => {
+      await save.promise;
+      credentialStore.data.set(key, value);
+    });
+    control.code.value = "123456";
+
+    const connecting = control.connect();
+    await vi.waitFor(() => expect(credentialStore.set).toHaveBeenCalledWith({
+      key: "selbstlauf.token:http://host:48921",
+      value: "paired-token",
+    }));
+    expect(await control.connect({ address: "http://other:48921", name: "Other" })).toBe(true);
+    save.resolve();
+
+    expect(await connecting).toBe(false);
+    expect(first.calls).toContainEqual({ path: "/device", method: "DELETE", data: undefined });
+    expect(credentialStore.data.has("selbstlauf.token:http://host:48921")).toBe(false);
+    expect(control.connected.value).toBe("http://other:48921");
     control.dispose();
   });
 

@@ -188,6 +188,17 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
     }
   }
 
+  async function revokePairedDevice(next: RemoteClient, host: string, token: string) {
+    next.setToken(token);
+    try { await next.request<void>("/device", "DELETE"); } catch { /* Best effort while offline. */ }
+    const key = credentialKey(host);
+    try {
+      // A connection for this host may already have saved a newer token. Remove
+      // only the credential produced by this stale pairing attempt.
+      if ((await credentialStore.get({ key })).value === token) await credentialStore.remove({ key });
+    } catch { /* Revoking the server-side device is still worthwhile. */ }
+  }
+
   function isCurrent(next: RemoteClient, version: number) {
     return !disposed && next === client && version === connection;
   }
@@ -278,7 +289,10 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
           throw new Error("请输入电脑显示的一次性配对码");
         }
         const paired = await next.pair(pairingCode, deviceName.value.trim() || "Android");
-        if (version !== connection || disposed) return false;
+        if (version !== connection || disposed) {
+          await revokePairedDevice(next, host, paired.token);
+          return false;
+        }
         try {
           await credentialStore.set({ key: credentialKey(host), value: paired.token });
         } catch {
@@ -287,10 +301,13 @@ export function useRemoteControl(options: RemoteControlOptions = {}) {
             code.value = "";
           }
           // A token which cannot be kept safely should not remain authorized.
-          try { await next.request<void>("/device", "DELETE"); } catch { /* Best effort while offline. */ }
+          await revokePairedDevice(next, host, paired.token);
           throw new Error("无法安全保存配对凭据，请检查手机存储后生成新配对码重试");
         }
-        if (version !== connection || disposed) return false;
+        if (version !== connection || disposed) {
+          await revokePairedDevice(next, host, paired.token);
+          return false;
+        }
         code.value = "";
       }
       client = next;
