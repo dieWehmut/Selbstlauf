@@ -73,6 +73,60 @@ describe('locale persistence and synchronization', () => {
     expect(i18n.getLocale()).toBe('zh-CN');
     expect(localStorage.getItem(i18n.LOCALE_KEY)).toBeNull();
   });
+  it.each(['before', 'after'] as const)('uses the initial native locale when its read resolves %s a failed write', async (order) => {
+    const read = deferred<{ locale: string }>();
+    const write = deferred<{ locale: string }>();
+    Object.assign(window, { selbstlaufDesktop: { settings: {
+      get: () => read.promise, set: () => write.promise,
+    } } });
+    render(<><i18n.LocaleBridge /><Probe /></>);
+    const save = i18n.setLocale('en');
+    const rejection = expect(save).rejects.toThrow('permission denied');
+    const resolveRead = () => act(async () => { read.resolve({ locale: 'ja' }); await read.promise; });
+
+    if (order === 'before') await resolveRead();
+    await act(async () => { write.reject(new Error('permission denied')); await rejection; });
+    if (order === 'after') await resolveRead();
+
+    expect(i18n.getLocale()).toBe('ja');
+    expect(screen.getByTestId('locale')).toHaveTextContent('ja|表示言語');
+    expect(document.documentElement.lang).toBe('ja');
+    expect(JSON.parse(localStorage.getItem(i18n.LOCALE_KEY)!)).toBe('ja');
+  });
+  it('ignores an initial native read that arrives after a confirmed write', async () => {
+    const read = deferred<{ locale: string }>();
+    Object.assign(window, { selbstlaufDesktop: { settings: {
+      get: () => read.promise, set: async () => ({ locale: 'en' }),
+    } } });
+    render(<><i18n.LocaleBridge /><Probe /></>);
+
+    await act(() => i18n.setLocale('en'));
+    await act(async () => { read.resolve({ locale: 'ja' }); await read.promise; });
+
+    expect(i18n.getLocale()).toBe('en');
+    expect(screen.getByTestId('locale')).toHaveTextContent('en|Interface language');
+    expect(document.documentElement.lang).toBe('en');
+  });
+  it('preserves a native broadcast when a write fails and its initial read arrives late', async () => {
+    const read = deferred<{ locale: string }>();
+    const write = deferred<{ locale: string }>();
+    let onChange!: (saved: { locale: string }) => void;
+    Object.assign(window, { selbstlaufDesktop: { settings: {
+      get: () => read.promise, set: () => write.promise,
+      onChange: (listener: typeof onChange) => { onChange = listener; return () => undefined; },
+    } } });
+    render(<><i18n.LocaleBridge /><Probe /></>);
+    const save = i18n.setLocale('en');
+    const rejection = expect(save).rejects.toThrow('permission denied');
+
+    act(() => onChange({ locale: 'zh-TW' }));
+    await act(async () => { write.reject(new Error('permission denied')); await rejection; });
+    await act(async () => { read.resolve({ locale: 'ja' }); await read.promise; });
+
+    expect(i18n.getLocale()).toBe('zh-TW');
+    expect(screen.getByTestId('locale')).toHaveTextContent('zh-TW|介面語言');
+    expect(document.documentElement.lang).toBe('zh-TW');
+  });
   it('uses confirmed native persistence even if the browser cache cannot be written', async () => {
     Object.assign(window, { selbstlaufDesktop: { settings: { set: vi.fn(async () => ({ locale: 'en' })) } } });
     render(<Probe />);
@@ -99,6 +153,26 @@ describe('locale persistence and synchronization', () => {
     view.unmount();
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
+  it('ignores pending native reads and broadcasts after the bridge unmounts', async () => {
+    localStorage.setItem(i18n.LOCALE_KEY, JSON.stringify('en'));
+    const read = deferred<{ locale: string }>();
+    let onChange!: (saved: { locale: string }) => void;
+    const unsubscribe = vi.fn();
+    Object.assign(window, { selbstlaufDesktop: { settings: {
+      get: () => read.promise,
+      onChange: (listener: typeof onChange) => { onChange = listener; return unsubscribe; },
+    } } });
+    const view = render(<><i18n.LocaleBridge /><Probe /></>);
+    view.unmount();
+
+    await act(async () => { read.resolve({ locale: 'ja' }); await read.promise; });
+    act(() => onChange({ locale: 'zh-TW' }));
+
+    expect(i18n.getLocale()).toBe('en');
+    expect(document.documentElement.lang).toBe('en');
+    expect(JSON.parse(localStorage.getItem(i18n.LOCALE_KEY)!)).toBe('en');
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
   it('does not let an old initial native read overwrite a new write or native change', async () => {
     const read = deferred<{ locale: string }>();
     const write = deferred<{ locale: string }>();
@@ -109,7 +183,8 @@ describe('locale persistence and synchronization', () => {
     } } });
     render(<><i18n.LocaleBridge /><Probe /></>);
     const save = i18n.setLocale('en');
-    await act(async () => { read.resolve({ locale: 'zh-CN' }); await read.promise; });
+    await act(async () => { read.resolve({ locale: 'ja' }); await read.promise; });
+    expect(screen.getByTestId('locale')).toHaveTextContent('ja|表示言語');
     await act(async () => { write.resolve({ locale: 'en' }); await save; });
     expect(i18n.getLocale()).toBe('en');
     act(() => onChange({ locale: 'ja' }));

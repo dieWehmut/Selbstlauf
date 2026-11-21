@@ -24,6 +24,7 @@ export function isLocale(value: unknown): value is Locale {
 }
 
 let nativeLocale: Locale | undefined;
+// Initial snapshots must not invalidate an in-flight write; only confirmed changes do.
 let nativeGeneration = 0;
 let latestSave = 0;
 
@@ -55,7 +56,6 @@ export function applyLocale(locale: Locale): void {
 
 function applyNativeLocale(locale: Locale): void {
   nativeLocale = locale;
-  nativeGeneration += 1;
   // Native persistence has already succeeded. Browser storage is only a cache here.
   try { localStorage.setItem(LOCALE_KEY, JSON.stringify(locale)); } catch { /* Use native state. */ }
   document.documentElement.lang = locale;
@@ -73,6 +73,7 @@ export async function setLocale(locale: Locale): Promise<void> {
     if (!isLocale((saved as { locale?: unknown }).locale)) throw new Error('Desktop returned an invalid locale');
     const confirmed = (saved as { locale: Locale }).locale;
     if (request === latestSave && (generation === nativeGeneration || nativeLocale === confirmed)) {
+      nativeGeneration += 1;
       applyNativeLocale(confirmed);
     }
   } else {
@@ -103,12 +104,14 @@ export function LocaleBridge() {
     if (typeof settings?.get !== 'function') return;
     let active = true;
     const sync = (saved: { locale?: unknown }) => {
-      if (active && isLocale(saved.locale)) applyNativeLocale(saved.locale);
+      if (active && isLocale(saved.locale)) {
+        nativeGeneration += 1;
+        applyNativeLocale(saved.locale);
+      }
     };
     const generation = nativeGeneration;
-    const save = latestSave;
     void settings.get().then((saved) => {
-      if (nativeGeneration === generation && latestSave === save) sync(saved);
+      if (active && nativeGeneration === generation && isLocale(saved.locale)) applyNativeLocale(saved.locale);
     }).catch(() => undefined);
     const unsubscribe = settings.onChange?.(sync);
     return () => { active = false; unsubscribe?.(); };
