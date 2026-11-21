@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { WatchdogConfig } from '../api/client';
+import { formatFilterList } from './filter-list';
 
 function equal(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -28,19 +29,19 @@ interface Editor {
 }
 
 function rebase(editor: Editor, saved: WatchdogConfig, baseline = editor.baseline,
-  includeBaseline = baseline.processFilters.include.join(', '), excludeBaseline = baseline.processFilters.exclude.join(', ')): Editor {
+  includeBaseline = formatFilterList(baseline.processFilters.include), excludeBaseline = formatFilterList(baseline.processFilters.exclude)): Editor {
   return {
     baseline: structuredClone(saved),
     draft: merge(baseline, editor.draft, saved) as WatchdogConfig,
-    includeFilters: editor.includeFilters === includeBaseline ? saved.processFilters.include.join(', ') : editor.includeFilters,
-    excludeFilters: editor.excludeFilters === excludeBaseline ? saved.processFilters.exclude.join(', ') : editor.excludeFilters,
+    includeFilters: editor.includeFilters === includeBaseline ? formatFilterList(saved.processFilters.include) : editor.includeFilters,
+    excludeFilters: editor.excludeFilters === excludeBaseline ? formatFilterList(saved.processFilters.exclude) : editor.excludeFilters,
   };
 }
 
 /** Keep one editor alive across settings sections and acknowledge only successful saves. */
 export function useConfigDraft(saved: WatchdogConfig) {
   const [editor, setEditor] = useState<Editor>(() => ({ baseline: structuredClone(saved), draft: structuredClone(saved),
-    includeFilters: saved.processFilters.include.join(', '), excludeFilters: saved.processFilters.exclude.join(', ') }));
+    includeFilters: formatFilterList(saved.processFilters.include), excludeFilters: formatFilterList(saved.processFilters.exclude) }));
   useEffect(() => { setEditor((current) => rebase(current, saved)); }, [saved]);
   return {
     ...editor,
@@ -52,9 +53,9 @@ export function useConfigDraft(saved: WatchdogConfig) {
       baseline: structuredClone(confirmed),
       draft: merge(previousDraft, current.draft, confirmed) as WatchdogConfig,
       includeFilters: current.includeFilters === previousIncludeFilters
-        ? confirmed.processFilters.include.join(', ') : current.includeFilters,
+        ? formatFilterList(confirmed.processFilters.include) : current.includeFilters,
       excludeFilters: current.excludeFilters === previousExcludeFilters
-        ? confirmed.processFilters.exclude.join(', ') : current.excludeFilters,
+        ? formatFilterList(confirmed.processFilters.exclude) : current.excludeFilters,
     })),
     acknowledge: (confirmed: WatchdogConfig) => {
       // The closure captures the submitted editor. A later edit made while its

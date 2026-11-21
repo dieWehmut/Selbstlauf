@@ -38,6 +38,7 @@ import {
   X,
 } from 'lucide-react';
 import { useConfigDraft } from './settings/config-drafts';
+import { parseFilterList } from './settings/filter-list';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { getLocale, translate, useI18n, type Locale, type MessageParams } from './i18n';
 import { LanguageSection } from './i18n/LanguageSection';
@@ -770,10 +771,6 @@ function nextPrompt(session: SessionView, config: WatchdogConfig): string {
     unmounts the tree and the whole console goes blank. A stated absence is what the column shows instead.
   */
   return config.tools[session.tool]?.normalPrompt ?? '—';
-}
-
-function parseFilterList(value: string): string[] {
-  return value.split(/[\r\n,]+/u).map((entry) => entry.trim()).filter(Boolean);
 }
 
 function CapabilityBadge({ session }: { session: SessionView }) {
@@ -1796,19 +1793,28 @@ function SettingsPanel(props: {
 }) {
   const { t, locale } = useI18n();
   const { draft, setDraft, includeFilters, setIncludeFilters, excludeFilters, setExcludeFilters, acknowledge, replaceSince } = useConfigDraft(props.config);
+  const [filterError, setFilterError] = useState(false);
   // The rail is the navigation; the app owns which section is in view so a tray
   // command can open the settings page directly on a named section.
   const activeSection = props.activeSection;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void props.onSave({
-      ...draft,
-      processFilters: {
+    let processFilters: WatchdogConfig['processFilters'];
+    try {
+      processFilters = {
         ...draft.processFilters,
         include: parseFilterList(includeFilters),
         exclude: parseFilterList(excludeFilters),
-      },
+      };
+    } catch {
+      setFilterError(true);
+      return;
+    }
+    setFilterError(false);
+    void props.onSave({
+      ...draft,
+      processFilters,
     }).then((confirmed) => { if (confirmed !== null) acknowledge(confirmed); });
   };
 
@@ -1818,6 +1824,7 @@ function SettingsPanel(props: {
     const previousExcludeFilters = excludeFilters;
     const confirmed = await props.onImportConfigText(text);
     replaceSince(confirmed, previousDraft, previousIncludeFilters, previousExcludeFilters);
+    setFilterError(false);
   };
 
   /** The config save bar, shared by the sections that edit the service config. */
@@ -1834,6 +1841,7 @@ function SettingsPanel(props: {
           place rather than as text silently swapping under the cursor. */}
       <div className="settings-content" key={activeSection}>
       {props.staticDemo && <p className="section-hint settings-section--wide" role="note">{t("演示模式：设置保存在此浏览器。Watchdog、启动项、Stop Hook、Codex 端点与工具安装操作仅模拟，不会操作本机进程或文件。")}</p>}
+      {filterError && <p className="hook-error settings-section--wide" role="alert">{t('进程过滤条件格式有误，请在“常规”中检查双引号和 JSON 转义。')}</p>}
       {activeSection === 'appearance' && (
         <>
           <AppearancePanel
@@ -1885,9 +1893,10 @@ function SettingsPanel(props: {
       </section>
       <section className="settings-section settings-section--wide">
         <div className="section-title"><div><span className="eyebrow">{t("Processes")}</span><h2>{t("进程范围")}</h2></div><ShieldAlert size={20} /></div>
+        <p className="section-hint">{t('用逗号分隔；含逗号或引号的条件请用 JSON 双引号字符串，例如 "Acme, Inc"。')}</p>
         <div className="field-grid">
-          <label><span>{t("包含匹配")}</span><input aria-label={t("包含匹配")} placeholder={t("例如 Nexus, study-os")} value={includeFilters} onChange={(event) => setIncludeFilters(event.target.value)} /></label>
-          <label><span>{t("排除匹配")}</span><input aria-label={t("排除匹配")} placeholder={t("例如 node_modules")} value={excludeFilters} onChange={(event) => setExcludeFilters(event.target.value)} /></label>
+          <label><span>{t("包含匹配")}</span><input aria-label={t("包含匹配")} placeholder={t("例如 Nexus, study-os")} value={includeFilters} onChange={(event) => { setIncludeFilters(event.target.value); setFilterError(false); }} /></label>
+          <label><span>{t("排除匹配")}</span><input aria-label={t("排除匹配")} placeholder={t("例如 node_modules")} value={excludeFilters} onChange={(event) => { setExcludeFilters(event.target.value); setFilterError(false); }} /></label>
         </div>
         <div className="switch-row"><div><strong>{t("仅监控当前用户进程")}</strong><span>{t("关闭后会发现其他用户进程，但仍只对安全关联且可验证的会话写入")}</span></div><label className="switch"><input aria-label={t("仅监控当前用户进程")} type="checkbox" checked={draft.processFilters.sameUserOnly} onChange={(event) => setDraft({ ...draft, processFilters: { ...draft.processFilters, sameUserOnly: event.target.checked } })} /><span /></label></div>
       </section>

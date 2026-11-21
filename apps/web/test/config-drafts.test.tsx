@@ -62,6 +62,21 @@ async function refresh(f: ReturnType<typeof fixture>) {
 
 afterEach(() => { vi.restoreAllMocks(); });
 
+it('preserves comma and quote characters in saved filters when submitting an unchanged form', async () => {
+  const f = fixture();
+  const processFilters = {
+    sameUserOnly: true,
+    include: ['Acme, Inc', 'say "go"'],
+    exclude: ['"quoted", archive'],
+  };
+  f.external({ ...structuredClone(f.saved()), processFilters });
+  await settings(f);
+
+  fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+  await waitFor(() => expect(f.api.updateConfig).toHaveBeenCalledWith(expect.objectContaining({ processFilters })));
+});
+
 it('retains edited timing, prompts, and filters during routine polling and repeated service events', async () => {
   const interval = vi.spyOn(window, 'setInterval');
   const f = fixture(); await settings(f);
@@ -86,8 +101,11 @@ it('retains edited timing, prompts, and filters during routine polling and repea
 it('replaces dirty editor fields after importing a full configuration', async () => {
   const f = fixture(); await settings(f);
   fireEvent.change(screen.getByLabelText('Claude', { exact: true }), { target: { value: 'unfinished local prompt' } });
+  fireEvent.change(screen.getByLabelText('包含匹配'), { target: { value: 'unfinished filter' } });
   const imported = structuredClone(f.saved());
   imported.tools.claude.normalPrompt = 'prompt from imported configuration';
+  imported.processFilters.include = ['Acme, Inc'];
+  imported.processFilters.exclude = ['say "go"'];
 
   section('导入');
   fireEvent.change(screen.getByLabelText('JSON 文本'), { target: { value: JSON.stringify(imported) } });
@@ -96,9 +114,12 @@ it('replaces dirty editor fields after importing a full configuration', async ()
 
   section('常规');
   expect(screen.getByLabelText('Claude', { exact: true })).toHaveValue('prompt from imported configuration');
+  expect(screen.getByLabelText('包含匹配')).toHaveValue('"Acme, Inc"');
+  expect(screen.getByLabelText('排除匹配')).toHaveValue('"say \\"go\\""');
   fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
   await waitFor(() => expect(vi.mocked(f.api.updateConfig).mock.lastCall?.[0].tools.claude.normalPrompt)
     .toBe('prompt from imported configuration'));
+  expect(vi.mocked(f.api.updateConfig).mock.lastCall?.[0].processFilters).toEqual(imported.processFilters);
 });
 
 it('preserves edits made after a full configuration import starts', async () => {
@@ -131,7 +152,7 @@ it('merges external changes into untouched fields while retaining local nested a
   external.tools.claude.stopHook.commandTimeoutMs = 2300;
   external.tools.claude.stopHook.leaseTtlMs = 21000;
   external.processFilters.include = ['external include'];
-  external.processFilters.exclude = ['external exclude'];
+  external.processFilters.exclude = ['external, exclude'];
   external.pollIntervalMs = 2750;
   f.external(external); await refresh(f);
   expect(screen.getByLabelText('Lease 有效期（毫秒）')).toHaveValue(19000);
@@ -140,20 +161,42 @@ it('merges external changes into untouched fields while retaining local nested a
   expect(screen.getByLabelText('Claude', { exact: true })).toHaveValue('local Claude');
   expect(screen.getByLabelText('轮询间隔（毫秒）')).toHaveValue(2750);
   expect(screen.getByLabelText('包含匹配')).toHaveValue('local include');
-  expect(screen.getByLabelText('排除匹配')).toHaveValue('external exclude');
+  expect(screen.getByLabelText('排除匹配')).toHaveValue('"external, exclude"');
   fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
   await waitFor(() => expect(f.api.updateConfig).toHaveBeenCalled());
-  expect(vi.mocked(f.api.updateConfig).mock.calls[0][0]).toMatchObject({ pollIntervalMs: 2750, tools: { claude: { normalPrompt: 'local Claude', stopHook: { leaseTtlMs: 19000, commandTimeoutMs: 2300 } } }, processFilters: { include: ['local include'], exclude: ['external exclude'] } });
+  expect(vi.mocked(f.api.updateConfig).mock.calls[0][0]).toMatchObject({ pollIntervalMs: 2750, tools: { claude: { normalPrompt: 'local Claude', stopHook: { leaseTtlMs: 19000, commandTimeoutMs: 2300 } } }, processFilters: { include: ['local include'], exclude: ['external, exclude'] } });
   await screen.findByText('配置已保存');
   f.external({ ...structuredClone(f.saved()), pollIntervalMs: 3250 });
   await refresh(f);
   expect(screen.getByLabelText('轮询间隔（毫秒）')).toHaveValue(3250);
   const confirmed = structuredClone(f.saved());
   confirmed.tools.claude.normalPrompt = 'external after successful save';
-  confirmed.processFilters.include = ['after-save include'];
+  confirmed.processFilters.include = ['after-save, include'];
   f.external(confirmed); await refresh(f);
   expect(screen.getByLabelText('Claude', { exact: true })).toHaveValue('external after successful save');
-  expect(screen.getByLabelText('包含匹配')).toHaveValue('after-save include');
+  expect(screen.getByLabelText('包含匹配')).toHaveValue('"after-save, include"');
+});
+
+it.each(['包含匹配', '排除匹配'])('keeps a malformed %s draft and blocks saves until it is corrected', async (field) => {
+  const f = fixture(); await settings(f);
+  fireEvent.change(screen.getByLabelText('Claude', { exact: true }), { target: { value: 'keep this prompt' } });
+  fireEvent.change(screen.getByLabelText(field), { target: { value: '"Acme, Inc' } });
+  section('续写与进程');
+  fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+  expect(screen.getByRole('alert')).toHaveTextContent('进程过滤条件格式有误');
+  expect(f.api.updateConfig).not.toHaveBeenCalled();
+  section('常规');
+  expect(screen.getByLabelText(field)).toHaveValue('"Acme, Inc');
+  expect(screen.getByLabelText('Claude', { exact: true })).toHaveValue('keep this prompt');
+
+  fireEvent.change(screen.getByLabelText(field), { target: { value: '"Acme, Inc", project "demo", plain' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+  await screen.findByText('配置已保存');
+  expect(screen.queryByRole('alert')).toBeNull();
+  const key = field === '包含匹配' ? 'include' : 'exclude';
+  expect(f.saved().processFilters[key]).toEqual(['Acme, Inc', 'project "demo"', 'plain']);
+  expect(f.saved().tools.claude.normalPrompt).toBe('keep this prompt');
 });
 
 it('retains drafts on failed saves and merges untouched values before retrying', async () => {

@@ -26,13 +26,20 @@ async function settle(page: Page) {
 
 for (const theme of ['light', 'dark'] as const) {
   for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
-    test(`imports JSON files, exports the saved config, and applies pasted themes (${theme}, ${viewport.width})`, async ({ page }) => {
+    test(`imports JSON files, preserves filters on save, exports config, and applies pasted themes (${theme}, ${viewport.width})`, async ({ page }) => {
       await mkdir(evidence, { recursive: true });
       await page.setViewportSize(viewport);
       await page.addInitScript((theme) => localStorage.setItem('watchdog-theme', theme), theme);
       await page.goto('/');
       await openImport(page);
-      const config = { ...await createStaticDemoApi().config(), dryRun: false, pollIntervalMs: 1750 };
+      const config = {
+        ...await createStaticDemoApi().config(), dryRun: false, pollIntervalMs: 1750,
+        processFilters: {
+          sameUserOnly: true,
+          include: ['Acme, Inc', 'say "go"', 'C:\\Work, Inc\\repo', 'two\nlines'],
+          exclude: ['"quoted", archive', ' padded ', ''],
+        },
+      };
       await page.getByLabel('读取 JSON 文件').setInputFiles({
         name: 'saved-config.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(config)),
       });
@@ -42,13 +49,27 @@ for (const theme of ['light', 'dark'] as const) {
       await page.screenshot({ path: resolve(evidence, `01-import-${theme}-${viewport.width}-file.png`), fullPage: true });
       await page.getByRole('button', { name: '导入文本', exact: true }).click();
       await expect(page.getByRole('status').filter({ hasText: '已导入配置' })).toBeVisible();
+      if (await page.getByRole('button', { name: '打开菜单' }).isVisible()) {
+        await page.getByRole('button', { name: '打开菜单' }).click();
+      }
+      await page.getByRole('tab', { name: '常规', exact: true }).click();
+      await expect(page.getByLabel('包含匹配')).toHaveValue(config.processFilters.include.map((value) => JSON.stringify(value)).join(', '));
+      await page.getByLabel('包含匹配').scrollIntoViewIfNeeded();
+      await settle(page);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: resolve(evidence, `01-filters-${theme}-${viewport.width}.png`), animations: 'disabled' });
+      await page.getByRole('button', { name: '保存配置', exact: true }).click();
+      await expect(page.getByRole('status').filter({ hasText: '配置已保存' })).toBeVisible();
+      await openImport(page);
       const downloadPromise = page.waitForEvent('download');
       await page.getByRole('button', { name: '导出配置', exact: true }).click();
       const download = await downloadPromise;
       const exportPath = resolve(evidence, `01-config-export-${theme}-${viewport.width}.json`);
       await download.saveAs(exportPath);
       const { readFile } = await import('node:fs/promises');
-      expect(JSON.parse(await readFile(exportPath, 'utf8'))).toMatchObject({ dryRun: false, pollIntervalMs: 1750 });
+      expect(JSON.parse(await readFile(exportPath, 'utf8'))).toMatchObject({
+        dryRun: false, pollIntervalMs: 1750, processFilters: config.processFilters,
+      });
       await page.getByLabel('JSON 文本').fill(JSON.stringify({ background: '#102030', foreground: '#e0e0e0', accent: '#ff8800' }));
       await page.getByLabel('导入类型').selectOption('theme');
       await page.getByRole('button', { name: '导入文本', exact: true }).click();

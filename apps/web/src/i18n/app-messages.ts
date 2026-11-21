@@ -1,6 +1,8 @@
 import type { Translations } from './index';
 // App.tsx messages, maintained with its rendering and dynamic message callers.
 export const appMessages: Translations = {
+  '用逗号分隔；含逗号或引号的条件请用 JSON 双引号字符串，例如 "Acme, Inc"。': { zhTW: '以逗號分隔；含逗號或引號的條件請使用 JSON 雙引號字串，例如 "Acme, Inc"。', en: 'Separate filters with commas. For a filter containing commas or quotes, use a JSON string, such as "Acme, Inc".', ja: '条件はカンマで区切ります。カンマや引用符を含む条件には、"Acme, Inc" のような JSON 文字列を使用してください。' },
+  '进程过滤条件格式有误，请在“常规”中检查双引号和 JSON 转义。': { zhTW: '程序篩選條件格式有誤，請在「一般」中檢查雙引號和 JSON 跳脫字元。', en: 'Invalid process filter format. Check the double quotes and JSON escapes in General.', ja: 'プロセスの絞り込み条件の形式が正しくありません。「一般」で二重引用符と JSON のエスケープを確認してください。' },
   '本机未导出可读取的会话正文，暂仅显示会话状态。': { zhTW: '本機未匯出可讀取的對話本文，目前僅顯示對話狀態。', en: 'This computer has not exported a readable conversation transcript; only session status is available.', ja: 'この端末では読み取り可能な会話本文がエクスポートされていないため、セッションの状態のみ表示します。' },
   '监控中': { zhTW: '監控中', en: 'Monitoring', ja: '監視中' },
   '监控已关闭': { zhTW: '監控已關閉', en: 'Monitoring disabled', ja: '監視は無効です' },
