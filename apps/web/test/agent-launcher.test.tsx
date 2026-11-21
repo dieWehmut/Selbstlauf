@@ -45,9 +45,14 @@ describe('agent launcher', () => {
     await user.selectOptions(screen.getByLabelText('智能体'), 'opencode');
     expect(screen.getByRole('button', { name: '启动' })).toBeDisabled();
     expect(screen.getByText('npm install -g opencode-ai')).toBeVisible();
-    await user.type(screen.getByLabelText('启动命令', { exact: true }), '/custom/opencode');
+    const executable = screen.getByLabelText('启动命令', { exact: true });
+    await user.type(executable, '/');
+    expect(executable).toBeVisible();
+    expect(executable).toHaveFocus();
+    await user.type(executable, 'custom/opencode');
+    await user.type(screen.getByLabelText('额外启动参数（每行一个）'), '--model{Enter}model with spaces');
     await user.click(screen.getByRole('button', { name: '启动' }));
-    expect(api.launch).toHaveBeenCalledWith({ tool: 'opencode', cwd: '/work/project', command: '/custom/opencode' });
+    expect(api.launch).toHaveBeenCalledWith({ tool: 'opencode', cwd: '/work/project', command: '/custom/opencode', args: ['--model', 'model with spaces'] });
   });
 
   it('retains the request fields and displays the real service failure', async () => {
@@ -90,9 +95,35 @@ describe('agent launcher', () => {
     await user.type(screen.getByLabelText('额外启动参数（每行一个）'), '--version');
     await user.click(screen.getByRole('button', { name: '重新检测本机工具' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '启动' })).toBeEnabled());
+    expect(screen.getByLabelText('额外启动参数（每行一个）')).toBeVisible();
     await user.click(screen.getByRole('button', { name: '启动' }));
     expect(api.launch).toHaveBeenCalledWith({ tool: 'opencode', cwd: '/work/project', args: ['--version'] });
     expect(readCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it('honors manual expansion choices while editing unrelated launch fields', async () => {
+    setup();
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByLabelText('智能体')).toBeEnabled());
+    const executable = screen.getByLabelText('启动命令', { exact: true });
+    expect(executable).not.toBeVisible();
+    await user.click(screen.getByText('启动命令与参数'));
+    await user.type(screen.getByLabelText('窗口名称（可选）'), 'a title');
+    expect(executable).toBeVisible();
+    await user.click(screen.getByText('启动命令与参数'));
+    await user.type(screen.getByLabelText('工作目录'), '/next');
+    expect(executable).not.toBeVisible();
+
+    await user.selectOptions(screen.getByLabelText('智能体'), 'opencode');
+    expect(executable).toBeVisible();
+    await user.click(screen.getByText('启动命令与参数'));
+    await user.type(screen.getByLabelText('窗口名称（可选）'), ' changed');
+    expect(executable).not.toBeVisible();
+
+    await user.selectOptions(screen.getByLabelText('智能体'), 'custom');
+    expect(executable).toBeVisible();
+    await user.type(executable, '/custom/node');
+    expect(executable).toBeVisible();
   });
 
   it('shows installed desktop evidence while keeping PTY launch unavailable', async () => {

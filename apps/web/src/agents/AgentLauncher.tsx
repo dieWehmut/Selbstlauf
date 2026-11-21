@@ -17,6 +17,7 @@ export function AgentLauncher(props: {
 }) {
   const { t, locale } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
+  const advanced = useRef<HTMLDetailsElement>(null);
   const titleId = useId();
   const [catalog, setCatalog] = useState<AgentCatalog | null>(null);
   const [tool, setTool] = useState<AgentTool>(props.initialTool ?? 'claude');
@@ -74,6 +75,13 @@ export function AgentLauncher(props: {
   const customMissing = tool === 'custom' && command.trim().length === 0;
   const disabled = busy || refreshing || guided || props.demo === true || catalog === null || missing || customMissing || cwd.trim().length === 0;
 
+  // Native details keeps the user's toggle choice while typing or rechecking a tool.
+  useEffect(() => {
+    if (!guided && (tool === 'custom' || selected?.available === false) && advanced.current !== null) {
+      advanced.current.open = true;
+    }
+  }, [tool, selected?.available, guided]);
+
   const launch = async () => {
     if (disabled) return;
     setBusy(true);
@@ -128,7 +136,7 @@ export function AgentLauncher(props: {
           <label>{t("工作目录")}<input value={cwd} onChange={(event) => setCwd(event.target.value)} placeholder={t("要让智能体工作的项目目录")} maxLength={4096} disabled={busy} required />
           </label>
           <label>{t("窗口名称（可选）")}<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} disabled={busy} placeholder={t(selected?.label ?? '智能体窗口')} /></label>
-          <details className="agent-launcher__advanced" open={tool === 'custom' || missing ? true : undefined}>
+          <details ref={advanced} className="agent-launcher__advanced">
             <summary>{t("启动命令与参数")}</summary>
             <label>{t("启动命令")}<input value={command} onChange={(event) => setCommand(event.target.value)} disabled={busy} maxLength={4096} placeholder={selected?.command ?? t("可执行文件的完整路径，例如 /usr/local/bin/opencode")} />
             </label>
