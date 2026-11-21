@@ -147,7 +147,7 @@ export function AgentWindows(props: {
             <div><strong>{session.title}</strong><span className="subtle">PID {session.pid} · {agentStatus(session, locale)}</span></div>
             <div className="agent-window__actions">
               {props.onOpenWindow && <button className="button button--ghost" type="button" onClick={() => props.onOpenWindow?.(session)}><SquareArrowOutUpRight size={15} />{t("独立窗口")}</button>}
-              <button className="button button--secondary" type="button" disabled={busy.has(session.id) || session.status === 'stopping'}
+              <button className="button button--secondary" type="button" disabled={busy.has(session.id)}
                 onClick={() => void action(session, session.status === 'exited')}>
                 {busy.has(session.id) ? <RefreshCw size={15} className="spin" /> : session.status === 'exited' ? <X size={15} /> : <Square size={15} />}
                 {session.status === 'exited' ? t("关闭窗口") : t("结束进程")}

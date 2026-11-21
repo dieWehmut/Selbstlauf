@@ -43,6 +43,48 @@ function Windows({ api }: { api: ReturnType<typeof fixture>['api'] }) {
 afterEach(() => sessionStorage.clear());
 
 describe('agent window list updates', () => {
+  it('lets a stopping process be ended again after reopening the page', async () => {
+    const f = fixture([session('first', 'stopping')]);
+    render(<Windows api={f.api} />);
+    await screen.findByRole('tab', { name: 'first' });
+
+    fireEvent.click(screen.getByRole('button', { name: '结束进程' }));
+
+    await waitFor(() => expect(f.api.terminate).toHaveBeenCalledWith('first'));
+    expect(await screen.findByRole('button', { name: '关闭窗口' })).toBeEnabled();
+  });
+
+  it('retries an unconfirmed termination while preventing duplicate pending requests', async () => {
+    const f = fixture([session('first')]);
+    const pending = deferred<void>();
+    f.api.terminate.mockImplementationOnce(async () => {
+      f.api.list.mockResolvedValue([session('first', 'stopping')]);
+      f.changed();
+      throw new Error('进程还未确认退出，请稍后重试结束。');
+    }).mockImplementationOnce(async () => {
+      await pending.promise;
+      f.api.list.mockResolvedValue([session('first', 'exited')]);
+    });
+    render(<Windows api={f.api} />);
+    await screen.findByRole('tab', { name: 'first' });
+    fireEvent.click(screen.getByRole('button', { name: '结束进程' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('进程还未确认退出，请稍后重试结束。');
+    expect(screen.getByText(/正在退出/u)).toBeVisible();
+    const retry = screen.getByRole('button', { name: '结束进程' });
+    expect(retry).toBeEnabled();
+
+    fireEvent.click(retry);
+    expect(retry).toBeDisabled();
+    fireEvent.click(retry);
+    expect(f.api.terminate).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => { pending.resolve(); });
+
+    expect(await screen.findByRole('button', { name: '关闭窗口' })).toBeEnabled();
+    expect(screen.getByRole('tab', { name: 'first' })).toBeInTheDocument();
+    expect(f.api.remove).not.toHaveBeenCalled();
+  });
+
   it('keeps an accepted removal when the follow-up list fails', async () => {
     const f = fixture();
     render(<Windows api={f.api} />);
