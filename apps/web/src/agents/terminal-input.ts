@@ -46,6 +46,7 @@ export class TerminalSubmitter {
       const queue = this.currentQueue();
       if (queue === null) throw new Error('终端已关闭。');
       queue.resetFailure();
+      if (this.pending?.accepted === 0 && this.pending.text !== text) this.pending = null;
       if (this.pending !== null) {
         const previous = this.pending.text;
         await this.finish(queue);

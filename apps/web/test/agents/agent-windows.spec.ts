@@ -92,7 +92,7 @@ test('answers real TUI startup queries and sends multiline prompts using bracket
   }
 });
 
-for (const failure of ['enter', 'payload', 'reconnect', 'edited-draft'] as const) {
+for (const failure of ['enter', 'payload', 'reconnect', 'edited-draft', 'empty-prefix'] as const) {
   test(`retries a rejected terminal ${failure} without repeating acknowledged input`, async ({ page }) => {
     await page.goto('/');
     const session = await launch(page, `输入重试 ${failure}`, 'opencode', [resolve('../cli/dist/test/fixtures/agent-terminal-protocol.js')]);
@@ -102,7 +102,8 @@ for (const failure of ['enter', 'payload', 'reconnect', 'edited-draft'] as const
       let rejected = false;
       await page.route(`**/api/agents/${session.id}/input`, async (route) => {
         const data = (route.request().postDataJSON() as { data: string }).data;
-        const shouldReject = failure === 'payload' ? accepted.length === 1 : data === '\r';
+        const shouldReject = failure === 'payload' ? accepted.length === 1
+          : failure === 'empty-prefix' ? accepted.length === 0 : data === '\r';
         if (!rejected && shouldReject) {
           rejected = true;
           await route.fulfill({ status: 503, json: { error: 'fixture rejected input before accepting it' } });
@@ -124,7 +125,7 @@ for (const failure of ['enter', 'payload', 'reconnect', 'edited-draft'] as const
       await expect(page.getByRole('alert')).toHaveText('fixture rejected input before accepting it');
       await expect(field).toHaveValue(text);
       expect(rejected).toBe(true);
-      expect(accepted).toHaveLength(1);
+      expect(accepted).toHaveLength(failure === 'empty-prefix' ? 0 : 1);
       expect(payload(text).startsWith(accepted.join(''))).toBe(true);
       expect(await output(page, session.id)).not.toContain('SUBMITTED');
 
@@ -133,11 +134,13 @@ for (const failure of ['enter', 'payload', 'reconnect', 'edited-draft'] as const
         await expect(page.getByText('终端已连接', { exact: true })).toBeVisible();
       }
       const edited = '新的独立输入';
-      if (failure === 'edited-draft') await field.fill(edited);
+      if (failure === 'edited-draft' || failure === 'empty-prefix') await field.fill(edited);
       await send.click();
       await expect(field).toHaveValue('');
-      expect(accepted.join('')).toBe(`${payload(text)}\r${failure === 'edited-draft' ? `${payload(edited)}\r` : ''}`);
-      await expect.poll(() => output(page, session.id)).toContain(`PASTE ${JSON.stringify(text.replace(/\n/gu, '\r'))}`);
+      const original = failure === 'empty-prefix' ? '' : `${payload(text)}\r`;
+      expect(accepted.join('')).toBe(`${original}${failure === 'edited-draft' || failure === 'empty-prefix' ? `${payload(edited)}\r` : ''}`);
+      const pasted = failure === 'empty-prefix' ? edited : text;
+      await expect.poll(() => output(page, session.id)).toContain(`PASTE ${JSON.stringify(pasted.replace(/\n/gu, '\r'))}`);
       await expect.poll(async () => (await output(page, session.id)).match(/SUBMITTED/gu)?.length ?? 0)
         .toBe(failure === 'edited-draft' ? 2 : 1);
     } finally {

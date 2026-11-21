@@ -102,6 +102,21 @@ describe('terminal composer retries', () => {
     expect(accepted).toEqual([payload('first'), '\r', payload('second'), '\r']);
   });
 
+  it('replaces an edited draft when no part of the previous paste was acknowledged', async () => {
+    const accepted: string[] = [];
+    let rejected = false;
+    const queue = new TerminalInputQueue(async (data) => {
+      if (!rejected) { rejected = true; throw new Error('first chunk rejected'); }
+      accepted.push(data);
+    });
+    const submitter = new TerminalSubmitter(() => queue, payload);
+
+    await expect(submitter.send('first')).rejects.toThrow('first chunk rejected');
+    await submitter.send('second');
+
+    expect(accepted).toEqual([payload('second'), '\r']);
+  });
+
   it('keeps pending input when a reconnect replaces the queue', async () => {
     const accepted: string[] = [];
     let queue: TerminalInputQueue | null = new TerminalInputQueue(async (data) => {
