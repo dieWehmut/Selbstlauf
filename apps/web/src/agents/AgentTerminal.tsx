@@ -5,6 +5,7 @@ import { CornerDownLeft, RefreshCw, Send } from 'lucide-react';
 import type { Terminal, ITheme } from '@xterm/xterm';
 import type { AgentApi, AgentSession } from '../api/agents';
 import { TerminalInputQueue, TerminalSubmitter } from './terminal-input';
+import { readStoredString, storeString } from './browser-storage';
 import '@xterm/xterm/css/xterm.css';
 
 function terminalTheme(): ITheme {
@@ -39,7 +40,9 @@ export function AgentTerminal(props: {
   const callback = useRef(props.onSession);
   callback.current = props.onSession;
   const draftKey = `selbstlauf-agent-draft:${props.session.id}`;
-  const [draft, setDraft] = useState(() => sessionStorage.getItem(draftKey) ?? '');
+  const [storedDraft] = useState(() => readStoredString('sessionStorage', draftKey));
+  const [draft, setDraft] = useState(storedDraft.value ?? '');
+  const [draftStorageError, setDraftStorageError] = useState<string | null>(storedDraft.ok ? null : '无法读取已保存的草稿，当前输入仍可发送。');
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,8 +61,10 @@ export function AgentTerminal(props: {
 
   const changeDraft = (value: string) => {
     setDraft(value);
-    if (value.length === 0) sessionStorage.removeItem(draftKey);
-    else sessionStorage.setItem(draftKey, value);
+    const saved = storeString('sessionStorage', draftKey, value.length === 0 ? null : value);
+    setDraftStorageError(saved ? null : value.length === 0
+      ? '无法清除已保存的草稿，刷新后可能再次显示旧内容。'
+      : '草稿未保存，刷新前请自行备份。');
   };
 
   useEffect(() => {
@@ -189,6 +194,7 @@ export function AgentTerminal(props: {
         <button className="button button--primary" type="submit" disabled={!connected || busy || props.session.status !== 'running' || draft.trim().length === 0}>
           {busy ? <RefreshCw size={16} className="spin" /> : <Send size={16} />}{t("发送")}</button>
       </form>
+      {draftStorageError && <p className="agent-error" role="status">{t(draftStorageError)}</p>}
       <p className="agent-help"><CornerDownLeft size={12} /> {t("Ctrl+Enter 发送。多行内容使用智能体的粘贴模式，方向键、Tab、Ctrl+C 可直接在终端使用。")}</p>
     </div>
   );

@@ -5,6 +5,7 @@ import { CirclePlay, RefreshCw, Square, SquareArrowOutUpRight, X } from 'lucide-
 import type { AgentApi, AgentSession } from '../api/agents';
 import { ToolIcon } from '../sidebar/ToolIcon';
 import { AgentTerminal } from './AgentTerminal';
+import { storeString } from './browser-storage';
 import './agents.css';
 
 export function agentStatus(session: AgentSession, locale?: Locale): string {
@@ -57,7 +58,7 @@ export function AgentWindows(props: {
       else await props.api.terminate(session.id);
       const next = await props.api.list();
       setSessions(next);
-      if (remove) { sessionStorage.removeItem(`selbstlauf-agent-draft:${session.id}`); props.onSelect(next[0]?.id ?? null); }
+      if (remove) { storeString('sessionStorage', `selbstlauf-agent-draft:${session.id}`, null); props.onSelect(next[0]?.id ?? null); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(null); }
   };

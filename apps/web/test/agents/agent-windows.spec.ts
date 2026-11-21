@@ -59,6 +59,96 @@ test('opens an accepted launch when remembering the selected window fails', asyn
   }
 });
 
+for (const failure of ['read', 'write', 'clear'] as const) {
+  test(`keeps terminal input usable when draft storage cannot ${failure}`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.addInitScript((failure) => {
+      if (sessionStorage.getItem('draft-storage-recovered') === 'true') return;
+      const method = failure === 'read' ? 'getItem' : failure === 'write' ? 'setItem' : 'removeItem';
+      const descriptor = Object.getOwnPropertyDescriptor(Storage.prototype, method)!;
+      const original = descriptor.value as (this: Storage, key: string, value?: string) => string | null | void;
+      Object.defineProperty(Storage.prototype, method, { ...descriptor, value: function(this: Storage, key: string, value?: string) {
+        if (this === sessionStorage && key.startsWith('selbstlauf-agent-draft:')) {
+          throw new DOMException('draft storage blocked', 'QuotaExceededError');
+        }
+        return original.call(this, key, value);
+      } });
+      (window as unknown as { restoreDraftStorage: () => void }).restoreDraftStorage = () => {
+        Object.defineProperty(Storage.prototype, method, descriptor);
+        sessionStorage.setItem('draft-storage-recovered', 'true');
+      };
+    }, failure);
+    await page.goto('/');
+    let session: AgentSession | undefined;
+    try {
+      const created = page.waitForResponse((response) => response.url().endsWith('/api/agents') && response.request().method() === 'POST')
+        .then(async (response) => { session = await response.json() as AgentSession; });
+      await launch(page, `草稿存储 ${failure}`);
+      await created;
+      const field = page.getByLabel(`发送到 草稿存储 ${failure} 的内容`);
+      const warning = page.getByRole('status').filter({ hasText: /草稿/u });
+      if (failure === 'read') await expect(warning).toContainText('无法读取');
+      const text = `draft-storage-${failure}`;
+      await field.fill(text);
+      await expect(field).toHaveValue(text);
+      if (failure === 'write') await expect(warning).toContainText('未保存');
+      await page.getByRole('button', { name: '发送', exact: true }).click();
+      await expect.poll(() => output(page, session!.id)).toContain(`REPLY ${text}`);
+      await expect(field).toHaveValue('');
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      if (failure === 'clear') await expect(warning).toContainText('无法清除');
+      else await expect(warning).toHaveCount(0);
+
+      await page.evaluate(() => (window as unknown as { restoreDraftStorage: () => void }).restoreDraftStorage());
+      await field.fill('recovered draft');
+      await expect(warning).toHaveCount(0);
+      expect(await page.evaluate((id) => sessionStorage.getItem(`selbstlauf-agent-draft:${id}`), session!.id)).toBe('recovered draft');
+      await page.reload();
+      await expect(field).toHaveValue('recovered draft');
+      await expect.poll(async () => (await output(page, session!.id)).match(new RegExp(`REPLY ${text}`, 'gu'))?.length ?? 0).toBe(1);
+      expect(errors).toEqual([]);
+    } finally {
+      if (session) {
+        const headers = { origin: new URL(page.url()).origin };
+        await page.request.post(`/api/agents/${session.id}/terminate`, { headers });
+        await page.request.delete(`/api/agents/${session.id}`, { headers });
+      }
+    }
+  });
+}
+
+test('selects the remaining window when clearing a closed window draft fails', async ({ page }) => {
+  await page.goto('/');
+  const sessions: AgentSession[] = [];
+  try {
+    const first = await launch(page, '草稿无法清理'); sessions.push(first);
+    await page.getByLabel('发送到 草稿无法清理 的内容').fill('old draft');
+    const second = await launch(page, '保留的窗口'); sessions.push(second);
+    await page.getByRole('tab', { name: first.title, exact: true }).click();
+    await page.getByRole('button', { name: '结束进程', exact: true }).click();
+    await expect(page.getByRole('button', { name: '关闭窗口', exact: true })).toBeEnabled();
+    await page.evaluate((id) => {
+      const original = Storage.prototype.removeItem;
+      Storage.prototype.removeItem = function(key) {
+        if (this === sessionStorage && key === `selbstlauf-agent-draft:${id}`) throw new DOMException('cannot clear draft', 'SecurityError');
+        original.call(this, key);
+      };
+    }, first.id);
+    await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
+    await expect(page.getByRole('tab', { name: first.title, exact: true })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: second.title, exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tabpanel')).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  } finally {
+    for (const session of sessions) {
+      const headers = { origin: new URL(page.url()).origin };
+      await page.request.post(`/api/agents/${session.id}/terminate`, { headers });
+      await page.request.delete(`/api/agents/${session.id}`, { headers });
+    }
+  }
+});
+
 test('real windows deliver Unicode, multiline and keyboard input, retain drafts, replay after reload and open an independent page', async ({ page, context }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));

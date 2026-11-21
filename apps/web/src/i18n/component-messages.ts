@@ -1,6 +1,9 @@
 import type { Translations } from './index';
 // Settings and reusable component messages, maintained with their callers.
 export const componentMessages: Translations = {
+  '无法读取已保存的草稿，当前输入仍可发送。': { zhTW: '無法讀取已儲存的草稿，目前輸入仍可傳送。', en: 'Saved drafts could not be read. You can still type and send input.', ja: '保存済みの下書きを読み取れません。入力と送信は引き続き利用できます。' },
+  '草稿未保存，刷新前请自行备份。': { zhTW: '草稿未儲存，重新整理前請自行備份。', en: 'The draft was not saved. Make a copy before reloading.', ja: '下書きは保存されていません。再読み込みする前にコピーしてください。' },
+  '无法清除已保存的草稿，刷新后可能再次显示旧内容。': { zhTW: '無法清除已儲存的草稿，重新整理後可能再次顯示舊內容。', en: 'The saved draft could not be cleared. Old text may reappear after reloading.', ja: '保存済みの下書きを削除できません。再読み込みすると以前の内容が再表示される可能性があります。' },
   '终端未接受输入，请重试。': { zhTW: '終端未接受輸入，請重試。', en: 'The terminal did not accept the input. Try again.', ja: '端末が入力を受け付けませんでした。再試行してください。' },
   '（桌面应用）': { zhTW: '（桌面應用）', en: ' (desktop app)', ja: '（デスクトップアプリ）' },
   '（编辑器扩展）': { zhTW: '（編輯器擴充套件）', en: ' (editor extension)', ja: '（エディター拡張機能）' },
