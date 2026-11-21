@@ -273,6 +273,11 @@ export type WindowPreviewResult =
      * thing to the UI.
      */
     readonly restoredFromMinimized?: boolean;
+    /**
+     * True only when cleanup confirmed that this preview's window was minimized again.
+     * Optional for older shells; false or absent means minimization was not confirmed.
+     */
+    readonly minimizedAgain?: boolean;
   }
   | { readonly state: 'no-window' }
   | { readonly state: 'minimized' }

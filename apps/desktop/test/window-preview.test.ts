@@ -207,6 +207,8 @@ test('shows a minimized window to capture it, and minimizes it again afterwards'
   assert.equal(shown, 1, 'the window was never shown, so a minimized one can never be previewed');
   assert.equal(minimized, 1, 'the window was left restored, which changes what the user sees');
   assert.equal(result.restoredFromMinimized, true, 'the capture should say it came from a restore');
+  assert.ok('minimizedAgain' in result, 'the capture must report whether cleanup confirmed minimization');
+  assert.equal(result.minimizedAgain, true);
 });
 
 test('passes the restore snapshot through cleanup so user interaction can preserve the restored window', async () => {
@@ -242,8 +244,38 @@ test('passes the restore snapshot through cleanup so user interaction can preser
   assert.equal(result.state, 'captured');
   assert.equal(minimizeCalls, 1, 'cleanup must receive the snapshot needed to detect user interaction');
   assert.equal(minimized, false, 'user interaction must leave the window restored');
-  if (result.state === 'captured') assert.equal(result.restoredFromMinimized, true);
+  if (result.state !== 'captured') return;
+  assert.equal(result.restoredFromMinimized, true);
+  assert.ok('minimizedAgain' in result, 'showing a window does not confirm it was minimized again');
+  assert.equal(result.minimizedAgain, false, 'skipped cleanup must not be reported as a restored minimized state');
 });
+
+const unconfirmedCleanupCases: readonly [string, CaptureDependencies['minimizeAgain']][] = [
+  ['returns false', async () => false],
+  ['throws', async () => { throw new Error('cleanup is unavailable'); }],
+  ['is unavailable', undefined],
+];
+
+for (const [cleanupState, minimizeAgain] of unconfirmedCleanupCases) {
+  test(`keeps the capture without confirming minimization when cleanup ${cleanupState}`, async () => {
+    let enumerated = 0;
+    const deps: CaptureDependencies = {
+      sessions: async () => [session('a', 11)],
+      getSources: async () => ++enumerated === 1 ? [] : [source(11)],
+      showWithoutActivating: async () => ({ wasMinimized: true, foregroundWindow: 99 }),
+      ...(minimizeAgain === undefined ? {} : { minimizeAgain }),
+    };
+
+    const result = await captureSessionWindow(deps, 'a');
+
+    assert.equal(result.state, 'captured');
+    if (result.state !== 'captured') return;
+    assert.match(result.dataUrl, /handle-11/u, 'a cleanup problem must not discard a usable preview');
+    assert.equal(result.restoredFromMinimized, true);
+    assert.ok('minimizedAgain' in result, 'the capture must distinguish showing from confirmed minimization');
+    assert.equal(result.minimizedAgain, false);
+  });
+}
 
 test('does not touch a window that is already capturable', async () => {
   // The common case, and the one that must stay cheap: no restore, no extra enumeration.
@@ -261,6 +293,8 @@ test('does not touch a window that is already capturable', async () => {
   if (result.state !== 'captured') return;
   assert.equal(shown, 0, 'a visible window must not be shown again');
   assert.equal(result.restoredFromMinimized, false);
+  assert.ok('minimizedAgain' in result);
+  assert.equal(result.minimizedAgain, false, 'a window that was not shown must not claim confirmed cleanup');
 });
 
 test('puts the window back even when the capture after showing fails', async () => {

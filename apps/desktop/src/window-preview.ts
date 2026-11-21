@@ -58,6 +58,8 @@ export type PreviewOutcome =
     readonly sharedBy: number;
     /** True when the window had to be shown briefly because it was minimized. */
     readonly restoredFromMinimized: boolean;
+    /** True only when cleanup confirmed that this preview's window was minimized again. */
+    readonly minimizedAgain: boolean;
   }
   | { readonly state: 'no-window' }
   | { readonly state: 'minimized' }
@@ -100,7 +102,7 @@ export interface CaptureDependencies {
    * Absent when the shell cannot do it; the preview then reports `minimized` as before.
    */
   readonly showWithoutActivating?: (handle: number) => Promise<PreviewRestoreToken | null>;
-  /** Minimize only if the foreground window still matches the pre-preview state. */
+  /** Minimize only if the foreground window still matches the pre-preview state; true confirms minimization. */
   readonly minimizeAgain?: (handle: number, restore: PreviewRestoreToken) => Promise<boolean>;
 }
 
@@ -153,18 +155,20 @@ export async function captureSessionWindow(
   }
 
   /**
-   * A minimized window is not enumerated at all, so it is shown briefly, captured, and minimized again.
+   * A minimized window is not enumerated at all, so it is shown briefly, captured, and minimized again when safe.
    *
    * Measured: the window is simply absent from `getSources` while minimized and reappears once shown, and
    * rendering it with `PrintWindow` at its restore size comes back flat because it has no rendered surface.
-   * The window is shown with `SW_SHOWNOACTIVATE` so it never takes focus, and the restore is undone in a
-   * `finally` so a capture that throws still leaves the window as it was found.
+   * The window is shown with `SW_SHOWNOACTIVATE` so it never takes focus. Cleanup runs in a `finally` even
+   * if the capture throws. Only confirmed cleanup can report that the
+   * window was minimized again; a skipped or failed undo must not discard a usable capture.
    *
    * A failure to *show* the window is not an error — the window is reported as minimized, which is what it
    * is. A failure of the capture layer itself is a different thing and is reported as `unsupported` with its
    * reason, because telling the user "it is minimized" would be false and would hide a broken capturer.
    */
   let restored = false;
+  let minimizedAgain = false;
   let captureError: string | null = null;
   if ((source === null || source.thumbnail.isEmpty()) && dependencies.showWithoutActivating !== undefined) {
     let restore: PreviewRestoreToken | null = null;
@@ -184,9 +188,9 @@ export async function captureSessionWindow(
       } finally {
         if (restore.wasMinimized && dependencies.minimizeAgain !== undefined) {
           try {
-            await dependencies.minimizeAgain(handle, restore);
+            minimizedAgain = await dependencies.minimizeAgain(handle, restore) === true;
           } catch {
-            // Nothing further to do; the next measurement reports the real state rather than assuming it.
+            // Keep the capture, but do not claim the window was minimized again without confirmation.
           }
         }
       }
@@ -212,6 +216,7 @@ export async function captureSessionWindow(
     height: size.height,
     sharedBy,
     restoredFromMinimized: restored,
+    minimizedAgain,
   };
 }
 

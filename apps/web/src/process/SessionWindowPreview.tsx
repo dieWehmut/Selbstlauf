@@ -114,9 +114,13 @@ export function SessionWindowPreview(props: {
                 ? t('此窗口内有 {count} 个受监控进程，画面为整个窗口', { count: captured.sharedBy })
                 : t('PID {pid} 所在窗口', { pid: props.session.rootPid })}
               {props.session.host?.windowTitle ? ` · ${props.session.host.windowTitle}` : ''}
-              {/* The window was minimized, so it was shown for a moment to capture it and put straight
-                  back. Saying so explains why it may have blinked, and reassures that its state was kept. */}
-              {captured.restoredFromMinimized === true ? t("（该窗口原本最小化，已临时显示后还原）") : ''}
+              {/* Showing a minimized window explains a possible blink. Only cleanup confirmation says it
+                  was put back; an older shell or skipped cleanup cannot make that guarantee. */}
+              {captured.restoredFromMinimized === true
+                ? captured.minimizedAgain === true
+                  ? t("（该窗口原本最小化，已临时显示后还原）")
+                  : t("（该窗口原本最小化，已临时显示，未确认已恢复最小化）")
+                : ''}
             </p>
           </>
         )}

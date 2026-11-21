@@ -152,14 +152,16 @@ export async function showWindowWithoutActivating(
  * minimized any window that was not minimized, so previewing an ordinary open window whose first capture
  * happened to fail would minimize the window the user was looking at.
  *
- * @returns whether the window is minimized now, or was already left alone.
+ * @returns true if no cleanup was needed, or if the helper confirmed the window is minimized now.
+ * Skipping cleanup because the foreground snapshot is unavailable cannot confirm minimization.
  */
 export async function minimizeWindowAgain(
   handle: number,
   restore: PreviewRestoreToken,
   options: WindowRestoreOptions = {},
 ): Promise<boolean> {
-  if (!restore.wasMinimized || restore.foregroundWindow === null) return true;
+  if (!restore.wasMinimized) return true;
+  if (restore.foregroundWindow === null) return false;
   const state = await invokeRestore(handle, 'minimize', options, true, restore.foregroundWindow);
   return state !== null && state.ok && state.nowMinimized;
 }

@@ -40,3 +40,100 @@ test('the detail page explains that this environment cannot preview windows', as
 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toEqual([]);
 });
+
+for (const wording of [
+  { locale: 'zh-CN', unconfirmed: '未确认已恢复最小化', confirmed: '已临时显示后还原' },
+  { locale: 'zh-TW', unconfirmed: '未確認已重新縮小', confirmed: '已暫時顯示後還原' },
+  { locale: 'en', unconfirmed: 'minimization afterward was not confirmed', confirmed: 'then restored' },
+  { locale: 'ja', unconfirmed: '再度の最小化は確認できませんでした', confirmed: '一時表示して元に戻しました' },
+] as const) {
+  test(`desktop preview reports cleanup confirmation accurately in ${wording.locale}`, async ({ page }, testInfo) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(String(error)));
+    await page.addInitScript((locale) => {
+      const preferences = { closeToTray: true, preferredTerminal: null, locale };
+      const requests: string[] = [];
+      const cleanup: { minimizedAgain?: boolean } = { minimizedAgain: false };
+      (window as unknown as { __previewRequests: string[] }).__previewRequests = requests;
+      (window as unknown as { __previewCleanup: typeof cleanup }).__previewCleanup = cleanup;
+      (window as unknown as { selbstlaufDesktop: unknown }).selbstlaufDesktop = {
+        platform: 'win32',
+        versions: { electron: '44.4.1', chrome: '140.0.0.0' },
+        settings: {
+          get: async () => preferences,
+          onChange: () => () => {},
+        },
+        shell: {
+          setTitleBarOverlay: () => {},
+          windowPreview: async (sessionId: string) => {
+            requests.push(sessionId);
+            return {
+              state: 'captured',
+              dataUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600"><text x="20" y="40">Window preview</text></svg>')}`,
+              width: 960,
+              height: 600,
+              sharedBy: 1,
+              restoredFromMinimized: true,
+              ...(cleanup.minimizedAgain === undefined ? {} : { minimizedAgain: cleanup.minimizedAgain }),
+            };
+          },
+        },
+        onCommand: () => () => {},
+      };
+    }, wording.locale);
+
+    await page.setViewportSize({ width: 1249, height: 704 });
+    await page.goto('/');
+    await expect(page.locator('html')).toHaveAttribute('lang', wording.locale);
+    await page.locator('.sidebar-row__open').first().click();
+
+    const panel = page.locator('.window-preview');
+    const caption = panel.locator('.window-preview__caption');
+    const image = panel.locator('img');
+    const refresh = panel.locator('.window-preview__actions button').first();
+    await expect(image).toBeVisible();
+    await expect(caption).toContainText(wording.unconfirmed);
+    await expect(caption).not.toContainText(wording.confirmed);
+    const originalSource = await image.getAttribute('src');
+
+    const requestCount = () => page.evaluate(() => (
+      window as unknown as { __previewRequests: string[] }
+    ).__previewRequests.length);
+    const initialRequests = await requestCount();
+    await page.evaluate(() => {
+      delete (window as unknown as { __previewCleanup: { minimizedAgain?: boolean } }).__previewCleanup.minimizedAgain;
+    });
+    await refresh.click();
+    await expect.poll(requestCount).toBe(initialRequests + 1);
+    await expect(refresh).toBeEnabled();
+    await expect(caption).toContainText(wording.unconfirmed);
+    await expect(caption).not.toContainText(wording.confirmed);
+    await expect(image).toHaveAttribute('src', originalSource!);
+
+    // The longer explanation must also wrap within the detail page at narrow widths.
+    await page.setViewportSize({ width: 700, height: 704 });
+    await expect(image).toBeVisible();
+    await expect.poll(() => page.evaluate(() => (
+      document.documentElement.scrollWidth - document.documentElement.clientWidth
+    ))).toBeLessThanOrEqual(1);
+    await caption.scrollIntoViewIfNeeded();
+    await expect(caption).toBeInViewport();
+    expect(await caption.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: testInfo.outputPath('unconfirmed-preview-narrow.png'), fullPage: true });
+
+    await page.evaluate(() => {
+      (window as unknown as { __previewCleanup: { minimizedAgain?: boolean } }).__previewCleanup.minimizedAgain = true;
+    });
+    await refresh.click();
+    await expect(caption).toContainText(wording.confirmed);
+    await expect(caption).not.toContainText(wording.unconfirmed);
+    await expect(image).toHaveAttribute('src', originalSource!);
+    const requests = await page.evaluate(() => (
+      window as unknown as { __previewRequests: string[] }
+    ).__previewRequests);
+    expect(requests).toHaveLength(initialRequests + 2);
+    expect(requests[0]).not.toBe('');
+    expect(new Set(requests).size).toBe(1);
+    expect(pageErrors).toEqual([]);
+  });
+}

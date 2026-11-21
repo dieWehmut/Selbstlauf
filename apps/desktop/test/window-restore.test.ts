@@ -63,6 +63,19 @@ test('reports whether the window is minimized again', async () => {
   assert.equal(failed, false, 'a window left restored must not be reported as minimized again');
 });
 
+test('does not confirm minimization when the foreground snapshot is unavailable', async () => {
+  let spawned = 0;
+  const runCommand = async (): Promise<string> => {
+    spawned += 1;
+    return '{"ok":true,"changed":true,"nowMinimized":true}';
+  };
+
+  const result = await minimizeWindowAgain(11, { wasMinimized: true, foregroundWindow: null }, { runCommand });
+
+  assert.equal(spawned, 0, 'cleanup without a foreground snapshot must still leave the window alone');
+  assert.equal(result, false, 'skipping cleanup does not confirm the window is minimized');
+});
+
 test('refuses an invalid handle before spawning anything', async () => {
   let spawned = 0;
   const runCommand = async (): Promise<string> => { spawned += 1; return '{}'; };

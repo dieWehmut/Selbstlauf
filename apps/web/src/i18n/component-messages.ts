@@ -295,6 +295,7 @@ export const componentMessages: Translations = {
   '此窗口内有 {count} 个受监控进程，画面为整个窗口': { zhTW: '此視窗內有 {count} 個受監控程序，畫面為整個視窗', en: 'This window contains {count} monitored processes; the image shows the whole window', ja: 'このウィンドウには監視中のプロセスが {count} 個あり、画像はウィンドウ全体を示しています' },
   'PID {pid} 所在窗口': { zhTW: 'PID {pid} 所在視窗', en: 'Window for PID {pid}', ja: 'PID {pid} のウィンドウ' },
   '（该窗口原本最小化，已临时显示后还原）': { zhTW: '（此視窗原本已縮小，已暫時顯示後還原）', en: ' (temporarily shown from minimized, then restored)', ja: '（最小化されていたため、一時表示して元に戻しました）' },
+  '（该窗口原本最小化，已临时显示，未确认已恢复最小化）': { zhTW: '（此視窗原本已縮小，已暫時顯示，未確認已重新縮小）', en: ' (temporarily shown from minimized; minimization afterward was not confirmed)', ja: '（最小化されていたため一時表示しましたが、再度の最小化は確認できませんでした）' },
   '这一会儿抓不到该窗口的画面：它可能刚刚关闭，或无法被唤到画面上。点“刷新”再试一次。': { zhTW: '目前無法擷取此視窗畫面：它可能剛關閉，或無法顯示。點「重新整理」再試一次。', en: 'The window cannot be captured right now. It may have closed or cannot be brought into view. Click Refresh to try again.', ja: '現在このウィンドウをキャプチャできません。閉じた直後か、表示できない可能性があります。「更新」で再試行してください。' },
   '当前环境不支持窗口预览。': { zhTW: '目前環境不支援視窗預覽。', en: 'Window previews are unavailable in this environment.', ja: 'この環境ではウィンドウのプレビューを利用できません。' },
   '该进程运行在 WSL（{distribution}）里，Windows 没有它的窗口，因此没有可预览的画面。': { zhTW: '此程序在 WSL（{distribution}）中執行，Windows 沒有它的視窗，因此沒有可預覽的畫面。', en: 'This process runs in WSL ({distribution}) and has no Windows window to preview.', ja: 'このプロセスは WSL（{distribution}）で動作しており、プレビューできる Windows ウィンドウがありません。' },

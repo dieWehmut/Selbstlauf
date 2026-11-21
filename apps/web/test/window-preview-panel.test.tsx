@@ -78,15 +78,36 @@ describe('SessionWindowPreview', () => {
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
-  it('says when the picture came from a window that was shown briefly', async () => {
-    // The window may have blinked, so the caption explains why and says its state was put back.
+  it('says the window was put back only after cleanup confirms minimization', async () => {
+    // The window may have blinked, and cleanup explicitly confirmed it was minimized again.
     render(
       <SessionWindowPreview
         session={session()}
-        requestPreview={async () => ({ ...captured, sharedBy: 1, restoredFromMinimized: true })}
+        requestPreview={async () => ({ ...captured, sharedBy: 1, restoredFromMinimized: true, minimizedAgain: true })}
       />,
     );
     expect(await screen.findByText(/原本最小化，已临时显示后还原/u)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['unconfirmed', false],
+    ['missing from an older shell', undefined],
+  ] as const)('keeps the picture without claiming restoration when cleanup is %s', async (_state, minimizedAgain) => {
+    render(
+      <SessionWindowPreview
+        session={session()}
+        requestPreview={async () => ({
+          ...captured,
+          restoredFromMinimized: true,
+          ...(minimizedAgain === undefined ? {} : { minimizedAgain }),
+        })}
+      />,
+    );
+
+    const image = await screen.findByRole('img');
+    expect(image).toHaveAttribute('src', captured.dataUrl);
+    expect(screen.queryByText(/已临时显示后还原/u)).not.toBeInTheDocument();
+    expect(screen.getByText(/未确认已恢复最小化/u)).toBeInTheDocument();
   });
 
   it('says nothing about restoring when the window was already showing', async () => {
