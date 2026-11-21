@@ -7,9 +7,10 @@ const fixture = resolve('../cli/dist/test/fixtures/agent-terminal.js');
 async function launch(page: Page, title: string, tool: 'claude' | 'opencode' = 'claude', args: string[] = [fixture]): Promise<AgentSession> {
   await page.getByRole('button', { name: '启动智能体', exact: true }).click();
   await page.getByLabel('智能体', { exact: true }).selectOption(tool);
-  await page.getByText('启动命令与参数', { exact: true }).click();
+  const argumentsField = page.getByLabel('额外启动参数（每行一个）');
+  if (!await argumentsField.isVisible()) await page.getByText('启动命令与参数', { exact: true }).click();
+  await argumentsField.fill(args.join('\n'));
   await page.getByLabel('启动命令', { exact: true }).fill(process.execPath);
-  await page.getByLabel('额外启动参数（每行一个）').fill(args.join('\n'));
   await page.getByLabel('窗口名称（可选）').fill(title);
   const result = page.waitForResponse((response) => response.url().endsWith('/api/agents') && response.request().method() === 'POST');
   await page.getByRole('button', { name: '启动', exact: true }).click();
@@ -90,6 +91,61 @@ test('answers real TUI startup queries and sends multiline prompts using bracket
     await page.request.delete(`/api/agents/${session.id}`, { headers: { origin: new URL(page.url()).origin } });
   }
 });
+
+for (const failure of ['enter', 'payload', 'reconnect', 'edited-draft'] as const) {
+  test(`retries a rejected terminal ${failure} without repeating acknowledged input`, async ({ page }) => {
+    await page.goto('/');
+    const session = await launch(page, `输入重试 ${failure}`, 'opencode', [resolve('../cli/dist/test/fixtures/agent-terminal-protocol.js')]);
+    try {
+      await expect.poll(() => output(page, session.id)).toContain('QUERY_REPLIED');
+      const accepted: string[] = [];
+      let rejected = false;
+      await page.route(`**/api/agents/${session.id}/input`, async (route) => {
+        const data = (route.request().postDataJSON() as { data: string }).data;
+        const shouldReject = failure === 'payload' ? accepted.length === 1 : data === '\r';
+        if (!rejected && shouldReject) {
+          rejected = true;
+          await route.fulfill({ status: 503, json: { error: 'fixture rejected input before accepting it' } });
+          return;
+        }
+        const response = await route.fetch();
+        // A reconnect replays startup queries; emulator replies are separate from the user's paste.
+        if (response.ok() && !/^\x1b\[\d+;\d+R$/u.test(data)) accepted.push(data);
+        await route.fulfill({ response });
+      });
+
+      // Place a surrogate pair across the first chunk boundary in the large-paste case.
+      const text = failure === 'payload' ? `${'x'.repeat(8185)}🌍${'中文'.repeat(100)}` : '中文第一行\n中文第二行';
+      const field = page.getByLabel(`发送到 输入重试 ${failure} 的内容`);
+      const send = page.getByRole('button', { name: '发送', exact: true });
+      const payload = (value: string) => `\x1b[200~${value.replace(/\n/gu, '\r')}\x1b[201~`;
+      await field.fill(text);
+      await send.click();
+      await expect(page.getByRole('alert')).toHaveText('fixture rejected input before accepting it');
+      await expect(field).toHaveValue(text);
+      expect(rejected).toBe(true);
+      expect(accepted).toHaveLength(1);
+      expect(payload(text).startsWith(accepted.join(''))).toBe(true);
+      expect(await output(page, session.id)).not.toContain('SUBMITTED');
+
+      if (failure === 'reconnect') {
+        await page.getByRole('button', { name: '重新连接', exact: true }).click();
+        await expect(page.getByText('终端已连接', { exact: true })).toBeVisible();
+      }
+      const edited = '新的独立输入';
+      if (failure === 'edited-draft') await field.fill(edited);
+      await send.click();
+      await expect(field).toHaveValue('');
+      expect(accepted.join('')).toBe(`${payload(text)}\r${failure === 'edited-draft' ? `${payload(edited)}\r` : ''}`);
+      await expect.poll(() => output(page, session.id)).toContain(`PASTE ${JSON.stringify(text.replace(/\n/gu, '\r'))}`);
+      await expect.poll(async () => (await output(page, session.id)).match(/SUBMITTED/gu)?.length ?? 0)
+        .toBe(failure === 'edited-draft' ? 2 : 1);
+    } finally {
+      await page.request.post(`/api/agents/${session.id}/terminate`, { headers: { origin: new URL(page.url()).origin } });
+      await page.request.delete(`/api/agents/${session.id}`, { headers: { origin: new URL(page.url()).origin } });
+    }
+  });
+}
 
 test('the monitored detail page writes to a real PTY and then displays that process\'s recorded response', async ({ page }, testInfo) => {
   await page.goto('/');

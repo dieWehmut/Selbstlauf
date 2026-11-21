@@ -1,6 +1,7 @@
 import type { Translations } from './index';
 // Settings and reusable component messages, maintained with their callers.
 export const componentMessages: Translations = {
+  '终端未接受输入，请重试。': { zhTW: '終端未接受輸入，請重試。', en: 'The terminal did not accept the input. Try again.', ja: '端末が入力を受け付けませんでした。再試行してください。' },
   '（桌面应用）': { zhTW: '（桌面應用）', en: ' (desktop app)', ja: '（デスクトップアプリ）' },
   '（编辑器扩展）': { zhTW: '（編輯器擴充套件）', en: ' (editor extension)', ja: '（エディター拡張機能）' },
   '重新检测本机工具': { zhTW: '重新偵測本機工具', en: 'Detect local tools again', ja: 'ローカルツールを再検出' },

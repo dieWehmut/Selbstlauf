@@ -1,10 +1,10 @@
 import { useI18n } from '../i18n';
 import { componentError } from '../i18n/component-errors';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CornerDownLeft, RefreshCw, Send } from 'lucide-react';
 import type { Terminal, ITheme } from '@xterm/xterm';
 import type { AgentApi, AgentSession } from '../api/agents';
-import { TerminalInputQueue } from './terminal-input';
+import { TerminalInputQueue, TerminalSubmitter } from './terminal-input';
 import '@xterm/xterm/css/xterm.css';
 
 function terminalTheme(): ITheme {
@@ -35,6 +35,7 @@ export function AgentTerminal(props: {
   const surface = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const queue = useRef<TerminalInputQueue | null>(null);
+  const pasteCapture = useRef<{ payload: string | null } | null>(null);
   const callback = useRef(props.onSession);
   callback.current = props.onSession;
   const draftKey = `selbstlauf-agent-draft:${props.session.id}`;
@@ -43,6 +44,17 @@ export function AgentTerminal(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
+  // A reconnect replaces the transport and emulator, but the process still owns any accepted prefix.
+  const submitter = useMemo(() => new TerminalSubmitter(() => queue.current, (text) => {
+    const term = terminal.current;
+    if (term === null) throw new Error('终端已关闭。');
+    const capture: { payload: string | null } = { payload: null };
+    pasteCapture.current = capture;
+    try { term.paste(text); }
+    finally { pasteCapture.current = null; }
+    if (capture.payload === null) throw new Error('终端未接受输入，请重试。');
+    return capture.payload;
+  }), [props.api, props.session.id]);
 
   const changeDraft = (value: string) => {
     setDraft(value);
@@ -79,7 +91,9 @@ export function AgentTerminal(props: {
       const report = (cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); };
       const dataListener = term.onData((data) => {
         if (!canInput || status !== 'running') return;
-        void input.send(data).catch(report);
+        const capture = pasteCapture.current;
+        if (capture !== null) capture.payload = (capture.payload ?? '') + data;
+        else void input.send(data).catch(report);
       });
       term.attachCustomKeyEventHandler((event) => !(event.ctrlKey && event.key.toLowerCase() === 'c' && term.hasSelection()));
       element.querySelector('textarea')?.setAttribute('aria-label', terminalInputLabel.current);
@@ -150,11 +164,9 @@ export function AgentTerminal(props: {
     if (!connected || props.session.status !== 'running' || term === null || input === null || busy || draft.trim().length === 0) return;
     setBusy(true);
     setError(null);
-    input.resetFailure();
     try {
-      // xterm applies the process's current bracketed-paste mode, preserving multiline prompts in TUIs.
-      term.paste(draft);
-      await input.send('\r');
+      // Keep xterm's exact paste payload; retrying must not regenerate an accepted prefix or paste twice.
+      await submitter.send(draft);
       changeDraft('');
       term.focus();
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }

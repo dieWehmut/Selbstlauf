@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { TerminalInputQueue } from '../src/agents/terminal-input';
+import { TerminalInputQueue, TerminalSubmitter } from '../src/agents/terminal-input';
 
 describe('terminal input ordering', () => {
   it('serializes keystrokes and sends an Enter after a full multiline paste', async () => {
@@ -43,5 +43,94 @@ describe('terminal input ordering', () => {
     queue.dispose();
     await expect(pending).rejects.toThrow('终端已关闭');
     expect(write).not.toHaveBeenCalled();
+  });
+});
+
+describe('terminal composer retries', () => {
+  const payload = (text: string) => `\x1b[200~${text}\x1b[201~`;
+
+  it('retries a rejected Enter while retaining the original paste payload', async () => {
+    const accepted: string[] = [];
+    let rejected = false;
+    const queue = new TerminalInputQueue(async (data) => {
+      if (data === '\r' && !rejected) { rejected = true; throw new Error('Enter rejected'); }
+      accepted.push(data);
+    });
+    const paste = vi.fn(payload);
+    const submitter = new TerminalSubmitter(() => queue, paste);
+
+    await expect(submitter.send('first')).rejects.toThrow('Enter rejected');
+    await submitter.send('first');
+
+    expect(accepted).toEqual([payload('first'), '\r']);
+    expect(paste).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes after the acknowledged prefix without splitting a Unicode pair', async () => {
+    const accepted: string[] = [];
+    let calls = 0;
+    const queue = new TerminalInputQueue(async (data) => {
+      if (++calls === 2) throw new Error('chunk rejected');
+      accepted.push(data);
+    });
+    const text = `${'x'.repeat(8185)}🌍${'中文'.repeat(100)}`;
+    const paste = vi.fn(payload);
+    const submitter = new TerminalSubmitter(() => queue, paste);
+
+    await expect(submitter.send(text)).rejects.toThrow('chunk rejected');
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].length).toBe(8191);
+    await submitter.send(text);
+
+    expect(accepted.join('')).toBe(`${payload(text)}\r`);
+    expect(accepted[1].startsWith('🌍')).toBe(true);
+    expect(paste).toHaveBeenCalledTimes(1);
+  });
+
+  it('finishes pending input before pasting an edited draft', async () => {
+    const accepted: string[] = [];
+    let rejected = false;
+    const queue = new TerminalInputQueue(async (data) => {
+      if (data === '\r' && !rejected) { rejected = true; throw new Error('Enter rejected'); }
+      accepted.push(data);
+    });
+    const submitter = new TerminalSubmitter(() => queue, payload);
+
+    await expect(submitter.send('first')).rejects.toThrow('Enter rejected');
+    await submitter.send('second');
+
+    expect(accepted).toEqual([payload('first'), '\r', payload('second'), '\r']);
+  });
+
+  it('keeps pending input when a reconnect replaces the queue', async () => {
+    const accepted: string[] = [];
+    let queue: TerminalInputQueue | null = new TerminalInputQueue(async (data) => {
+      if (data === '\r') throw new Error('Enter rejected');
+      accepted.push(data);
+    });
+    const paste = vi.fn(payload);
+    const submitter = new TerminalSubmitter(() => queue, paste);
+
+    await expect(submitter.send('first')).rejects.toThrow('Enter rejected');
+    queue.dispose();
+    queue = null;
+    await expect(submitter.send('first')).rejects.toThrow('终端已关闭');
+    queue = new TerminalInputQueue(async (data) => { accepted.push(data); });
+    await submitter.send('first');
+
+    expect(accepted).toEqual([payload('first'), '\r']);
+    expect(paste).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send Enter when preparing a paste fails and permits an explicit retry', async () => {
+    const write = vi.fn(async () => undefined);
+    const queue = new TerminalInputQueue(write);
+    const prepare = vi.fn(payload).mockImplementationOnce(() => { throw new Error('paste unavailable'); });
+    const submitter = new TerminalSubmitter(() => queue, prepare);
+
+    await expect(submitter.send('first')).rejects.toThrow('paste unavailable');
+    expect(write).not.toHaveBeenCalled();
+    await submitter.send('first');
+    expect(write.mock.calls).toEqual([[payload('first')], ['\r']]);
   });
 });
