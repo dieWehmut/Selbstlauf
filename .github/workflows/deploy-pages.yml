@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify WebUI unit and component behavior
+        run: npm --workspace apps/web test
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
