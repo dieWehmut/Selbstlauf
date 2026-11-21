@@ -149,6 +149,43 @@ test('selects the remaining window when clearing a closed window draft fails', a
   }
 });
 
+test('retains an accepted close through a failed list refresh and recovers afterward', async ({ page }) => {
+  await page.goto('/');
+  const sessions: AgentSession[] = [];
+  try {
+    const first = await launch(page, '已确认关闭'); sessions.push(first);
+    const second = await launch(page, '继续工作的窗口'); sessions.push(second);
+    await page.getByRole('tab', { name: first.title, exact: true }).click();
+    await page.getByRole('button', { name: '结束进程', exact: true }).click();
+    await expect(page.getByRole('button', { name: '关闭窗口', exact: true })).toBeEnabled();
+    await page.route('**/api/agents', async (route) => {
+      if (route.request().method() === 'GET') await route.fulfill({ status: 503, json: { error: 'list refresh unavailable' } });
+      else await route.continue();
+    });
+    await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
+    await expect(page.getByRole('tab', { name: first.title, exact: true })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: second.title, exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('alert')).toHaveText('list refresh unavailable');
+    const list = await (await page.request.get('/api/agents')).json() as { sessions: AgentSession[] };
+    expect(list.sessions.map((entry) => entry.id)).not.toContain(first.id);
+
+    await page.unroute('**/api/agents');
+    const remaining = page.getByLabel(`发送到 ${second.title} 的内容`);
+    await remaining.fill('input-after-close');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect.poll(() => output(page, second.id)).toContain('REPLY input-after-close');
+    // The normal list timer clears the refresh error without recreating the closed window.
+    await expect(page.getByRole('alert')).toHaveCount(0, { timeout: 10000 });
+    await expect(page.getByRole('tab', { name: first.title, exact: true })).toHaveCount(0);
+  } finally {
+    for (const session of sessions) {
+      const headers = { origin: new URL(page.url()).origin };
+      await page.request.post(`/api/agents/${session.id}/terminate`, { headers });
+      await page.request.delete(`/api/agents/${session.id}`, { headers });
+    }
+  }
+});
+
 test('real windows deliver Unicode, multiline and keyboard input, retain drafts, replay after reload and open an independent page', async ({ page, context }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
