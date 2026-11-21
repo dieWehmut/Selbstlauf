@@ -94,6 +94,36 @@ class ImportErrorBoundary extends Component<{ children: ReactNode }, { failed: b
   render() { return this.state.failed ? <div role="alert">Appearance crashed</div> : this.props.children; }
 }
 
+describe('agent navigation with unavailable browser storage', () => {
+  const agents = () => ({ list: vi.fn(async () => []), subscribeSessions: vi.fn(() => () => undefined) }) as unknown as AgentApi;
+
+  it.each(['localStorage', 'sessionStorage'] as const)('renders and navigates when accessing %s throws', async (area) => {
+    const blocked = vi.spyOn(window, area, 'get').mockImplementation(() => { throw new DOMException('storage blocked', 'SecurityError'); });
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      render(<App api={api()} agentsApi={agents()} />);
+      expect(await screen.findByRole('heading', { name: '进程监控' })).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: '智能体窗口' }));
+      expect(await screen.findByText('还没有智能体窗口')).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: '事件' }));
+      expect(await screen.findByRole('heading', { name: '事件记录' })).toBeVisible();
+    } finally { blocked.mockRestore(); diagnostic.mockRestore(); }
+  });
+
+  it.each(['setItem', 'removeItem'] as const)('keeps navigation usable when %s fails', async (method) => {
+    const blocked = vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new DOMException('storage blocked', 'QuotaExceededError'); });
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      render(<App api={api()} agentsApi={agents()} />);
+      expect(await screen.findByRole('heading', { name: '进程监控' })).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: '智能体窗口' }));
+      expect(await screen.findByText('还没有智能体窗口')).toBeVisible();
+      fireEvent.click(screen.getByRole('button', { name: '事件' }));
+      expect(await screen.findByRole('heading', { name: '事件记录' })).toBeVisible();
+    } finally { blocked.mockRestore(); diagnostic.mockRestore(); }
+  });
+});
+
   it('organizes settings into tabs and follows the system theme', async () => {
     render(<App api={api()} />);
     openSettings();

@@ -27,6 +27,38 @@ async function output(page: Page, id: string): Promise<string> {
   return (await response.json()).data;
 }
 
+test('opens an accepted launch when remembering the selected window fails', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) {
+      if (this === localStorage && key === 'selbstlauf-selected-agent') throw new DOMException('quota exceeded', 'QuotaExceededError');
+      original.call(this, key, value);
+    };
+  });
+  await page.goto('/');
+  let session: AgentSession | undefined;
+  try {
+    // Capture the accepted process even if the launcher subsequently fails to navigate to it.
+    const created = page.waitForResponse((response) => response.url().endsWith('/api/agents') && response.request().method() === 'POST')
+      .then(async (response) => { session = await response.json() as AgentSession; });
+    await launch(page, '无法记住选择的窗口');
+    await created;
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByLabel('发送到 无法记住选择的窗口 的内容').fill('storage-independent-input');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await expect.poll(() => output(page, session!.id)).toContain('REPLY storage-independent-input');
+    expect(errors).toEqual([]);
+  } finally {
+    if (session) {
+      const headers = { origin: new URL(page.url()).origin };
+      await page.request.post(`/api/agents/${session.id}/terminate`, { headers });
+      await page.request.delete(`/api/agents/${session.id}`, { headers });
+    }
+  }
+});
+
 test('real windows deliver Unicode, multiline and keyboard input, retain drafts, replay after reload and open an independent page', async ({ page, context }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));

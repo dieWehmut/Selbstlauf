@@ -76,6 +76,7 @@ import { describeAuditDetails } from './timeline/audit-details';
 import { createAgentApi, type AgentApi } from './api/agents';
 import { AgentLauncher } from './agents/AgentLauncher';
 import { AgentWindows } from './agents/AgentWindows';
+import { readStoredString, storeString } from './agents/browser-storage';
 import { AgentInstallationInventory } from './agents/AgentInstallationInventory';
 import {
   AccountSection,
@@ -2227,16 +2228,16 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
   const agentsApi = useMemo(() => suppliedAgentsApi ?? createAgentApi(), [suppliedAgentsApi]);
   const [launcherOpen, setLauncherOpen] = useState(false);
   const requestedAgentId = new URLSearchParams(window.location.search).get('agent');
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(() => requestedAgentId ?? localStorage.getItem('selbstlauf-selected-agent'));
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(() => requestedAgentId ?? readStoredString('localStorage', 'selbstlauf-selected-agent').value);
   const staticDemo = import.meta.env.VITE_STATIC_DEMO === 'true';
   // Read once: the bridge is installed by the preload before the page script
   // runs, so it never appears or disappears during a session.
   const bridge = useMemo(() => desktopBridge(), []);
-  const [page, setPage] = useState<Page>(requestedAgentId !== null || sessionStorage.getItem('selbstlauf-agent-page') === 'true' ? 'agents' : 'overview');
+  const [page, setPage] = useState<Page>(() => requestedAgentId !== null || readStoredString('sessionStorage', 'selbstlauf-agent-page').value === 'true' ? 'agents' : 'overview');
   const [agentWindowsMounted, setAgentWindowsMounted] = useState(requestedAgentId !== null);
   useEffect(() => {
-    if (page === 'agents') { setAgentWindowsMounted(true); sessionStorage.setItem('selbstlauf-agent-page', 'true'); }
-    else sessionStorage.removeItem('selbstlauf-agent-page');
+    if (page === 'agents') setAgentWindowsMounted(true);
+    storeString('sessionStorage', 'selbstlauf-agent-page', page === 'agents' ? 'true' : null);
   }, [page]);
   /**
    * In-app page history for the title bar's back/forward arrows.
@@ -3371,7 +3372,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
           />
         </div>}
 
-        {(page === 'agents' || agentWindowsMounted) && <div className="page-content" hidden={page !== 'agents'}><AgentWindows api={agentsApi} demo={staticDemo} selectedId={selectedAgentId} onSelect={(id) => { setSelectedAgentId(id); if (id === null) localStorage.removeItem('selbstlauf-selected-agent'); else localStorage.setItem('selbstlauf-selected-agent', id); }} onLaunch={() => setLauncherOpen(true)} onOpenWindow={(session) => {
+        {(page === 'agents' || agentWindowsMounted) && <div className="page-content" hidden={page !== 'agents'}><AgentWindows api={agentsApi} demo={staticDemo} selectedId={selectedAgentId} onSelect={(id) => { setSelectedAgentId(id); storeString('localStorage', 'selbstlauf-selected-agent', id); }} onLaunch={() => setLauncherOpen(true)} onOpenWindow={(session) => {
           if (bridge?.shell?.openAgentWindow) { void bridge.shell.openAgentWindow(session.id).catch((error: unknown) => setNotice(error instanceof Error ? error.message : String(error), 'error')); return; }
           const url = new URL(window.location.href);
           url.searchParams.set('agent', session.id);
@@ -3384,7 +3385,7 @@ export default function App({ api: suppliedApi, agentsApi: suppliedAgentsApi }: 
 
       {launcherOpen && <AgentLauncher api={agentsApi} demo={staticDemo} onClose={() => setLauncherOpen(false)} onLaunch={(session) => {
         setSelectedAgentId(session.id);
-        localStorage.setItem('selbstlauf-selected-agent', session.id);
+        storeString('localStorage', 'selbstlauf-selected-agent', session.id);
         setLauncherOpen(false);
         navigate('agents');
       }} onInstall={() => { setLauncherOpen(false); openSettings('account'); }} />}
