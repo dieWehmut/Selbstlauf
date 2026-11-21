@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { AgentCatalog } from '../../src/api/agents';
+import { EnvironmentCheck } from '../../../cli/src/environment/environment-check';
 
 test('the live catalog renders every AgentRouter product with an official icon and usable guides', async ({ page }) => {
   const errors: string[] = [];
@@ -44,6 +45,12 @@ test('a missing CLI opens the actual installation panel', async ({ page }) => {
   const catalog = await (await page.request.get('/api/agents/catalog')).json() as AgentCatalog;
   const missing = catalog.tools.find((tool) => tool.kind === 'cli' && !tool.available && tool.installCommand?.startsWith('npm '));
   test.skip(!missing, 'Every npm CLI is installed on this host.');
+  // This checks navigation to an install action. Version probes can wait on an offline registry.
+  const environment = await new EnvironmentCheck({
+    readInstalled: async () => [],
+    readLatest: async () => new Map(),
+  }).report();
+  await page.route('**/api/environment', (route) => route.fulfill({ json: environment }));
   await page.goto('/');
   await page.getByRole('button', { name: '启动智能体', exact: true }).click();
   await page.getByLabel('智能体', { exact: true }).selectOption(missing!.id);

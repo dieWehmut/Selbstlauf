@@ -41,6 +41,9 @@ jobs:
       - name: Verify responsive WebUI
         run: npm --workspace apps/web run test:browser
 
+      - name: Verify real PTY input and retry behavior
+        run: npm --workspace apps/web run test:agents
+
       - name: Verify production Pages artifact and persistent settings
         run: npm --workspace apps/web run test:pages
 
