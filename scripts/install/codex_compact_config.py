@@ -565,14 +565,19 @@ def locate_line(doc, scope, applied):
 
 
 def remove_header(doc, scope):
-    """Delete a table header plus the blank separator that introduced it."""
+    """Delete a table header plus the blank separator that introduced it.
+
+    apply_capability always inserts exactly one blank line above a table it
+    creates (unless the file was empty), so that blank line belongs to this
+    tool and has to go when the table goes. Never consult the line below the
+    header: a config that puts the next section straight after the provider
+    table has no blank line there, and treating that as "keep the separator"
+    left a stray blank behind, so revert was not byte exact.
+    """
     header_index = scope[0]
     del doc.lines[header_index]
     previous = header_index - 1
-    if previous < 0 or doc.lines[previous].strip():
-        return
-    following = header_index
-    if following >= len(doc.lines) or not doc.lines[following].strip():
+    if previous >= 0 and not doc.lines[previous].strip():
         del doc.lines[previous]
 
 
