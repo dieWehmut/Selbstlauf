@@ -221,6 +221,58 @@ WSL 里的 codex-cli 0.172.0 已按上面这条命令验证过；下面的长会
 跑一次长会话把上下文填到阈值附近，观察是否出现压缩摘要、会话是否继续，即可确认
 Gemini 这类非 GPT 模型也能压缩了。
 
+### 改了配置却还报 remote compaction v2？先重启 app-server daemon
+
+Codex 桌面端与 VS Code 扩展并不直接跑 `codex`，而是连一个长驻进程
+`codex app-server --managed-daemon`。它在**启动时**读取 `config.toml`：改动之后只有
+MCP 相关配置会热重载（日志里的 `mcp_refresh reasons={UserConfigReloaded}`），
+provider 的 `capabilities` 不会重新加载。
+
+所以装好补丁后如果日志里仍然是
+
+```
+Error running remote compact task: Fatal error: remote compaction v2 expected
+exactly one compaction output item, got 0 from 2 output items
+```
+
+说明宿主进程还在用旧配置。重启它即可：
+
+```bash
+codex app-server daemon restart      # 旧进程 shutdown，新进程重新读 config.toml
+codex app-server daemon version      # 确认 status 是 running
+```
+
+判断「到底重启过没有」，直接比进程启动时间和改配置的时间：
+
+```bash
+ps -eo pid,lstart,cmd | grep '[m]anaged-daemon'
+```
+
+CLI（`codex`、`codex exec`）每次都是新进程，不受这个问题影响 —— 这也是为什么
+命令行里试是好的、GUI 里却还在失败。
+
+### 压缩失败怎么定位
+
+诊断信息全在本地，不用猜：
+
+| 位置 | 内容 |
+|---|---|
+| `~/.codex/logs_2.sqlite` 的 `logs` 表 | `thread_id` / `level` / `target` / `feedback_log_body`，按 `thread_id` 过滤即可还原某次 turn 的完整链路 |
+| `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | 会话逐条记录；压缩成功会写入一条 `{"type":"compacted"}` |
+
+典型错误与含义：
+
+- `remote compaction v2 expected exactly one compaction output item` —— 仍在走远程压缩。
+  要么补丁没生效（见上一节），要么当前会话绑定的不是打过补丁的 provider。
+- `run_auto_compact ... Function call output is missing for call id: ...` —— 历史里有被中断的
+  `exec` 调用没有输出（手动中断、子 agent 并发）。`normalize` 会剔除这些悬空调用后继续，
+  属于噪音而不是致命错误；压缩成功后它们随旧历史一起被摘要替换。
+- `hook: PreCompact Failed` —— `codex-context-handoff` 的钩子要写状态文件，在只读沙箱
+  （`-c sandbox_mode="read-only"`）下必然失败，正常会话不会。
+
+判断压缩是否真的发生，看 `rollout` 里 `task_complete` 是否带 `error`，以及最后一条
+`token_count` 的 `last_token_usage.total_tokens` 是否从接近窗口值掉下来 ——
+CLI 打印的 `context compacted` 只是提示，不足以证明。
 ## 直接使用核心脚本
 
 安装脚本只是外壳，核心可以单独跑：
