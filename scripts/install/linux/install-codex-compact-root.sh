@@ -2,7 +2,7 @@
 set -eu
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Codex non-GPT compaction installer (Linux, root or sudo)
+# Codex non-GPT compaction installer (Linux)
 #
 # Codex picks its compaction strategy from the provider name, so a custom
 # provider called "OpenAI" makes it ask the gateway for OpenAI-only remote
@@ -14,7 +14,8 @@ set -eu
 #
 # The edit itself lives in scripts/install/codex_compact_config.py so Windows
 # and Linux cannot drift apart; this script only finds Python 3, fetches that
-# file, and runs it. On top of the config change it installs the
+# file, and runs it. The patch always targets the invoking user's ~/.codex, even
+# when the script is run through sudo (see drop_to_original_user). On top of the config change it installs the
 # codex-context-handoff plugin and turns its desktop popups off, so a handoff
 # document is written before the context is compacted.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -65,6 +66,52 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+drop_to_original_user() {
+  # `curl ... | sudo bash` is how most people run installers, but under sudo
+  # $HOME is /root and CODEX_HOME is stripped from the environment, so the
+  # default path would point at root's Codex instead of the user's. When the
+  # caller did not name a config explicitly, re-run as the user who invoked
+  # sudo, inside a login shell so their PATH (~/.local/bin, nvm, ...) is set.
+  #
+  # SELFRUNNING guards against a loop should the drop-back not change the uid.
+  [ "$(id -u)" = 0 ] || return 0
+  [ -n "${SUDO_USER:-}" ] || return 0
+  [ -n "${SELFRUNNING:-}" ] && return 0
+  [ -z "$CONFIG" ] && [ -z "${CODEX_HOME:-}" ] || {
+    echo "note: --config or CODEX_HOME was given, so root's environment is used as is." >&2
+    return 0
+  }
+  getent passwd "$SUDO_USER" >/dev/null 2>&1 || {
+    echo "error: sudo user '$SUDO_USER' has no passwd entry; cannot continue as them." >&2
+    exit 1
+  }
+
+  # Only a script that exists as a file can be re-run. One that is piped in
+  # (`bash -s`) cannot: bash executes it while still reading stdin, so by the
+  # time this function runs the rest of the file has not arrived yet and no
+  # complete copy exists. The root entry point handles that case by writing
+  # the download to disk first, so only a direct `| sudo bash` of this file
+  # lands here.
+  if [ ! -f "$0" ] || [ -z "${BASH_SOURCE[0]:-}" ]; then
+    cat >&2 <<'ADVICE'
+error: this script was piped into bash and cannot re-run itself as the sudo user.
+
+Run one of these instead, so the script exists as a file:
+
+  curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-compact-root.sh | sudo sh
+  bash scripts/install/linux/install-codex-compact-root.sh          (no sudo)
+  sudo bash scripts/install/linux/install-codex-compact-root.sh --config /home/you/.codex/config.toml
+ADVICE
+    exit 2
+  fi
+  [ -r "$0" ] || { echo "error: cannot read $0" >&2; exit 2; }
+
+  local shell
+  shell=$(getent passwd "$SUDO_USER" | cut -d: -f7)
+  [ -x "$shell" ] || shell=/bin/bash
+  export SELFRUNNING=1
+  exec sudo -u "$SUDO_USER" -- "$shell" -l "$0" "$@"
+}
 find_python() {
   local candidate
   for candidate in python3 python; do
@@ -130,6 +177,8 @@ install_plugin() {
   fi
 }
 
+drop_to_original_user
+
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
 if [ -n "$CONFIG" ]; then
   CONFIG_PATH="$CONFIG"
@@ -153,7 +202,12 @@ CORE="$SCRIPT_DIR/../codex_compact_config.py"
 if [ ! -f "$CORE" ]; then
   CORE=$(mktemp "${TMPDIR:-/tmp}/codex-compact-core.XXXXXX")
   trap 'rm -f "$CORE"' EXIT HUP INT TERM
-  curl -fsSL "$CORE_URL" -o "$CORE"
+  if ! curl -fsSL --connect-timeout 10 --max-time 60 --retry 2 "$CORE_URL" -o "$CORE"; then
+    echo "error: could not download $CORE_URL" >&2
+    echo "Run the installer from a clone instead, which carries the core script:" >&2
+    echo "  git clone https://github.com/dieWehmut/Selbstlauf.git && bash Selbstlauf/install-codex-compact-root.sh" >&2
+    exit 1
+  fi
 fi
 
 EXTRA=()
