@@ -36,7 +36,8 @@ $script:EntryPoints = @(
     'install-codex-windows.ps1',
     'uninstall-codex-windows.ps1',
     'install-opencode-windows.ps1',
-    'uninstall-opencode-windows.ps1'
+    'uninstall-opencode-windows.ps1',
+    'install-codex-compact-windows.ps1'
 )
 
 $script:ExpectedTools = [ordered]@{
