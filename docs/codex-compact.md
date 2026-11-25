@@ -138,7 +138,7 @@ curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-c
 ```
 
 `revert` 只撤销自己写过的那几行：如果某行你后来手工改过，它会被跳过并提示，
-而不是盖上你的修改。没有状态文件时 `revert` 会明确报错，不会误删配置。
+而不是盖上你的修改。没有状态文件时 `revert` 会明确报错，不会误删配置。备份文件与插件注册的 `[marketplaces.*]` 不属于这次补丁，`revert` 不会动它们。
 
 ## 顺带安装的插件（可选）
 
