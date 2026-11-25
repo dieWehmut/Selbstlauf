@@ -303,6 +303,38 @@ class RevertTests(PatcherTestCase):
         self.assert_ok(self.revert())
         self.assertEqual(self.config.read_bytes(), original)
 
+    def test_revert_is_byte_exact_when_the_next_section_has_no_blank_line(self):
+        # Shape of a hand written config: [tui] follows the provider table
+        # with no blank line in between. The separator blank above the table
+        # belongs to this tool, so revert has to take it away again.
+        self.write_config(
+            'model_provider = "OpenAI"\n'
+            'model_context_window = 128000\n'
+            '\n'
+            '[model_providers.OpenAI]\n'
+            'name = "OpenAI"\n'
+            'base_url = "https://gateway.example/v1"\n'
+            'wire_api = "responses"\n'
+            'experimental_bearer_token = "sk-test"#gateway\n'
+            '[tui]\n'
+            'screen_reader_detection_done = true\n'
+        )
+        original = self.config.read_bytes()
+        self.assert_ok(self.apply())
+        self.assertNotEqual(self.config.read_bytes(), original)
+        self.assert_ok(self.revert())
+        self.assertEqual(self.config.read_bytes(), original)
+
+    def test_revert_is_byte_exact_for_a_trailing_table_without_final_newline(self):
+        self.write_config(
+            'model_provider = "OpenAI"\nmodel_context_window = 128000\n\n'
+            '[model_providers.OpenAI]\nname = "OpenAI"\n'
+            'base_url = "https://gateway.example/v1"\nwire_api = "responses"'
+        )
+        original = self.config.read_bytes()
+        self.assert_ok(self.apply())
+        self.assert_ok(self.revert())
+        self.assertEqual(self.config.read_bytes(), original)
     def test_revert_keeps_a_line_the_user_changed_afterwards(self):
         self.write_config(BASIC)
         self.assert_ok(self.apply())
