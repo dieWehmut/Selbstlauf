@@ -69,11 +69,21 @@ irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-co
 ### Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-compact-root.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-compact-root.sh | sh
 ```
 
-Linux 脚本以当前用户身份改 `~/.codex/config.toml`；用 `sudo bash` 运行时会改 root 的
-`~/.codex/config.toml`。要给别的用户装，去掉 `sudo` 后以该用户身份运行即可。
+Linux 脚本改的是**运行它的那个用户**的 `~/.codex/config.toml`，所以普通用户直接 `sh` 即可，
+不需要 `sudo`。
+
+如果你习惯 `curl ... | sudo sh`：脚本会自动识别 `$SUDO_USER`，**以原用户的身份重新运行自己**，
+改的仍然是原用户的 `~/.codex/config.toml`，不会碰 `/root`。但有两个前提：
+
+- 必须通过根入口 `install-codex-compact-root.sh`（它会把下载内容落盘，才能被重新执行）；
+  **不要**把 `scripts/install/linux/install-codex-compact-root.sh` 直接管道给 `sudo bash`，
+  那种方式脚本无法重新执行自己，会直接报错并给出正确命令。
+- 如果你显式传了 `--config PATH`，或用 `sudo env CODEX_HOME=... ` 传了 `CODEX_HOME`，
+  脚本就按你指定的来，不再自动切换用户。
+
 
 ### 网络受限时从本地仓库安装
 
@@ -147,7 +157,7 @@ irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-co
 
 ```bash
 # Linux
-curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-compact-root.sh | sudo bash -s -- --revert
+curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-compact-root.sh | sh -s -- --revert
 ```
 
 `revert` 只撤销自己写过的那几行：如果某行你后来手工改过，它会被跳过并提示，

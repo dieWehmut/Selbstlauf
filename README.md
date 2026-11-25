@@ -210,7 +210,7 @@ irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-co
 
 ```bash
 # Linux
-curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-compact-root.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-compact-root.sh | sh
 ```
 
 撤销用 `-Revert` / `--revert`，只打印改动用 `-DryRun` / `--dry-run`。脚本会先备份
