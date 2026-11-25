@@ -9,3 +9,7 @@
 /apps/web/playwright-report/
 /apps/web/test-results/
 prompt/
+
+# Python bytecode from the installer and its tests
+__pycache__/
+*.pyc
