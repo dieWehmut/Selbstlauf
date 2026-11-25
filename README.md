@@ -153,11 +153,14 @@ Linux 脚本使用工具专用 wrapper；Claude Code 额外通过 `LD_PRELOAD` �
 |-- uninstall-*-windows.ps1     # 兼容入口
 |-- install-*-root.sh           # 兼容入口
 |-- reset-*.sh                  # 兼容入口
+|-- install-codex-compact-*.ps1 # 非 GPT 模型压缩一键安装
+|-- install-codex-compact-*.sh  # 同上（Linux）
 |-- scripts/install/windows/*   # Windows 安装脚本
 |-- scripts/install/linux/*     # Linux 安装脚本
 |-- scripts/uninstall/windows/* # Windows 卸载脚本
 |-- scripts/uninstall/linux/*   # Linux 重置脚本
 |-- scripts/windows/AiCliBypass.ps1
+|-- scripts/install/codex_compact_config.py  # 压缩配置补丁核心
 |-- scripts/continuation/*      # watchdog 生命周期
 |-- scripts/desktop/*           # 安装程序验收与图标生成
 |-- assets/*                    # 图标源图
@@ -189,6 +192,30 @@ unless you changed them after installation.
 > [!WARNING]
 > Full Access disables normal approval and sandbox protections. Use it only in
 > an environment you fully trust.
+
+## Codex 非 GPT 模型压缩
+
+Codex 按 provider 名称决定压缩方式：自定义 provider 的 `name` 写成 `"OpenAI"` 时，
+它会向网关发送 OpenAI 专有的 remote compaction v2 请求，第三方网关返回
+普通 message 项，于是报 `remote compaction v2 expected exactly one compaction output item,
+got 0 from 1 output items`，Gemini、Claude、DeepSeek 这类模型永远压缩不了。
+
+一键安装会把压缩切回本地摘要路径（任何模型都能压缩），并把不可达的自动压缩阀值
+下调到窗口的 90%：
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-compact-windows.ps1 | iex
+```
+
+```bash
+# Linux
+curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-codex-compact-root.sh | sudo bash
+```
+
+撤销用 `-Revert` / `--revert`，只打印改动用 `-DryRun` / `--dry-run`。脚本会先备份
+`config.toml`，改动后校验，失败自动还原。详见
+[Codex 非 GPT 模型压缩文档](docs/codex-compact.md)。
 
 ## Continuation Watchdog
 
