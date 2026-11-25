@@ -190,6 +190,21 @@ state:    applied 2026-01-01T00:00:00Z by .codex-compact-state.json
 - `limit: ... (reachable)` 表示阈值能在硬上限之前触发；
 - 改完 `config.toml` 后要重启 Codex 才生效。
 
+想确认 Codex 真的在读这个键、而不是把未知字段当噪声忽略掉：临时塞一个非法值，Codex
+会拒绝启动，并顺带把合法取值列出来。把 `OpenAI` 换成你自己的 provider 名：
+
+```bash
+codex app-server --print-startup-config \
+  -c 'model_providers.OpenAI.capabilities.remote_compaction="bogus"'
+# -> unknown variant `bogus`, expected `unsupported` or `v2`
+#     in `model_providers.OpenAI.capabilities.remote_compaction`
+```
+
+报错里列出 `unsupported` 与 `v2` 两个合法取值，就说明安装进去的 `unsupported` 是生效的：
+Codex 不是忽略未知键，而是真的按这个值决定走本地压缩。
+
+WSL 里的 codex-cli 0.172.0 已按上面这条命令验证过；下面的长会话观察是行为层面的最终确认。
+
 跑一次长会话把上下文填到阈值附近，观察是否出现压缩摘要、会话是否继续，即可确认
 Gemini 这类非 GPT 模型也能压缩了。
 
