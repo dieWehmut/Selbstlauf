@@ -75,6 +75,19 @@ curl -fsSL https://raw.githubusercontent.com/dieWehmut/Selbstlauf/main/install-c
 Linux 脚本以当前用户身份改 `~/.codex/config.toml`；用 `sudo bash` 运行时会改 root 的
 `~/.codex/config.toml`。要给别的用户装，去掉 `sudo` 后以该用户身份运行即可。
 
+### 网络受限时从本地仓库安装
+
+有些环境（例如 WSL、公司内网）能通 `github.com`、却连不上 `raw.githubusercontent.com`，
+`curl | bash` 会在下载核心脚本时失败。这时先克隆仓库，再直接跑仓库里的脚本：
+
+```bash
+git clone https://github.com/dieWehmut/Selbstlauf.git
+cd Selbstlauf
+bash scripts/install/linux/install-codex-compact-root.sh
+```
+
+脚本优先使用同仓库的 `scripts/install/codex_compact_config.py`，只有找不到它时才回退到
+下载 `raw.githubusercontent.com` 上的副本，所以本地运行不依赖外网。
 ### 参数
 
 | Windows | Linux | 说明 |
